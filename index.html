@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Offline Reader">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>Offline Reader</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:     #000000;
+      --surf:   #1a1a1a;
+      --border: #333;
+      --accent: #FF6B35;
+      --text:   #f0f0f0;
+      --muted:  #888;
+    }
+
+    /* Native scrolling allows Safari to collapse its top and bottom bars automatically */
+    html, body {
+      background-color: #000000;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overscroll-behavior: none;
+      min-height: 100vh;
+    }
+
+    /* ── Upload Screen ── */
+    #upload-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem 1.5rem;
+      gap: 1.5rem;
+      text-align: center;
+      background: #121212;
+    }
+
+    .app-icon {
+      width: 84px; height: 84px;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+      background: var(--bg);
+    }
+    .app-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+    h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.5px; }
+    .subtitle { color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 280px; }
+
+    #drop-zone {
+      width: 100%; max-width: 380px;
+      border: 2px dashed var(--border);
+      border-radius: 20px;
+      padding: 2.5rem 1.5rem;
+      cursor: pointer;
+      transition: all .2s ease;
+      background: rgba(255,255,255,.02);
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(255,107,53,.06);
+    }
+    .drop-icon { font-size: 2.5rem; margin-bottom: .5rem; display: block; }
+
+    .open-btn {
+      width: 100%; max-width: 380px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 14px;
+      padding: 1.1rem;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #file-input { display: none; }
+    .hint { font-size: .74rem; color: var(--muted); }
+
+    /* ── Loading Screen ── */
+    #loading-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 1.2rem;
+      background: #000;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3.5px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-text { color: var(--muted); font-size: .9rem; text-align: center; max-width: 280px; }
+
+    /* ── Reader Screen ── */
+    #reader-screen {
+      display: none;
+      width: 100%;
+      background: #000;
+    }
+
+    /* Fixed Top Header */
+    #reader-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      padding: calc(.5rem + env(safe-area-inset-top, 0px)) .7rem .6rem;
+      background: rgba(10,10,10,.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #reader-header.ui-hidden { transform: translateY(-100%); }
+
+    /* Fixed Bottom Footer for Navigation */
+    #reader-footer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      padding: .6rem .7rem calc(.6rem + env(safe-area-inset-bottom, 0px));
+      background: rgba(10,10,10,.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #reader-footer.ui-hidden { transform: translateY(100%); }
+
+    #comic-title {
+      flex: 1;
+      font-size: .85rem; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── Scrolling Area ── */
+    #reader-pages {
+      width: 100%;
+      background: #000;
+      /* Adds a visual buffer at the top of the canvas to clear the notch entirely */
+      padding-top: calc(env(safe-area-inset-top, 0px) + 2rem);
+    }
+
+    .page-wrapper {
+      width: 100%;
+      max-width: 800px; /* iPad / Desktop constraints */
+      margin: 0 auto;   /* Center on large screens */
+      background: #000;
+      display: block; 
+      position: relative;
+      aspect-ratio: 2 / 3; /* Prevents layout collapse before load */
+    }
+
+    .comic-page {
+      display: block;
+      width: 100%;
+      height: 100%; /* Spans the entire wrapper seamlessly */
+      object-fit: contain; /* Ensures no distortion */
+      margin: 0;
+      padding: 0;
+    }
+    .comic-page.placeholder {
+      background: #080808;
+    }
+
+    .chapter-divider {
+      padding: .8rem 1rem;
+      font-size: .75rem; font-weight: 700;
+      color: var(--muted);
+      background: #0a0a0a;
+      border-bottom: 1px solid #1a1a1a;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    /* Hides elements robustly without layout shifting bugs */
+    .ch-hidden { display: none !important; }
+
+    /* ── Controls ── */
+    .icon-btn {
+      background: none; border: none; color: var(--text);
+      padding: .5rem; border-radius: 10px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .icon-btn:active { background: rgba(255,255,255,0.1); }
+
+    #chapter-nav {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    #chapter-label { font-size: .75rem; color: var(--muted); padding: 0 .2rem; }
+    
+    #mode-toggle {
+      font-size: 1.2rem;
+      font-weight: 700;
+      background: var(--surf); 
+      border: 1px solid var(--border);
+      border-radius: 6px; 
+      padding: 0; 
+      color: var(--muted);
+      width: 64px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #page-indicator { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* ── Auto-scroll ── */
+    #autoscroll-bar {
+      position: fixed;
+      bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      background: rgba(15,15,15,0.65);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 100px;
+      padding: .5rem 1rem;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+    }
+    #autoscroll-bar.ui-hidden { opacity: 0; transform: translateX(-50%) translateY(100px); pointer-events: none; }
+
+    .as-btn {
+      background: none; border: none; color: #fff;
+      font-size: 1.2rem; width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0.9;
+    }
+    .as-btn:active { opacity: 0.5; }
+    #as-playpause { background: var(--accent); border-radius: 50%; font-size: .85rem; width: 34px; height: 34px; opacity: 1;}
+    #as-speed-label { min-width: 2.5rem; text-align: center; font-size: .85rem; font-weight: 700; opacity: 0.9;}
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div id="upload-screen">
+    <div class="app-icon"><img src="icon.svg" alt=""></div>
+    <h1>Offline Reader</h1>
+    <p class="subtitle">Read your archives offline.<br>Private and fast extraction.</p>
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <span class="drop-icon">📂</span>
+      <p style="font-weight:700">Drop files here</p>
+      <p style="font-size: .8rem; color: var(--muted); margin-top: .4rem;">or tap to browse</p>
+    </div>
+    <button class="open-btn" onclick="document.getElementById('file-input').click()">Open Archive</button>
+    <p class="hint">Supports .cbz and .zip</p>
+    <input type="file" id="file-input" accept=".cbz,.zip" multiple>
+  </div>
+
+  <div id="loading-screen">
+    <div class="spinner"></div>
+    <p id="loading-text">Processing archive...</p>
+  </div>
+
+  <div id="reader-screen">
+    <header id="reader-header">
+      <button class="icon-btn" id="close-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <span id="comic-title">Comic</span>
+      
+      <button id="mode-toggle" class="hidden">∞</button>
+      <button class="icon-btn" id="autoscroll-toggle">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
+      </button>
+    </header>
+
+    <div id="reader-pages"></div>
+
+    <footer id="reader-footer">
+      <span id="page-indicator">0/0</span>
+      <div id="chapter-nav" class="hidden">
+        <button class="icon-btn" id="prev-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <span id="chapter-label">1/1</span>
+        <button class="icon-btn" id="next-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      </div>
+    </footer>
+
+    <div id="autoscroll-bar" class="ui-hidden">
+      <button class="as-btn" id="as-slower">−</button>
+      <button class="as-btn" id="as-playpause">
+        <svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
+      </button>
+      <span id="as-speed-label">0</span>
+      <button class="as-btn" id="as-faster">+</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    // --- Service Worker ---
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    // --- State ---
+    let pages = []; // {entry, url, loading, aspectLocked}
+    let chapters = [];
+    let blobUrls = [];
+    let currentPage = 0;
+    let currentChIdx = 0;
+    let chapterMode = false;
+    let autoRunning = false;
+    let speedIdx = 3;
+    let uiHidden = false;
+    let autoscrollEnabled = false; 
+    let maxChapterNum = 0; 
+
+    const SPEED_LEVELS = [0.3, 0.6, 1.0, 1.6, 2.5, 4.0, 6.0, 9.0];
+    const MEMORY_WINDOW = 12;
+    const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+    const ARCHIVE_EXT = /\.(cbz|zip)$/i;
+
+    // --- DOM ---
+    const uploadScreen = document.getElementById('upload-screen');
+    const loadingScreen = document.getElementById('loading-screen');
+    const readerScreen = document.getElementById('reader-screen');
+    const readerPages = document.getElementById('reader-pages');
+    const fileInput = document.getElementById('file-input');
+    const loadingText = document.getElementById('loading-text');
+    const comicTitle = document.getElementById('comic-title');
+    const pageIndicator = document.getElementById('page-indicator');
+    const autoscrollBar = document.getElementById('autoscroll-bar');
+    const readerHeader = document.getElementById('reader-header');
+    const readerFooter = document.getElementById('reader-footer');
+    const chapterNav = document.getElementById('chapter-nav');
+    const modeToggle = document.getElementById('mode-toggle');
+
+    // --- Helpers ---
+    function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
+    function basename(path) { return path.replace(/^.*[\\/]/, ''); }
+    function showScreen(id) {
+      [uploadScreen, loadingScreen, readerScreen].forEach(s => s.style.display = 'none');
+      document.getElementById(id).style.display = id === 'reader-screen' ? 'block' : 'flex';
+    }
+
+    // Smart parsing for clean UI Titles
+    function getComicTitle(files) {
+      if (!files.length) return "Comic";
+      let name = files[0].name.replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
+      // Handle the parent ZIP wrapper name first if it has chapters
+      let mainTitle = name.replace(/\s*(?:-?\s*(?:c|ch|vol|chapter|volume)\.?\s*\d+).*$/i, '').trim();
+      
+      // If it still has a range like "ch.1-ch.9", strip that out
+      mainTitle = mainTitle.replace(/\s*-\s*ch\.\d+.*$/i, '').trim();
+      return mainTitle;
+    }
+
+    // Smart parsing for chapter numbers and clean divider text
+    function extractChapterInfo(filename) {
+      let name = basename(filename).replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
+      
+      let displayNum = null;
+      // Looks for c0009 or ch.9 or chapter 9
+      const numMatch = name.match(/(?:c|ch|chapter|vol|volume)\.?\s*0*(\d+(\.\d+)?)/i);
+      if (numMatch) {
+          displayNum = parseFloat(numMatch[1]);
+      } else {
+          // Fallback, looks for - 009 or [009]
+          const fallbackMatch = name.match(/(?:-\s+|\[)0*(\d+(\.\d+)?)/);
+          if (fallbackMatch) displayNum = parseFloat(fallbackMatch[1]);
+      }
+
+      // Extract the last logical text chunk
+      const parts = name.split(/\s+-\s+/);
+      let cleanName = name;
+      if (parts.length > 1) {
+          cleanName = parts[parts.length - 1].trim();
+      }
+
+      // Cleanup: Removes redundant "Ch.9 " if there is more descriptive text after it like "Episode 9"
+      cleanName = cleanName.replace(/^(?:c|ch|chapter|v|vol|volume)\.?\s*0*\d+(\.\d+)?\s+/i, '');
+
+      // Cleanup: If the remaining name is literally just a raw identifier like "c0009" or "009" or "Ch.9", format it cleanly
+      if (/^(?:c|ch|chapter|v|vol|volume)?\.?\s*0*\d+(\.\d+)?$/i.test(cleanName)) {
+          const extracted = cleanName.match(/\d+(\.\d+)?/)[0];
+          cleanName = `Chapter ${parseFloat(extracted)}`;
+      }
+
+      return { displayNum, cleanName };
+    }
+
+    // --- Archive Processing ---
+    async function extractEntries(zip, fallbackName) {
+      const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
+      const archives = allFiles.filter(f => ARCHIVE_EXT.test(f.name));
+      const images = allFiles.filter(f => IMAGE_EXT.test(f.name));
+
+      if (!archives.length) return images.length ? [{ images, name: fallbackName }] : [];
+
+      const result = [];
+      for (const arch of archives) {
+        loadingText.textContent = `Opening: ${basename(arch.name)}`;
+        try {
+          const inner = await JSZip.loadAsync(await arch.async('arraybuffer'));
+          const imgs = Object.values(inner.files).filter(f => !f.dir && IMAGE_EXT.test(f.name)).sort((a, b) => naturalSort(a.name, b.name));
+          if (imgs.length) result.push({ images: imgs, name: basename(arch.name) }); // Use full basename for parser
+        } catch (e) {}
+      }
+      if (images.length) result.unshift({ images, name: 'Extras' });
+      return result;
+    }
+
+    fileInput.addEventListener('change', async e => {
+      const files = Array.from(e.target.files).filter(f => ARCHIVE_EXT.test(f.name));
+      if (!files.length) return;
+      
+      showScreen('loading-screen');
+      pages = []; chapters = []; blobUrls.forEach(URL.revokeObjectURL); blobUrls = [];
+      readerPages.innerHTML = '';
+      window.scrollTo(0, 0); 
+      maxChapterNum = 0; 
+
+      comicTitle.textContent = getComicTitle(files);
+
+      if (files.length === 1) {
+        const zip = await JSZip.loadAsync(await files[0].arrayBuffer());
+        const groups = await extractEntries(zip, files[0].name);
+        groups.forEach(g => {
+          const start = pages.length;
+          g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
+          const { displayNum, cleanName } = extractChapterInfo(g.name);
+          chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
+        });
+      } else {
+        files.sort((a,b) => naturalSort(a.name, b.name));
+        for (const f of files) {
+          const zip = await JSZip.loadAsync(await f.arrayBuffer());
+          const imgs = Object.values(zip.files).filter(f => !f.dir && IMAGE_EXT.test(f.name)).sort((a,b) => naturalSort(a.name, b.name));
+          if (imgs.length) {
+            const start = pages.length;
+            imgs.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
+            const { displayNum, cleanName } = extractChapterInfo(f.name);
+            chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
+          }
+        }
+      }
+
+      // Find the highest chapter number to set as the denominator
+      const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
+      if (validNums.length > 0) {
+        maxChapterNum = Math.max(...validNums);
+      } else {
+        maxChapterNum = chapters.length;
+      }
+
+      renderPages();
+      showScreen('reader-screen');
+      uiHidden = false;
+      updateUI();
+      resetIdle();
+      setupUI();
+      setupObservers();
+    });
+
+    function renderPages() {
+      const frag = document.createDocumentFragment();
+      chapters.forEach((ch, idx) => {
+        if (chapters.length > 1) {
+          const div = document.createElement('div');
+          div.className = 'chapter-divider';
+          div.textContent = ch.name;
+          frag.appendChild(div);
+        }
+        for (let i = ch.start; i <= ch.end; i++) {
+          const wrap = document.createElement('div');
+          wrap.className = 'page-wrapper';
+          wrap.dataset.index = i;
+          wrap.dataset.chapter = idx;
+          
+          const img = document.createElement('img');
+          img.className = 'comic-page placeholder';
+          pages[i].el = img;
+          pages[i].wrap = wrap;
+          
+          wrap.appendChild(img);
+          frag.appendChild(wrap);
+        }
+      });
+      readerPages.appendChild(frag);
+    }
+
+    async function loadPage(idx) {
+      const p = pages[idx];
+      if (!p || p.url || p.loading) return;
+      p.loading = true;
+      try {
+        const blob = await p.entry.async('blob');
+        p.url = URL.createObjectURL(blob);
+        blobUrls.push(p.url);
+        p.el.src = p.url;
+        p.el.onload = () => {
+          p.el.classList.remove('placeholder');
+          if (!p.aspectLocked) {
+            const nw = p.el.naturalWidth;
+            const nh = p.el.naturalHeight;
+            if (nw && nh) {
+              p.wrap.style.aspectRatio = `${nw} / ${nh}`;
+              p.aspectLocked = true;
+            }
+          }
+        };
+      } catch(e) { p.loading = false; }
+    }
+
+    function unloadDistant() {
+      pages.forEach((p, i) => {
+        if (p.url && Math.abs(i - currentPage) > MEMORY_WINDOW) {
+          URL.revokeObjectURL(p.url);
+          blobUrls = blobUrls.filter(u => u !== p.url);
+          p.url = null; p.loading = false; p.el.src = ''; p.el.classList.add('placeholder');
+        }
+      });
+    }
+
+    // --- Reliable Intersection Observer using viewport ---
+    let visiblePages = new Set();
+    function setupObservers() {
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          const idx = parseInt(e.target.dataset.index);
+          if (e.isIntersecting) {
+            visiblePages.add(idx);
+            for(let i = idx - 2; i <= idx + 4; i++) if(i >= 0 && i < pages.length) loadPage(i);
+          } else {
+            visiblePages.delete(idx);
+          }
+        });
+
+        if (visiblePages.size > 0) {
+          const minVisible = Math.min(...Array.from(visiblePages));
+          if (minVisible !== currentPage) {
+            currentPage = minVisible;
+            updateIndicator();
+            unloadDistant();
+          }
+        }
+      }, { threshold: 0.05 }); 
+      document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
+    }
+
+    // --- UI & Controls ---
+    function setupUI() {
+      const multi = chapters.length > 1;
+      chapterNav.classList.toggle('hidden', !multi);
+      modeToggle.classList.toggle('hidden', !multi);
+      updateIndicator();
+    }
+
+    function updateIndicator() {
+      const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
+      if (chIdx !== -1) currentChIdx = chIdx;
+
+      if (chapterMode) {
+        const ch = chapters[currentChIdx];
+        pageIndicator.textContent = `${currentPage - ch.start + 1} / ${ch.end - ch.start + 1}`;
+      } else {
+        pageIndicator.textContent = `${currentPage + 1} / ${pages.length}`;
+      }
+
+      if (chapters.length > 1) {
+        const currentCh = chapters[currentChIdx];
+        // Display the actual extracted chapter number, falling back to physical index
+        const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1);
+        // Ensure the denominator is at least the highest chapter number found
+        const totalLabel = Math.max(maxChapterNum, chapters.length);
+        document.getElementById('chapter-label').textContent = `${chLabel}/${totalLabel}`;
+      }
+    }
+
+    // --- Mode Toggle ---
+    modeToggle.addEventListener('click', () => {
+      chapterMode = !chapterMode;
+      
+      if (chapterMode) {
+        modeToggle.textContent = 'Chapter';
+        modeToggle.style.fontSize = '0.75rem';
+      } else {
+        modeToggle.textContent = '∞';
+        modeToggle.style.fontSize = '1.2rem';
+      }
+
+      if (chapterMode) {
+        currentChIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
+        if (currentChIdx === -1) currentChIdx = 0;
+        applyChapterMode();
+        window.scrollTo(0, 0);
+        for (let i = chapters[currentChIdx].start; i <= Math.min(chapters[currentChIdx].start + 3, chapters[currentChIdx].end); i++) loadPage(i);
+      } else {
+        applyScrollMode();
+        const el = document.querySelector(`.page-wrapper[data-index="${currentPage}"]`);
+        if (el) el.scrollIntoView();
+      }
+      updateIndicator();
+    });
+
+    function applyChapterMode() {
+      document.querySelectorAll('.page-wrapper').forEach(el => {
+        el.classList.toggle('ch-hidden', parseInt(el.dataset.chapter) !== currentChIdx);
+      });
+      document.querySelectorAll('.chapter-divider').forEach(el => el.classList.add('ch-hidden'));
+    }
+
+    function applyScrollMode() {
+      document.querySelectorAll('.ch-hidden').forEach(el => el.classList.remove('ch-hidden'));
+    }
+
+    function updateUI() {
+      readerHeader.classList.toggle('ui-hidden', uiHidden);
+      readerFooter.classList.toggle('ui-hidden', uiHidden);
+      autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
+    }
+
+    // Auto-scroll explicit toggle
+    document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
+      e.stopPropagation(); 
+      autoscrollEnabled = !autoscrollEnabled;
+      updateUI();
+      resetIdle();
+    });
+
+    // --- Smooth Auto Scroll via Window Scroll ---
+    let lastTime = 0;
+    let idleTimer = null;
+    const playIcon = `<svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>`;
+    const pauseIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+
+    function resetIdle() {
+      clearTimeout(idleTimer);
+      if (!uiHidden) {
+        idleTimer = setTimeout(() => {
+          uiHidden = true;
+          updateUI();
+        }, 2000); // Auto-hides after 2 seconds of no interaction
+      }
+    }
+
+    function autoStep(timestamp) {
+      if (!autoRunning) return;
+      if (!lastTime) lastTime = timestamp;
+      const dt = timestamp - lastTime;
+      lastTime = timestamp;
+      const speed = SPEED_LEVELS[speedIdx] / 16.6; 
+      
+      // Native window scroll
+      window.scrollBy(0, speed * dt);
+      
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) stopAutoScroll();
+      else requestAnimationFrame(autoStep);
+    }
+
+    function startAutoScroll() {
+      autoRunning = true; lastTime = 0;
+      document.getElementById('as-playpause').innerHTML = pauseIcon;
+      
+      // Hide standard UI elements when starting
+      uiHidden = true;
+      updateUI();
+      
+      requestAnimationFrame(autoStep);
+    }
+    function stopAutoScroll() { 
+      autoRunning = false; 
+      document.getElementById('as-playpause').innerHTML = playIcon; 
+      resetIdle(); 
+    }
+
+    [readerHeader, readerFooter, autoscrollBar].forEach(el => {
+      el.addEventListener('touchstart', resetIdle, {passive: true});
+      el.addEventListener('click', resetIdle);
+    });
+
+    document.getElementById('as-playpause').addEventListener('click', () => autoRunning ? stopAutoScroll() : startAutoScroll());
+    
+    document.getElementById('as-faster').addEventListener('click', () => { 
+      if(speedIdx < SPEED_LEVELS.length-1) speedIdx++; 
+      updateSpeedLabel(); 
+      resetIdle(); 
+    });
+    document.getElementById('as-slower').addEventListener('click', () => { 
+      if(speedIdx > 0) speedIdx--; 
+      updateSpeedLabel(); 
+      resetIdle(); 
+    });
+    
+    function updateSpeedLabel() { 
+      const diff = speedIdx - 3;
+      document.getElementById('as-speed-label').textContent = diff > 0 ? '+' + diff : diff.toString(); 
+    }
+
+    readerPages.addEventListener('click', () => {
+      if (autoRunning) { 
+        stopAutoScroll(); 
+        uiHidden = false;
+        updateUI();
+        resetIdle();
+        return;
+      }
+      uiHidden = !uiHidden;
+      updateUI();
+      if (!uiHidden) {
+        resetIdle();
+      } else {
+        clearTimeout(idleTimer);
+      }
+    });
+
+    document.getElementById('close-btn').addEventListener('click', () => { location.reload(); });
+    
+    // --- Navigation ---
+    document.getElementById('next-ch').addEventListener('click', () => {
+      if (currentChIdx < chapters.length - 1) {
+        currentChIdx++;
+        if (chapterMode) {
+          currentPage = chapters[currentChIdx].start;
+          applyChapterMode();
+          window.scrollTo(0, 0);
+          updateIndicator();
+          for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
+        } else {
+          document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`).scrollIntoView();
+        }
+      }
+    });
+
+    document.getElementById('prev-ch').addEventListener('click', () => {
+      if (currentChIdx > 0) {
+        currentChIdx--;
+        if (chapterMode) {
+          currentPage = chapters[currentChIdx].start;
+          applyChapterMode();
+          window.scrollTo(0, 0);
+          updateIndicator();
+          for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
+        } else {
+          document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`).scrollIntoView();
+        }
+      }
+    });
+  </script>
+</body>
+</html>

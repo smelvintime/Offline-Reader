@@ -17,7 +17,7 @@
       --bg:     #0a0a0a; /* Matched to episode banner color */
       --surf:   #1a1a1a;
       --border: #333;
-      --accent: #FF6B35;
+      --accent: #6366f1; /* Modern Electric Indigo */
       --text:   #f0f0f0;
       --muted:  #888;
     }
@@ -44,14 +44,15 @@
       background: var(--bg);
     }
 
-    .app-icon {
-      width: 84px; height: 84px;
-      border-radius: 20px;
-      overflow: hidden;
-      box-shadow: 0 8px 24px rgba(0,0,0,.5);
-      background: #000;
+    .hero-graphic {
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      filter: drop-shadow(0 0 20px rgba(99,102,241,0.3));
     }
-    .app-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
 
     h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.5px; }
     .subtitle { color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 280px; }
@@ -330,7 +331,7 @@
       border-radius: 12px;
     }
     .cs-item:active { background: rgba(255,255,255,0.05); }
-    .cs-item.active { color: var(--accent); font-weight: 700; background: rgba(255,107,53,0.1); border-color: transparent;}
+    .cs-item.active { color: var(--accent); font-weight: 700; background: rgba(99,102,241,0.15); border-color: transparent;}
     .cs-item:last-child { border-bottom: none; }
 
     .hidden { display: none !important; }
@@ -339,7 +340,31 @@
 <body>
 
   <div id="upload-screen">
-    <div class="app-icon"><img src="icon.svg" alt=""></div>
+    <div class="hero-graphic">
+      <svg width="100%" height="48" viewBox="0 0 400 48" fill="var(--accent)">
+        <!-- Center Diamond -->
+        <path d="M200 4 L220 24 L200 44 L180 24 Z" opacity="1"/>
+        <path d="M200 12 L212 24 L200 36 L188 24 Z" fill="var(--bg)"/>
+        <path d="M200 16 L208 24 L200 32 L192 24 Z" opacity="0.8"/>
+        
+        <!-- Flanking Diamonds -->
+        <path d="M140 16 L148 24 L140 32 L132 24 Z" opacity="0.6"/>
+        <path d="M260 16 L268 24 L260 32 L252 24 Z" opacity="0.6"/>
+        
+        <!-- Outer Dots -->
+        <circle cx="90" cy="24" r="2" opacity="0.4"/>
+        <circle cx="310" cy="24" r="2" opacity="0.4"/>
+        
+        <!-- Connecting Trailing Lines -->
+        <rect x="20" y="23.5" width="60" height="1" opacity="0.2"/>
+        <rect x="100" y="23.5" width="22" height="1" opacity="0.3"/>
+        <rect x="156" y="23.5" width="16" height="1" opacity="0.4"/>
+        
+        <rect x="320" y="23.5" width="60" height="1" opacity="0.2"/>
+        <rect x="278" y="23.5" width="22" height="1" opacity="0.3"/>
+        <rect x="228" y="23.5" width="16" height="1" opacity="0.4"/>
+      </svg>
+    </div>
     <h1>Offline Reader</h1>
     <p class="subtitle">Read your archives offline.<br>Private and fast extraction.</p>
     <div id="drop-zone" onclick="document.getElementById('file-input').click()">

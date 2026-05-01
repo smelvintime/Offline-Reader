@@ -1,4 +1,4 @@
-```xml
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <!-- Deep Dark Background matching the app theme -->
   <rect width="512" height="512" fill="#0a0a0a" rx="115"/>
@@ -22,8 +22,5 @@
     <path d="M376 256 L408 288 L440 256 L408 224 Z" opacity="0.5"/>
   </g>
 </svg>
-
-
-```
 
 

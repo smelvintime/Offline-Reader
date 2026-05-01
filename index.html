@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#0a0a0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Offline Reader">
@@ -14,7 +14,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:     #000000;
+      --bg:     #0a0a0a; /* Matched to episode banner color */
       --surf:   #1a1a1a;
       --border: #333;
       --accent: #FF6B35;
@@ -24,7 +24,7 @@
 
     /* Native scrolling allows Safari to collapse its top and bottom bars automatically */
     html, body {
-      background-color: #000000;
+      background-color: var(--bg) !important;
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       overscroll-behavior: none;
@@ -41,7 +41,7 @@
       padding: 2rem 1.5rem;
       gap: 1.5rem;
       text-align: center;
-      background: #121212;
+      background: var(--bg);
     }
 
     .app-icon {
@@ -49,7 +49,7 @@
       border-radius: 20px;
       overflow: hidden;
       box-shadow: 0 8px 24px rgba(0,0,0,.5);
-      background: var(--bg);
+      background: #000;
     }
     .app-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
 
@@ -95,7 +95,7 @@
       justify-content: center;
       min-height: 100vh;
       gap: 1.2rem;
-      background: #000;
+      background: var(--bg);
     }
     .spinner {
       width: 44px; height: 44px;
@@ -111,7 +111,7 @@
     #reader-screen {
       display: none;
       width: 100%;
-      background: #000;
+      background: var(--bg);
     }
 
     /* Fixed Top Header */
@@ -156,9 +156,22 @@
     /* ── Scrolling Area ── */
     #reader-pages {
       width: 100%;
-      background: #000;
-      /* Adds a visual buffer at the top of the canvas to clear the notch entirely */
-      padding-top: calc(env(safe-area-inset-top, 0px) + 2rem);
+      background: var(--bg);
+    }
+
+    .reader-decor {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--muted); /* Reverted to muted gray */
+      padding: 3rem 0;
+    }
+    .reader-top-decor {
+      padding-top: calc(env(safe-area-inset-top, 0px) + 3rem);
+    }
+    .reader-bottom-decor {
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6rem);
     }
 
     .page-wrapper {
@@ -317,7 +330,7 @@
       <button class="as-btn" id="as-playpause">
         <svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
       </button>
-      <span id="as-speed-label">0</span>
+      <span id="as-speed-label">•</span>
       <button class="as-btn" id="as-faster">+</button>
     </div>
   </div>
@@ -347,6 +360,15 @@
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
 
+    const GEOMETRIC_SVG = `
+        <svg width="180" height="16" viewBox="0 0 180 16" fill="currentColor">
+          <path d="M90 0L98 8L90 16L82 8L90 0Z" opacity="0.9"/>
+          <circle cx="60" cy="8" r="2" opacity="0.5"/>
+          <circle cx="120" cy="8" r="2" opacity="0.5"/>
+          <rect x="10" y="7.5" width="30" height="1" opacity="0.3"/>
+          <rect x="140" y="7.5" width="30" height="1" opacity="0.3"/>
+        </svg>`;
+
     // --- DOM ---
     const uploadScreen = document.getElementById('upload-screen');
     const loadingScreen = document.getElementById('loading-screen');
@@ -374,10 +396,7 @@
     function getComicTitle(files) {
       if (!files.length) return "Comic";
       let name = files[0].name.replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
-      // Handle the parent ZIP wrapper name first if it has chapters
       let mainTitle = name.replace(/\s*(?:-?\s*(?:c|ch|vol|chapter|volume)\.?\s*\d+).*$/i, '').trim();
-      
-      // If it still has a range like "ch.1-ch.9", strip that out
       mainTitle = mainTitle.replace(/\s*-\s*ch\.\d+.*$/i, '').trim();
       return mainTitle;
     }
@@ -385,29 +404,23 @@
     // Smart parsing for chapter numbers and clean divider text
     function extractChapterInfo(filename) {
       let name = basename(filename).replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
-      
       let displayNum = null;
-      // Looks for c0009 or ch.9 or chapter 9
       const numMatch = name.match(/(?:c|ch|chapter|vol|volume)\.?\s*0*(\d+(\.\d+)?)/i);
       if (numMatch) {
           displayNum = parseFloat(numMatch[1]);
       } else {
-          // Fallback, looks for - 009 or [009]
           const fallbackMatch = name.match(/(?:-\s+|\[)0*(\d+(\.\d+)?)/);
           if (fallbackMatch) displayNum = parseFloat(fallbackMatch[1]);
       }
 
-      // Extract the last logical text chunk
       const parts = name.split(/\s+-\s+/);
       let cleanName = name;
       if (parts.length > 1) {
           cleanName = parts[parts.length - 1].trim();
       }
 
-      // Cleanup: Removes redundant "Ch.9 " if there is more descriptive text after it like "Episode 9"
       cleanName = cleanName.replace(/^(?:c|ch|chapter|v|vol|volume)\.?\s*0*\d+(\.\d+)?\s+/i, '');
 
-      // Cleanup: If the remaining name is literally just a raw identifier like "c0009" or "009" or "Ch.9", format it cleanly
       if (/^(?:c|ch|chapter|v|vol|volume)?\.?\s*0*\d+(\.\d+)?$/i.test(cleanName)) {
           const extracted = cleanName.match(/\d+(\.\d+)?/)[0];
           cleanName = `Chapter ${parseFloat(extracted)}`;
@@ -430,7 +443,7 @@
         try {
           const inner = await JSZip.loadAsync(await arch.async('arraybuffer'));
           const imgs = Object.values(inner.files).filter(f => !f.dir && IMAGE_EXT.test(f.name)).sort((a, b) => naturalSort(a.name, b.name));
-          if (imgs.length) result.push({ images: imgs, name: basename(arch.name) }); // Use full basename for parser
+          if (imgs.length) result.push({ images: imgs, name: basename(arch.name) });
         } catch (e) {}
       }
       if (images.length) result.unshift({ images, name: 'Extras' });
@@ -472,7 +485,6 @@
         }
       }
 
-      // Find the highest chapter number to set as the denominator
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
       if (validNums.length > 0) {
         maxChapterNum = Math.max(...validNums);
@@ -491,6 +503,13 @@
 
     function renderPages() {
       const frag = document.createDocumentFragment();
+      
+      // Top Geometric Decor
+      const topDecor = document.createElement('div');
+      topDecor.className = 'reader-decor reader-top-decor';
+      topDecor.innerHTML = GEOMETRIC_SVG;
+      frag.appendChild(topDecor);
+
       chapters.forEach((ch, idx) => {
         if (chapters.length > 1) {
           const div = document.createElement('div');
@@ -503,16 +522,21 @@
           wrap.className = 'page-wrapper';
           wrap.dataset.index = i;
           wrap.dataset.chapter = idx;
-          
           const img = document.createElement('img');
           img.className = 'comic-page placeholder';
           pages[i].el = img;
           pages[i].wrap = wrap;
-          
           wrap.appendChild(img);
           frag.appendChild(wrap);
         }
       });
+
+      // Bottom Geometric Decor
+      const botDecor = document.createElement('div');
+      botDecor.className = 'reader-decor reader-bottom-decor';
+      botDecor.innerHTML = GEOMETRIC_SVG;
+      frag.appendChild(botDecor);
+
       readerPages.appendChild(frag);
     }
 
@@ -549,7 +573,6 @@
       });
     }
 
-    // --- Reliable Intersection Observer using viewport ---
     let visiblePages = new Set();
     function setupObservers() {
       const observer = new IntersectionObserver(entries => {
@@ -562,7 +585,6 @@
             visiblePages.delete(idx);
           }
         });
-
         if (visiblePages.size > 0) {
           const minVisible = Math.min(...Array.from(visiblePages));
           if (minVisible !== currentPage) {
@@ -575,7 +597,6 @@
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
     }
 
-    // --- UI & Controls ---
     function setupUI() {
       const multi = chapters.length > 1;
       chapterNav.classList.toggle('hidden', !multi);
@@ -586,28 +607,22 @@
     function updateIndicator() {
       const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
       if (chIdx !== -1) currentChIdx = chIdx;
-
       if (chapterMode) {
         const ch = chapters[currentChIdx];
         pageIndicator.textContent = `${currentPage - ch.start + 1} / ${ch.end - ch.start + 1}`;
       } else {
         pageIndicator.textContent = `${currentPage + 1} / ${pages.length}`;
       }
-
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        // Display the actual extracted chapter number, falling back to physical index
         const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1);
-        // Ensure the denominator is at least the highest chapter number found
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         document.getElementById('chapter-label').textContent = `${chLabel}/${totalLabel}`;
       }
     }
 
-    // --- Mode Toggle ---
     modeToggle.addEventListener('click', () => {
       chapterMode = !chapterMode;
-      
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
@@ -615,7 +630,6 @@
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
       }
-
       if (chapterMode) {
         currentChIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
         if (currentChIdx === -1) currentChIdx = 0;
@@ -635,6 +649,12 @@
         el.classList.toggle('ch-hidden', parseInt(el.dataset.chapter) !== currentChIdx);
       });
       document.querySelectorAll('.chapter-divider').forEach(el => el.classList.add('ch-hidden'));
+      
+      const topDecor = document.querySelector('.reader-top-decor');
+      if (topDecor) topDecor.classList.remove('ch-hidden');
+      
+      const botDecor = document.querySelector('.reader-bottom-decor');
+      if (botDecor) botDecor.classList.remove('ch-hidden');
     }
 
     function applyScrollMode() {
@@ -647,7 +667,6 @@
       autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
     }
 
-    // Auto-scroll explicit toggle
     document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
       e.stopPropagation(); 
       autoscrollEnabled = !autoscrollEnabled;
@@ -655,7 +674,6 @@
       resetIdle();
     });
 
-    // --- Smooth Auto Scroll via Window Scroll ---
     let lastTime = 0;
     let idleTimer = null;
     const playIcon = `<svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>`;
@@ -667,7 +685,7 @@
         idleTimer = setTimeout(() => {
           uiHidden = true;
           updateUI();
-        }, 2000); // Auto-hides after 2 seconds of no interaction
+        }, 2000); 
       }
     }
 
@@ -677,10 +695,7 @@
       const dt = timestamp - lastTime;
       lastTime = timestamp;
       const speed = SPEED_LEVELS[speedIdx] / 16.6; 
-      
-      // Native window scroll
       window.scrollBy(0, speed * dt);
-      
       if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) stopAutoScroll();
       else requestAnimationFrame(autoStep);
     }
@@ -688,11 +703,8 @@
     function startAutoScroll() {
       autoRunning = true; lastTime = 0;
       document.getElementById('as-playpause').innerHTML = pauseIcon;
-      
-      // Hide standard UI elements when starting
       uiHidden = true;
       updateUI();
-      
       requestAnimationFrame(autoStep);
     }
     function stopAutoScroll() { 
@@ -707,42 +719,34 @@
     });
 
     document.getElementById('as-playpause').addEventListener('click', () => autoRunning ? stopAutoScroll() : startAutoScroll());
-    
-    document.getElementById('as-faster').addEventListener('click', () => { 
-      if(speedIdx < SPEED_LEVELS.length-1) speedIdx++; 
-      updateSpeedLabel(); 
-      resetIdle(); 
-    });
-    document.getElementById('as-slower').addEventListener('click', () => { 
-      if(speedIdx > 0) speedIdx--; 
-      updateSpeedLabel(); 
-      resetIdle(); 
-    });
+    document.getElementById('as-faster').addEventListener('click', () => { if(speedIdx < SPEED_LEVELS.length-1) speedIdx++; updateSpeedLabel(); resetIdle(); });
+    document.getElementById('as-slower').addEventListener('click', () => { if(speedIdx > 0) speedIdx--; updateSpeedLabel(); resetIdle(); });
     
     function updateSpeedLabel() { 
       const diff = speedIdx - 3;
-      document.getElementById('as-speed-label').textContent = diff > 0 ? '+' + diff : diff.toString(); 
+      document.getElementById('as-speed-label').textContent = diff === 0 ? '•' : (diff > 0 ? '+' + diff : diff.toString()); 
     }
 
     readerPages.addEventListener('click', () => {
-      if (autoRunning) { 
-        stopAutoScroll(); 
-        uiHidden = false;
-        updateUI();
-        resetIdle();
-        return;
-      }
+      if (autoRunning) { stopAutoScroll(); uiHidden = false; updateUI(); resetIdle(); return; }
       uiHidden = !uiHidden;
       updateUI();
-      if (!uiHidden) {
-        resetIdle();
-      } else {
-        clearTimeout(idleTimer);
-      }
+      if (!uiHidden) resetIdle();
+      else clearTimeout(idleTimer);
     });
 
     document.getElementById('close-btn').addEventListener('click', () => { location.reload(); });
     
+    // Safety check: Pause scrolling if the user switches apps or minimizes
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && autoRunning) {
+        stopAutoScroll();
+        uiHidden = false; // Show UI so user knows where they are when they return
+        updateUI();
+        resetIdle();
+      }
+    });
+
     // --- Navigation ---
     document.getElementById('next-ch').addEventListener('click', () => {
       if (currentChIdx < chapters.length - 1) {
@@ -754,7 +758,8 @@
           updateIndicator();
           for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
         } else {
-          document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`).scrollIntoView();
+          const el = document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`);
+          if (el) el.scrollIntoView();
         }
       }
     });
@@ -769,7 +774,8 @@
           updateIndicator();
           for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
         } else {
-          document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`).scrollIntoView();
+          const el = document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`);
+          if (el) el.scrollIntoView();
         }
       }
     });

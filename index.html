@@ -514,6 +514,7 @@
         if (chapters.length > 1) {
           const div = document.createElement('div');
           div.className = 'chapter-divider';
+          div.dataset.chapter = idx;
           div.textContent = ch.name;
           frag.appendChild(div);
         }
@@ -648,7 +649,9 @@
       document.querySelectorAll('.page-wrapper').forEach(el => {
         el.classList.toggle('ch-hidden', parseInt(el.dataset.chapter) !== currentChIdx);
       });
-      document.querySelectorAll('.chapter-divider').forEach(el => el.classList.add('ch-hidden'));
+      document.querySelectorAll('.chapter-divider').forEach(el => {
+        el.classList.toggle('ch-hidden', parseInt(el.dataset.chapter) !== currentChIdx);
+      });
       
       const topDecor = document.querySelector('.reader-top-decor');
       if (topDecor) topDecor.classList.remove('ch-hidden');

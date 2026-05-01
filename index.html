@@ -164,7 +164,7 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      color: var(--muted); /* Reverted to muted gray */
+      color: var(--muted);
       padding: 3rem 0;
     }
     .reader-top-decor {
@@ -226,9 +226,15 @@
       transform: translateX(-50%);
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.2rem;
     }
-    #chapter-label { font-size: .75rem; color: var(--muted); padding: 0 .2rem; }
+    #chapter-label-btn { 
+      font-size: .8rem; font-weight: 700; padding: .4rem .8rem; 
+      background: rgba(255,255,255,0.05); border-radius: 12px; margin: 0 .2rem;
+      color: var(--muted);
+      transition: background 0.2s;
+    }
+    #chapter-label-btn:active { background: rgba(255,255,255,0.1); }
     
     #mode-toggle {
       font-size: 1.2rem;
@@ -277,6 +283,56 @@
     #as-playpause { background: var(--accent); border-radius: 50%; font-size: .85rem; width: 34px; height: 34px; opacity: 1;}
     #as-speed-label { min-width: 2.5rem; text-align: center; font-size: .85rem; font-weight: 700; opacity: 0.9;}
 
+    /* ── Chapter Selector Modal ── */
+    #cs-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; justify-content: flex-end;
+      transition: opacity 0.3s ease;
+    }
+    #cs-overlay.ui-hidden { opacity: 0; pointer-events: none; }
+    
+    #cs-modal {
+      width: 100%; max-height: 65vh;
+      background: rgba(20,20,20,0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+      display: flex; flex-direction: column;
+      transform: translateY(0);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    #cs-overlay.ui-hidden #cs-modal { transform: translateY(100%); }
+
+    .cs-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 1.2rem 1.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .cs-header h3 { font-size: 1.1rem; margin: 0; font-weight: 700; color: #fff; }
+    #cs-close { 
+      background: rgba(255,255,255,0.1); border: none; color: var(--text); 
+      width: 30px; height: 30px; border-radius: 50%; 
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    #cs-list {
+      overflow-y: auto; padding: 0.5rem;
+      -webkit-overflow-scrolling: touch;
+      flex: 1;
+    }
+    .cs-item {
+      width: 100%; text-align: left; padding: 1rem 1.2rem;
+      background: none; border: none; color: var(--text);
+      font-size: 0.95rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+      cursor: pointer; transition: background 0.2s;
+      border-radius: 12px;
+    }
+    .cs-item:active { background: rgba(255,255,255,0.05); }
+    .cs-item.active { color: var(--accent); font-weight: 700; background: rgba(255,107,53,0.1); border-color: transparent;}
+    .cs-item:last-child { border-bottom: none; }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -320,7 +376,7 @@
       <span id="page-indicator">0/0</span>
       <div id="chapter-nav" class="hidden">
         <button class="icon-btn" id="prev-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <span id="chapter-label">1/1</span>
+        <button class="icon-btn" id="chapter-label-btn">1/1</button>
         <button class="icon-btn" id="next-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       </div>
     </footer>
@@ -332,6 +388,17 @@
       </button>
       <span id="as-speed-label">•</span>
       <button class="as-btn" id="as-faster">+</button>
+    </div>
+
+    <!-- Chapter Selector Modal -->
+    <div id="cs-overlay" class="ui-hidden">
+      <div id="cs-modal">
+        <div class="cs-header">
+          <h3>Select Chapter</h3>
+          <button id="cs-close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+        </div>
+        <div id="cs-list"></div>
+      </div>
     </div>
   </div>
 
@@ -354,6 +421,7 @@
     let uiHidden = false;
     let autoscrollEnabled = false; 
     let maxChapterNum = 0; 
+    let baseChapterOffset = 0;
 
     const SPEED_LEVELS = [0.3, 0.6, 1.0, 1.6, 2.5, 4.0, 6.0, 9.0];
     const MEMORY_WINDOW = 12;
@@ -383,6 +451,10 @@
     const readerFooter = document.getElementById('reader-footer');
     const chapterNav = document.getElementById('chapter-nav');
     const modeToggle = document.getElementById('mode-toggle');
+    const chapterLabelBtn = document.getElementById('chapter-label-btn');
+    const csOverlay = document.getElementById('cs-overlay');
+    const csList = document.getElementById('cs-list');
+    const csClose = document.getElementById('cs-close');
 
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -458,7 +530,8 @@
       pages = []; chapters = []; blobUrls.forEach(URL.revokeObjectURL); blobUrls = [];
       readerPages.innerHTML = '';
       window.scrollTo(0, 0); 
-      maxChapterNum = 0; 
+      maxChapterNum = 0;
+      baseChapterOffset = 0; 
 
       comicTitle.textContent = getComicTitle(files);
 
@@ -488,6 +561,7 @@
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
       if (validNums.length > 0) {
         maxChapterNum = Math.max(...validNums);
+        baseChapterOffset = Math.min(...validNums) - 1;
       } else {
         maxChapterNum = chapters.length;
       }
@@ -616,12 +690,82 @@
       }
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1);
+        const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
         const totalLabel = Math.max(maxChapterNum, chapters.length);
-        document.getElementById('chapter-label').textContent = `${chLabel}/${totalLabel}`;
+        chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
       }
     }
 
+    // --- Jump Logic ---
+    function jumpToChapter(idx) {
+      if (idx < 0 || idx >= chapters.length) return;
+      currentChIdx = idx;
+      if (chapterMode) {
+        currentPage = chapters[currentChIdx].start;
+        applyChapterMode();
+        window.scrollTo(0, 0);
+        updateIndicator();
+        for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
+      } else {
+        const el = document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`);
+        if (el) el.scrollIntoView();
+      }
+    }
+
+    // --- Chapter Selector Modal ---
+    function populateChapterSelector() {
+      csList.innerHTML = '';
+      chapters.forEach((ch, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'cs-item' + (idx === currentChIdx ? ' active' : '');
+        
+        let label = ch.name;
+        // If the name doesn't include "chapter" already, let's prefix it nicely for the menu
+        if (ch.displayNum !== null && !label.toLowerCase().includes('chapter') && !label.toLowerCase().includes('ch.')) {
+          label = `Ch. ${ch.displayNum} - ${label}`;
+        }
+        btn.textContent = label;
+        
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          jumpToChapter(idx);
+          closeChapterSelector();
+        };
+        csList.appendChild(btn);
+      });
+    }
+
+    function openChapterSelector() {
+      populateChapterSelector();
+      csOverlay.classList.remove('ui-hidden');
+      setTimeout(() => {
+        const active = csList.querySelector('.active');
+        if (active) active.scrollIntoView({ block: 'center' });
+      }, 50);
+    }
+
+    function closeChapterSelector() {
+      csOverlay.classList.add('ui-hidden');
+      resetIdle(); // Keep UI visible momentarily after closing
+    }
+
+    chapterLabelBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent UI toggle
+      openChapterSelector();
+    });
+
+    csClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeChapterSelector();
+    });
+
+    csOverlay.addEventListener('click', (e) => {
+      if (e.target === csOverlay) {
+        closeChapterSelector();
+      }
+    });
+
+    // --- Mode Toggle ---
     modeToggle.addEventListener('click', () => {
       chapterMode = !chapterMode;
       if (chapterMode) {
@@ -631,17 +775,7 @@
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
       }
-      if (chapterMode) {
-        currentChIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
-        if (currentChIdx === -1) currentChIdx = 0;
-        applyChapterMode();
-        window.scrollTo(0, 0);
-        for (let i = chapters[currentChIdx].start; i <= Math.min(chapters[currentChIdx].start + 3, chapters[currentChIdx].end); i++) loadPage(i);
-      } else {
-        applyScrollMode();
-        const el = document.querySelector(`.page-wrapper[data-index="${currentPage}"]`);
-        if (el) el.scrollIntoView();
-      }
+      jumpToChapter(currentChIdx); // Re-jump to update rendering
       updateIndicator();
     });
 
@@ -677,6 +811,7 @@
       resetIdle();
     });
 
+    // --- Smooth Auto Scroll via Window Scroll ---
     let lastTime = 0;
     let idleTimer = null;
     const playIcon = `<svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>`;
@@ -751,36 +886,16 @@
     });
 
     // --- Navigation ---
-    document.getElementById('next-ch').addEventListener('click', () => {
-      if (currentChIdx < chapters.length - 1) {
-        currentChIdx++;
-        if (chapterMode) {
-          currentPage = chapters[currentChIdx].start;
-          applyChapterMode();
-          window.scrollTo(0, 0);
-          updateIndicator();
-          for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
-        } else {
-          const el = document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`);
-          if (el) el.scrollIntoView();
-        }
-      }
+    document.getElementById('next-ch').addEventListener('click', (e) => {
+      e.stopPropagation();
+      jumpToChapter(currentChIdx + 1);
+      resetIdle();
     });
 
-    document.getElementById('prev-ch').addEventListener('click', () => {
-      if (currentChIdx > 0) {
-        currentChIdx--;
-        if (chapterMode) {
-          currentPage = chapters[currentChIdx].start;
-          applyChapterMode();
-          window.scrollTo(0, 0);
-          updateIndicator();
-          for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
-        } else {
-          const el = document.querySelector(`.page-wrapper[data-index="${chapters[currentChIdx].start}"]`);
-          if (el) el.scrollIntoView();
-        }
-      }
+    document.getElementById('prev-ch').addEventListener('click', (e) => {
+      e.stopPropagation();
+      jumpToChapter(currentChIdx - 1);
+      resetIdle();
     });
   </script>
 </body>

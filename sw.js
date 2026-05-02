@@ -1,5 +1,5 @@
 // 🚨 Updated version to v7 to ensure the new Flexbox gaps fix applies immediately
-const CACHE_NAME = 'offline-reader-v7'; 
+const CACHE_NAME = 'offline-reader-v7.1'; 
 
 const SHELL_ASSETS = [
   './',

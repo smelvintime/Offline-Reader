@@ -28,6 +28,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       overscroll-behavior: none;
       min-height: 100vh;
+      line-height: 0; /* Prevents text-based spacing gaps */
     }
 
     /* ── Upload Screen ── */
@@ -41,6 +42,7 @@
       gap: 2rem;
       text-align: center;
       background: var(--bg);
+      line-height: normal;
     }
 
     .hero-graphic {
@@ -95,6 +97,7 @@
       min-height: 100vh;
       gap: 1.2rem;
       background: var(--bg);
+      line-height: normal;
     }
     .spinner {
       width: 44px; height: 44px;
@@ -126,6 +129,7 @@
       -webkit-backdrop-filter: blur(24px) saturate(150%);
       border-bottom: 1px solid rgba(255,255,255,0.06);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      line-height: normal;
     }
     #reader-header.ui-hidden { transform: translateY(-100%); }
 
@@ -141,6 +145,7 @@
       -webkit-backdrop-filter: blur(24px) saturate(150%);
       border-top: 1px solid rgba(255,255,255,0.06);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      line-height: normal;
     }
     #reader-footer.ui-hidden { transform: translateY(100%); }
 
@@ -151,13 +156,24 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     }
 
+    /* Seamless Flex Container */
     #reader-pages {
       width: 100%;
       background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
     #reader-pages.mode-chapter .chapter-container:not(.active) {
       display: none !important;
+    }
+
+    .chapter-container {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
     .reader-decor {
@@ -178,13 +194,15 @@
     .page-wrapper {
       width: 100%;
       max-width: 800px;
-      margin: 0 auto;
+      margin: 0;
+      padding: 0;
       background: #000;
       display: block; 
       position: relative;
       aspect-ratio: 2 / 3;
+      /* Virtualization prevents CPU crash on 11k images */
       content-visibility: auto;
-      contain-intrinsic-size: auto 800px;
+      contain-intrinsic-size: auto 1000px;
     }
 
     .comic-page {
@@ -194,13 +212,14 @@
       object-fit: contain;
       margin: 0;
       padding: 0;
+      border: none;
     }
     .comic-page.placeholder {
       background: #080808;
     }
 
     .chapter-divider {
-      padding: .8rem 1rem;
+      padding: 1.5rem 1rem;
       font-size: .75rem; font-weight: 700;
       color: var(--muted);
       background: #0a0a0a;
@@ -208,8 +227,9 @@
       text-transform: uppercase;
       letter-spacing: 1px;
       text-align: center;
+      width: 100%;
       max-width: 800px;
-      margin: 0 auto;
+      line-height: normal;
     }
 
     .icon-btn {
@@ -262,6 +282,7 @@
       padding: .5rem 1rem;
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+      line-height: normal;
     }
     #autoscroll-bar.ui-hidden { opacity: 0; transform: translateX(-50%) translateY(100px); pointer-events: none; }
 
@@ -280,6 +301,7 @@
       background: rgba(0,0,0,0.5);
       display: flex; flex-direction: column; justify-content: flex-end;
       transition: opacity 0.3s ease;
+      line-height: normal;
     }
     #cs-overlay.ui-hidden { opacity: 0; pointer-events: none; }
     
@@ -421,12 +443,13 @@
     const JUMP_DURATION = 120;
     const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5]; 
     const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
-    const MEMORY_WINDOW = 12;
+    
+    // Memory Management - Massive windows for 11k images
+    const MEMORY_WINDOW = 30; 
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
     const GEOMETRIC_SVG = `<svg width="180" height="16" viewBox="0 0 180 16" fill="currentColor"><path d="M90 0L98 8L90 16L82 8L90 0Z" opacity="0.9"/><circle cx="60" cy="8" r="2" opacity="0.5"/><circle cx="120" cy="8" r="2" opacity="0.5"/><rect x="10" y="7.5" width="30" height="1" opacity="0.3"/><rect x="140" y="7.5" width="30" height="1" opacity="0.3"/></svg>`;
 
-    // --- DOM Cache ---
     const uploadScreen = document.getElementById('upload-screen'), loadingScreen = document.getElementById('loading-screen'), readerScreen = document.getElementById('reader-screen'), readerPages = document.getElementById('reader-pages'), fileInput = document.getElementById('file-input'), loadingText = document.getElementById('loading-text'), comicTitle = document.getElementById('comic-title'), pageIndicator = document.getElementById('page-indicator'), autoscrollBar = document.getElementById('autoscroll-bar'), readerHeader = document.getElementById('reader-header'), readerFooter = document.getElementById('reader-footer'), chapterNav = document.getElementById('chapter-nav'), modeToggle = document.getElementById('mode-toggle'), chapterLabelBtn = document.getElementById('chapter-label-btn'), csOverlay = document.getElementById('cs-overlay'), csList = document.getElementById('cs-list'), csClose = document.getElementById('cs-close');
 
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -548,7 +571,7 @@
     let visiblePages = new Set(), scrollDebounce = null; 
     function setupObservers() {
       const observer = new IntersectionObserver(entries => {
-        if (isTransitioning) return; // Mute while jumping
+        if (isTransitioning) return;
         entries.forEach(e => {
           const idx = parseInt(e.target.dataset.index);
           if (e.isIntersecting) visiblePages.add(idx); else visiblePages.delete(idx);
@@ -557,13 +580,13 @@
           const min = Math.min(...Array.from(visiblePages));
           if (min !== currentPage) { currentPage = min; updateIndicator(); }
           clearTimeout(scrollDebounce);
-          // FAST LOADING FIX: 50ms is highly responsive, look-ahead 10 pages for buttery flow
+          // High-responsiveness loading with 20 page look-ahead
           scrollDebounce = setTimeout(() => {
-            for(let i = currentPage - 2; i <= currentPage + 10; i++) if(i >= 0 && i < pages.length) loadPage(i);
+            for(let i = currentPage - 2; i <= currentPage + 20; i++) if(i >= 0 && i < pages.length) loadPage(i);
             unloadDistant();
           }, 50); 
         }
-      }, { threshold: 0.02 }); 
+      }, { threshold: 0.01 }); 
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
     }
 
@@ -598,7 +621,6 @@
       clearTimeout(jumpDebounce);
       jumpDebounce = setTimeout(() => {
         clearTimeout(scrollDebounce); visiblePages.clear(); 
-        // CRASH FIX: Ensure CSS state is absolute before scroll
         if (chapterMode) {
           readerPages.classList.add('mode-chapter');
           document.querySelectorAll('.chapter-container').forEach(el => el.classList.toggle('active', parseInt(el.dataset.chapterIndex) === currentChIdx));
@@ -609,7 +631,7 @@
           const target = document.querySelector(`.chapter-container[data-chapter-index="${currentChIdx}"]`);
           if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
         }
-        for (let i = currentPage; i <= Math.min(currentPage + 5, pages.length - 1); i++) loadPage(i);
+        for (let i = currentPage; i <= Math.min(currentPage + 10, pages.length - 1); i++) loadPage(i);
         unloadDistant(); 
         isTransitioning = false;
       }, 100); 

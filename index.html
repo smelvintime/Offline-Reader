@@ -55,7 +55,6 @@
     }
 
     h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.5px; }
-    .subtitle { color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 280px; }
 
     #mobile-upload-btn {
       width: 100%; max-width: 340px;
@@ -242,7 +241,6 @@
     #chapter-label-btn:active { background: rgba(255,255,255,0.15); }
     
     #mode-toggle {
-      font-size: 1.2rem;
       font-weight: 700;
       background: var(--surf); 
       border: 1px solid var(--border);
@@ -371,7 +369,6 @@
       </svg>
     </div>
     <h1>Offline Reader</h1>
-    <p class="subtitle">Read your archives offline.<br>Private and fast extraction.</p>
     
     <button id="mobile-upload-btn" onclick="document.getElementById('file-input').click()">
       <div class="btn-icon">
@@ -402,10 +399,7 @@
       </button>
       <span id="comic-title">Comic</span>
       
-      <button id="mode-toggle" class="hidden">∞</button>
-      <button class="icon-btn" id="autoscroll-toggle">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
-      </button>
+      <button id="mode-toggle" class="hidden" style="font-size: 0.75rem;">Chapter</button>
     </header>
 
     <div id="reader-pages"></div>
@@ -417,6 +411,9 @@
         <button class="icon-btn" id="chapter-label-btn">1/1</button>
         <button class="icon-btn" id="next-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       </div>
+      <button class="icon-btn" id="autoscroll-toggle" style="margin-left: auto;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
+      </button>
     </footer>
 
     <div id="autoscroll-bar" class="ui-hidden">
@@ -456,7 +453,7 @@
     let blobUrls = [];
     let currentPage = 0;
     let currentChIdx = 0;
-    let chapterMode = false;
+    let chapterMode = true;
     let autoRunning = false;
     let speedIdx = 3;
     let uiHidden = false;
@@ -623,6 +620,12 @@
       updateUI();
       resetIdle();
       setupUI();
+
+      // Force chapter lock dependency on load
+      if (chapterMode && chapters.length > 0) {
+        jumpToChapter(0);
+      }
+
       setupObservers();
     });
 
@@ -825,6 +828,7 @@
       } else {
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
+        applyScrollMode();
       }
       jumpToChapter(currentChIdx); // Re-jump to update rendering
       updateIndicator();

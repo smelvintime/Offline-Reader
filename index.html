@@ -276,6 +276,14 @@
     }
     #autoscroll-bar.ui-hidden { opacity: 0; transform: translateX(-50%) translateY(100px); pointer-events: none; }
 
+    .as-divider {
+      width: 1px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 0 0.1rem;
+      border-radius: 1px;
+    }
+
     .as-btn {
       background: none; border: none; color: #fff;
       font-size: 1.2rem; width: 30px; height: 30px;
@@ -283,8 +291,33 @@
       opacity: 0.9;
     }
     .as-btn:active { opacity: 0.5; }
+    
+    #as-mode-toggle {
+      width: 34px; height: 34px;
+      opacity: 1;
+      border-radius: 50%;
+      color: var(--accent);
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      transition: all 0.2s;
+    }
+
     #as-playpause { background: var(--accent); border-radius: 50%; font-size: .85rem; width: 34px; height: 34px; opacity: 1;}
-    #as-speed-label { min-width: 2.5rem; text-align: center; font-size: .85rem; font-weight: 700; opacity: 0.9;}
+    
+    #as-speed-label { 
+      min-width: 3.2rem; 
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .85rem; 
+      font-weight: 700; 
+      color: #fff;
+      background: rgba(0, 0, 0, 0.5); 
+      border-radius: 14px; 
+      border: 1px solid rgba(255,255,255,0.05);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+    }
 
     /* ── Chapter Selector Modal ── */
     #cs-overlay {
@@ -420,6 +453,7 @@
       <button class="as-btn" id="as-mode-toggle">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
       </button>
+      <div class="as-divider"></div>
       <button class="as-btn" id="as-slower">−</button>
       <button class="as-btn" id="as-playpause">
         <svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
@@ -976,7 +1010,20 @@
     document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
       scrollMode = scrollMode === 'smooth' ? 'jump' : 'smooth';
-      document.getElementById('as-mode-toggle').innerHTML = scrollMode === 'smooth' ? smoothIcon : jumpIcon;
+      
+      const toggleBtn = document.getElementById('as-mode-toggle');
+      toggleBtn.innerHTML = scrollMode === 'smooth' ? smoothIcon : jumpIcon;
+      
+      if (scrollMode === 'smooth') {
+         toggleBtn.style.color = 'var(--accent)';
+         toggleBtn.style.background = 'rgba(99,102,241,0.15)';
+         toggleBtn.style.borderColor = 'rgba(99,102,241,0.3)';
+      } else {
+         toggleBtn.style.color = '#10b981'; // Emerald Green
+         toggleBtn.style.background = 'rgba(16, 185, 129, 0.15)';
+         toggleBtn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+      }
+
       isJumping = false;
       lastTime = 0; // reset loop timer
       updateSpeedLabel();
@@ -1010,15 +1057,29 @@
     function updateSpeedLabel() { 
       if (scrollMode === 'smooth') {
         const diff = speedIdx - 3;
-        let label = '•';
-        if (diff === -3) label = '≡';
-        else if (diff === -2) label = '=';
-        else if (diff === -1) label = '-';
-        else if (diff === 1) label = 'I';
-        else if (diff === 2) label = 'II';
-        else if (diff === 3) label = 'III';
-        else if (diff === 4) label = 'IV';
-        document.getElementById('as-speed-label').textContent = label;
+        let label = '';
+        if (diff === 0) {
+          label = '•';
+        } else if (diff === 4) {
+          label = 'IV';
+        } else {
+          const isNeg = diff < 0;
+          const count = Math.abs(diff);
+          let lines = '';
+          const spacing = 5;
+          const start = 12 - ((count - 1) * spacing / 2);
+
+          for (let i = 0; i < count; i++) {
+            const pos = start + (i * spacing);
+            if (isNeg) {
+              lines += `<line x1="7" y1="${pos}" x2="17" y2="${pos}" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />`;
+            } else {
+              lines += `<line x1="${pos}" y1="7" x2="${pos}" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />`;
+            }
+          }
+          label = `<svg width="24" height="24" viewBox="0 0 24 24" style="display:block;">${lines}</svg>`;
+        }
+        document.getElementById('as-speed-label').innerHTML = label;
       } else {
         document.getElementById('as-speed-label').textContent = JUMP_LEVELS[jumpIntervalIdx] + 's';
       }

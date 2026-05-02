@@ -259,8 +259,7 @@
     #autoscroll-bar {
       position: fixed;
       bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
-      left: 50%;
-      transform: translateX(-50%);
+      right: 1rem;
       z-index: 200;
       display: flex;
       align-items: center;
@@ -274,7 +273,7 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
     }
-    #autoscroll-bar.ui-hidden { opacity: 0; transform: translateX(-50%) translateY(100px); pointer-events: none; }
+    #autoscroll-bar.ui-hidden { opacity: 0; transform: translateY(100px); pointer-events: none; }
 
     .as-btn {
       background: none; border: none; color: #fff;
@@ -583,11 +582,11 @@
 
       comicTitle.textContent = getComicTitle(files);
 
-      // Sort all files naturally first
+      // Uniformly route all selections (single or multiple) through the extractor
       files.sort((a,b) => naturalSort(a.name, b.name));
 
-      // Process all files through the same deep extraction logic
       for (const f of files) {
+        loadingText.textContent = `Reading: ${f.name}`;
         try {
           const zip = await JSZip.loadAsync(await f.arrayBuffer());
           const groups = await extractEntries(zip, f.name);
@@ -699,24 +698,36 @@
     }
 
     let visiblePages = new Set();
+    let scrollDebounce = null; // Added to prevent rapid-scroll crashing
+
     function setupObservers() {
       const observer = new IntersectionObserver(entries => {
         entries.forEach(e => {
           const idx = parseInt(e.target.dataset.index);
           if (e.isIntersecting) {
             visiblePages.add(idx);
-            for(let i = idx - 2; i <= idx + 4; i++) if(i >= 0 && i < pages.length) loadPage(i);
           } else {
             visiblePages.delete(idx);
           }
         });
+
         if (visiblePages.size > 0) {
           const minVisible = Math.min(...Array.from(visiblePages));
           if (minVisible !== currentPage) {
             currentPage = minVisible;
             updateIndicator();
-            unloadDistant();
           }
+          
+          // --- FAST SCROLL CRASH FIX ---
+          // Wait 100ms before extracting files. If you are scrolling through 11,000 pages 
+          // super fast, this ignores the middle pages and only extracts where you actually stop.
+          clearTimeout(scrollDebounce);
+          scrollDebounce = setTimeout(() => {
+            for(let i = currentPage - 2; i <= currentPage + 4; i++) {
+              if(i >= 0 && i < pages.length) loadPage(i);
+            }
+            unloadDistant();
+          }, 100);
         }
       }, { threshold: 0.05 }); 
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
@@ -726,6 +737,18 @@
       const multi = chapters.length > 1;
       chapterNav.classList.toggle('hidden', !multi);
       modeToggle.classList.toggle('hidden', !multi);
+
+      // Setup the button correctly based on the new default
+      if (chapterMode) {
+        modeToggle.textContent = 'Chapter';
+        modeToggle.style.fontSize = '0.75rem';
+        applyChapterMode();
+      } else {
+        modeToggle.textContent = '∞';
+        modeToggle.style.fontSize = '1.2rem';
+        applyScrollMode();
+      }
+
       updateIndicator();
     }
 
@@ -821,6 +844,7 @@
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
+        applyChapterMode();
       } else {
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';

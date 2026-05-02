@@ -88,7 +88,7 @@
     .btn-sub { font-size: 0.85rem; color: var(--muted); }
 
     #file-input { display: none; }
-    .hint { font-size: .74rem; color: var(--muted); }
+    .hint { font-size: .74rem; color: var(--muted); margin-top: 1rem; }
 
     /* ── Loading Screen ── */
     #loading-screen {
@@ -130,7 +130,7 @@
       backdrop-filter: blur(24px) saturate(150%);
       -webkit-backdrop-filter: blur(24px) saturate(150%);
       border-bottom: 1px solid rgba(255,255,255,0.06);
-      transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #reader-header.ui-hidden { transform: translateY(-100%); }
 
@@ -192,7 +192,7 @@
       position: relative;
       aspect-ratio: 2 / 3; /* Prevents layout collapse before load */
       
-      /* Mobile Performance Lifesaver: Virtualizes off-screen DOM nodes */
+      /* Mobile Performance: Virtualizes off-screen DOM nodes */
       content-visibility: auto;
       contain-intrinsic-size: auto 800px;
     }
@@ -353,24 +353,20 @@
   <div id="upload-screen">
     <div class="hero-graphic">
       <svg width="100%" height="48" viewBox="0 0 400 48" fill="var(--accent)">
-        <!-- Center Diamond -->
+        <!-- Center Diamond Motif -->
         <path d="M200 4 L220 24 L200 44 L180 24 Z" opacity="1"/>
         <path d="M200 12 L212 24 L200 36 L188 24 Z" fill="var(--bg)"/>
         <path d="M200 16 L208 24 L200 32 L192 24 Z" opacity="0.8"/>
-        
         <!-- Flanking Diamonds -->
         <path d="M140 16 L148 24 L140 32 L132 24 Z" opacity="0.6"/>
         <path d="M260 16 L268 24 L260 32 L252 24 Z" opacity="0.6"/>
-        
         <!-- Outer Dots -->
         <circle cx="90" cy="24" r="2" opacity="0.4"/>
         <circle cx="310" cy="24" r="2" opacity="0.4"/>
-        
         <!-- Connecting Trailing Lines -->
         <rect x="20" y="23.5" width="60" height="1" opacity="0.2"/>
         <rect x="100" y="23.5" width="22" height="1" opacity="0.3"/>
         <rect x="156" y="23.5" width="16" height="1" opacity="0.4"/>
-        
         <rect x="320" y="23.5" width="60" height="1" opacity="0.2"/>
         <rect x="278" y="23.5" width="22" height="1" opacity="0.3"/>
         <rect x="228" y="23.5" width="16" height="1" opacity="0.4"/>
@@ -393,6 +389,7 @@
       </div>
     </button>
     
+    <p class="hint">Your files never leave your device.</p>
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
   </div>
 
@@ -407,7 +404,6 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
       <span id="comic-title">Comic</span>
-      
       <button id="mode-toggle" class="hidden">∞</button>
     </header>
 
@@ -451,13 +447,12 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
-    // --- Service Worker ---
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
-    // --- State ---
-    let pages = []; // {entry, url, loading, aspectLocked}
+    // --- Core State ---
+    let pages = []; 
     let chapters = [];
     let blobUrls = [];
     let currentPage = 0;
@@ -469,18 +464,20 @@
     let autoscrollEnabled = false; 
     let maxChapterNum = 0; 
     let baseChapterOffset = 0;
+    let isTransitioning = false; 
 
-    // --- Jump Mode State ---
+    // --- Scrolling Logic State ---
     let scrollMode = 'smooth';
     let jumpIntervalIdx = 3; 
     let isJumping = false;
     let jumpStartY = 0;
     let jumpTargetY = 0;
     let jumpStartTime = 0;
-    const JUMP_DURATION = 120; // Cut from 250ms for a much quicker snap!
+    const JUMP_DURATION = 120; // Snappy 120ms jump
     const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5]; 
-
     const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
+    
+    // Performance Windows
     const MEMORY_WINDOW = 12;
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
@@ -494,7 +491,7 @@
           <rect x="140" y="7.5" width="30" height="1" opacity="0.3"/>
         </svg>`;
 
-    // --- DOM ---
+    // --- DOM Cache ---
     const uploadScreen = document.getElementById('upload-screen');
     const loadingScreen = document.getElementById('loading-screen');
     const readerScreen = document.getElementById('reader-screen');
@@ -513,12 +510,13 @@
     const csList = document.getElementById('cs-list');
     const csClose = document.getElementById('cs-close');
 
-    // --- Helpers ---
+    // --- Utilities ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
     function basename(path) { return path.replace(/^.*[\\/]/, ''); }
     function showScreen(id) {
       [uploadScreen, loadingScreen, readerScreen].forEach(s => s.style.display = 'none');
-      document.getElementById(id).style.display = id === 'reader-screen' ? 'block' : 'flex';
+      const target = document.getElementById(id);
+      if (target) target.style.display = id === 'reader-screen' ? 'block' : 'flex';
     }
 
     function getComicTitle(files) {
@@ -555,7 +553,7 @@
       return { displayNum, cleanName };
     }
 
-    // --- Archive Processing ---
+    // --- Extraction ---
     async function extractEntries(zip, fallbackName) {
       const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
       const archives = allFiles.filter(f => ARCHIVE_EXT.test(f.name));
@@ -592,15 +590,18 @@
       files.sort((a,b) => naturalSort(a.name, b.name));
       for (const f of files) {
         loadingText.textContent = `Reading: ${f.name}`;
-        const zip = await JSZip.loadAsync(await f.arrayBuffer());
-        
-        const groups = await extractEntries(zip, f.name);
-        groups.forEach(g => {
-          const start = pages.length;
-          g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
-          const { displayNum, cleanName } = extractChapterInfo(g.name);
-          chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
-        });
+        try {
+          const zip = await JSZip.loadAsync(await f.arrayBuffer());
+          const groups = await extractEntries(zip, f.name);
+          groups.forEach(g => {
+            const start = pages.length;
+            g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
+            const { displayNum, cleanName } = extractChapterInfo(g.name);
+            chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
+          });
+        } catch (err) {
+          console.error("Archive Processing Error:", err);
+        }
       }
 
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
@@ -623,19 +624,18 @@
     function renderPages() {
       const frag = document.createDocumentFragment();
       
-      // Top Geometric Decor
+      // Top Buffer Decor
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
       topDecor.innerHTML = GEOMETRIC_SVG;
       frag.appendChild(topDecor);
 
-      // DOM Optimization: Wrap chapters in isolated containers
+      // Wrap chapters in containers for O(1) visibility toggling
       chapters.forEach((ch, idx) => {
         const chContainer = document.createElement('div');
         chContainer.className = 'chapter-container';
         chContainer.dataset.chapterIndex = idx;
         
-        // Setup initial mode view
         if (chapterMode && idx === currentChIdx) chContainer.classList.add('active');
 
         if (chapters.length > 1) {
@@ -661,7 +661,7 @@
         frag.appendChild(chContainer);
       });
 
-      // Bottom Geometric Decor
+      // Bottom Buffer Decor
       const botDecor = document.createElement('div');
       botDecor.className = 'reader-decor reader-bottom-decor';
       botDecor.innerHTML = GEOMETRIC_SVG;
@@ -669,10 +669,10 @@
 
       readerPages.appendChild(frag);
       
-      // Apply correct initial mode class to trigger CSS hiding mechanism
       if (chapterMode) readerPages.classList.add('mode-chapter');
     }
 
+    // --- Loading Logic ---
     async function loadPage(idx) {
       const p = pages[idx];
       if (!p || p.url || p.loading) return;
@@ -733,7 +733,7 @@
             updateIndicator();
           }
           
-          // FAST SCROLL CRASH FIX:
+          // Debounce extractions to prevent crash during 11,000+ page high-speed scrolling
           clearTimeout(scrollDebounce);
           scrollDebounce = setTimeout(() => {
             for(let i = currentPage - 2; i <= currentPage + 4; i++) {
@@ -746,6 +746,7 @@
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
     }
 
+    // --- UI Setup ---
     function setupUI() {
       const multi = chapters.length > 1;
       chapterNav.classList.toggle('hidden', !multi);
@@ -769,38 +770,38 @@
       if (chIdx !== -1) currentChIdx = chIdx;
       if (chapterMode) {
         const ch = chapters[currentChIdx];
-        pageIndicator.textContent = `${currentPage - ch.start + 1} / ${ch.end - ch.start + 1}`;
+        if (ch) pageIndicator.textContent = `${currentPage - ch.start + 1} / ${ch.end - ch.start + 1}`;
       } else {
         pageIndicator.textContent = `${currentPage + 1} / ${pages.length}`;
       }
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
-        const totalLabel = Math.max(maxChapterNum, chapters.length);
-        chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
+        if (currentCh) {
+          const chLabel = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
+          const totalLabel = Math.max(maxChapterNum, chapters.length);
+          chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
+        }
       }
     }
 
-    // --- Jump Logic ---
-    let jumpDebounce = null; // Added to prevent rapid-click crashing
+    // --- Navigation Logic ---
+    let jumpDebounce = null; 
 
     function jumpToChapter(idx) {
-      if (idx < 0 || idx >= chapters.length) return;
+      if (idx < 0 || idx >= chapters.length || isTransitioning) return;
       
+      isTransitioning = true;
       currentChIdx = idx;
       currentPage = chapters[currentChIdx].start;
       
-      // 1. Update the UI text instantly so the app feels hyper-responsive
+      if (autoRunning) stopAutoScroll();
       updateIndicator();
 
-      // 2. Delay the heavy DOM calculations so rapid clicks don't stack up and crash the browser
       clearTimeout(jumpDebounce);
       jumpDebounce = setTimeout(() => {
-        // Stop old mass-loads from triggering when we jump
         clearTimeout(scrollDebounce);
         visiblePages.clear(); 
 
-        // FIX: Properly apply the correct CSS mode so Infinite Mode un-hides the other chapters
         if (chapterMode) {
           applyChapterMode();
           window.scrollTo(0, 0);
@@ -808,21 +809,21 @@
           applyScrollMode();
         }
 
-        // Instantly load the pages at our destination to prevent staring at empty placeholders
+        // Pre-load at destination
         for (let i = currentPage; i <= Math.min(currentPage + 3, pages.length - 1); i++) loadPage(i);
         unloadDistant(); 
 
         if (!chapterMode) {
-          // Optimized scroll-into-view targeting the container wrapper
           const targetContainer = document.querySelector(`.chapter-container[data-chapter-index="${currentChIdx}"]`);
           if (targetContainer) {
-              targetContainer.scrollIntoView(true);
+              targetContainer.scrollIntoView({ behavior: 'auto', block: 'start' });
           }
         }
-      }, 150); // 150ms is fast enough to feel instant, but slow enough to catch rapid multi-clicks
+        
+        isTransitioning = false;
+      }, 150); 
     }
 
-    // --- Chapter Selector Modal ---
     function populateChapterSelector() {
       csList.innerHTML = '';
       chapters.forEach((ch, idx) => {
@@ -858,25 +859,11 @@
       resetIdle(); 
     }
 
-    chapterLabelBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openChapterSelector();
-    });
-
-    csClose.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeChapterSelector();
-    });
-
-    csOverlay.addEventListener('click', (e) => {
-      if (e.target === csOverlay) {
-        closeChapterSelector();
-      }
-    });
-
-    // --- Mode Toggle ---
+    // --- Mode Toggles ---
     modeToggle.addEventListener('click', () => {
+      if (isTransitioning) return;
       chapterMode = !chapterMode;
+      
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
@@ -884,11 +871,11 @@
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
       }
+
+      if (autoRunning) stopAutoScroll();
       jumpToChapter(currentChIdx); 
-      updateIndicator();
     });
 
-    // Sub-millisecond CSS Toggling instead of looping 11,000 DOM elements
     function applyChapterMode() {
       readerPages.classList.add('mode-chapter');
       document.querySelectorAll('.chapter-container').forEach(el => {
@@ -898,6 +885,7 @@
 
     function applyScrollMode() {
       readerPages.classList.remove('mode-chapter');
+      document.querySelectorAll('.chapter-container').forEach(el => el.classList.remove('active'));
     }
 
     function updateUI() {
@@ -906,14 +894,7 @@
       autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
     }
 
-    document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
-      e.stopPropagation(); 
-      autoscrollEnabled = !autoscrollEnabled;
-      updateUI();
-      resetIdle();
-    });
-
-    // --- Smooth & Jump Auto Scroll Logic ---
+    // --- Auto-scroll Engine ---
     let lastTime = 0;
     let idleTimer = null;
     let scrollAccumulator = 0; 
@@ -928,7 +909,7 @@
         idleTimer = setTimeout(() => {
           uiHidden = true;
           updateUI();
-        }, 4000); 
+        }, 4000); // UI lasts 4 seconds
       }
     }
 
@@ -941,6 +922,7 @@
         lastTime = timestamp;
         const speed = SPEED_LEVELS[speedIdx] / 16.6; 
         
+        // Accurate fractional sub-pixel accumulator
         scrollAccumulator += speed * dt;
         if (scrollAccumulator >= 1) {
           const pixelsToScroll = Math.floor(scrollAccumulator);
@@ -965,7 +947,7 @@
             isJumping = true;
             jumpStartTime = timestamp;
             jumpStartY = window.scrollY;
-            jumpTargetY = jumpStartY + (window.innerHeight * 0.70);
+            jumpTargetY = jumpStartY + (window.innerHeight * 0.70); // 70% height jump
           }
         }
       }
@@ -978,12 +960,14 @@
     }
 
     function startAutoScroll() {
+      if (isTransitioning) return;
       autoRunning = true; lastTime = 0; scrollAccumulator = 0;
       document.getElementById('as-playpause').innerHTML = pauseIcon;
       uiHidden = true;
       updateUI();
       requestAnimationFrame(autoStep);
     }
+
     function stopAutoScroll() { 
       autoRunning = false; 
       isJumping = false;
@@ -991,9 +975,17 @@
       resetIdle(); 
     }
 
+    // --- Listeners ---
     [readerHeader, readerFooter, autoscrollBar].forEach(el => {
       el.addEventListener('touchstart', resetIdle, {passive: true});
       el.addEventListener('click', resetIdle);
+    });
+
+    document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
+      e.stopPropagation(); 
+      autoscrollEnabled = !autoscrollEnabled;
+      updateUI();
+      resetIdle();
     });
 
     document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
@@ -1055,6 +1047,9 @@
       else clearTimeout(idleTimer);
     });
 
+    chapterLabelBtn.addEventListener('click', (e) => { e.stopPropagation(); openChapterSelector(); });
+    csClose.addEventListener('click', (e) => { e.stopPropagation(); closeChapterSelector(); });
+    csOverlay.addEventListener('click', (e) => { if (e.target === csOverlay) closeChapterSelector(); });
     document.getElementById('close-btn').addEventListener('click', () => { location.reload(); });
     
     document.addEventListener('visibilitychange', () => {

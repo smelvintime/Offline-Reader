@@ -14,12 +14,12 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:     #0a0a0a; /* Matched to episode banner color */
-      --surf:   #1a1a1a;
-      --border: #333;
+      --bg:     #0a0a0a;
+      --surf:   rgba(255, 255, 255, 0.08); /* Transparent surfaces for glass effect */
+      --border: rgba(255, 255, 255, 0.1);
       --accent: #6366f1; /* Modern Electric Indigo */
       --text:   #f0f0f0;
-      --muted:  #888;
+      --muted:  #a0a0a0;
     }
 
     /* Native scrolling allows Safari to collapse its top and bottom bars automatically */
@@ -57,33 +57,35 @@
     h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.5px; }
     .subtitle { color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 280px; }
 
-    #drop-zone {
-      width: 100%; max-width: 380px;
-      border: 2px dashed var(--border);
+    #mobile-upload-btn {
+      width: 100%; max-width: 340px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
       border-radius: 20px;
-      padding: 2.5rem 1.5rem;
+      padding: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
       cursor: pointer;
-      transition: all .2s ease;
-      background: rgba(255,255,255,.02);
-    }
-    #drop-zone:hover, #drop-zone.drag-over {
-      border-color: var(--accent);
-      background: rgba(255,107,53,.06);
-    }
-    .drop-icon { font-size: 2.5rem; margin-bottom: .5rem; display: block; }
-
-    .open-btn {
-      width: 100%; max-width: 380px;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 14px;
-      padding: 1.1rem;
-      font-size: 1rem;
-      font-weight: 700;
-      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
       -webkit-tap-highlight-color: transparent;
     }
+    #mobile-upload-btn:active { 
+      background: rgba(255,255,255,0.08); 
+      transform: scale(0.97); 
+    }
+    .btn-icon {
+      width: 52px; height: 52px;
+      background: rgba(99,102,241,0.15);
+      color: var(--accent);
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-text { display: flex; flex-direction: column; gap: 0.3rem; }
+    .btn-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
+    .btn-sub { font-size: 0.85rem; color: var(--muted); }
 
     #file-input { display: none; }
     .hint { font-size: .74rem; color: var(--muted); }
@@ -115,7 +117,7 @@
       background: var(--bg);
     }
 
-    /* Fixed Top Header */
+    /* Fixed Glassy Top Header */
     #reader-header {
       position: fixed;
       top: 0; left: 0; right: 0;
@@ -124,15 +126,15 @@
       align-items: center;
       gap: .4rem;
       padding: calc(.5rem + env(safe-area-inset-top, 0px)) .7rem .6rem;
-      background: rgba(10,10,10,.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
       transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #reader-header.ui-hidden { transform: translateY(-100%); }
 
-    /* Fixed Bottom Footer for Navigation */
+    /* Fixed Glassy Bottom Footer */
     #reader-footer {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -140,10 +142,10 @@
       display: flex;
       align-items: center;
       padding: .6rem .7rem calc(.6rem + env(safe-area-inset-bottom, 0px));
-      background: rgba(10,10,10,.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
+      border-top: 1px solid rgba(255,255,255,0.06);
       transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #reader-footer.ui-hidden { transform: translateY(100%); }
@@ -152,6 +154,7 @@
       flex: 1;
       font-size: .85rem; font-weight: 700;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     }
 
     /* ── Scrolling Area ── */
@@ -202,7 +205,7 @@
       font-size: .75rem; font-weight: 700;
       color: var(--muted);
       background: #0a0a0a;
-      border-bottom: 1px solid #1a1a1a;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
       text-transform: uppercase;
       letter-spacing: 1px;
       text-align: center;
@@ -231,11 +234,12 @@
     }
     #chapter-label-btn { 
       font-size: .8rem; font-weight: 700; padding: .4rem .8rem; 
-      background: rgba(255,255,255,0.05); border-radius: 12px; margin: 0 .2rem;
-      color: var(--muted);
+      background: var(--surf); border-radius: 12px; margin: 0 .2rem;
+      color: var(--text);
+      border: 1px solid var(--border);
       transition: background 0.2s;
     }
-    #chapter-label-btn:active { background: rgba(255,255,255,0.1); }
+    #chapter-label-btn:active { background: rgba(255,255,255,0.15); }
     
     #mode-toggle {
       font-size: 1.2rem;
@@ -244,16 +248,16 @@
       border: 1px solid var(--border);
       border-radius: 6px; 
       padding: 0; 
-      color: var(--muted);
+      color: var(--text);
       width: 64px;
       height: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
-    #page-indicator { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #page-indicator { font-size: .75rem; color: var(--text); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
 
-    /* ── Auto-scroll ── */
+    /* ── Glassy Auto-scroll ── */
     #autoscroll-bar {
       position: fixed;
       bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
@@ -263,13 +267,13 @@
       display: flex;
       align-items: center;
       gap: .6rem;
-      background: rgba(15,15,15,0.65);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      border: 1px solid rgba(255,255,255,0.05);
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
+      border: 1px solid rgba(255,255,255,0.1);
       border-radius: 100px;
       padding: .5rem 1rem;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
     }
     #autoscroll-bar.ui-hidden { opacity: 0; transform: translateX(-50%) translateY(100px); pointer-events: none; }
@@ -287,7 +291,7 @@
     /* ── Chapter Selector Modal ── */
     #cs-overlay {
       position: fixed; inset: 0; z-index: 300;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.5);
       display: flex; flex-direction: column; justify-content: flex-end;
       transition: opacity 0.3s ease;
     }
@@ -295,16 +299,17 @@
     
     #cs-modal {
       width: 100%; max-height: 65vh;
-      background: rgba(20,20,20,0.95);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: rgba(10, 10, 10, 0.45);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
       border-top-left-radius: 24px;
       border-top-right-radius: 24px;
       display: flex; flex-direction: column;
       transform: translateY(0);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border-top: 1px solid rgba(255,255,255,0.08);
+      border-top: 1px solid rgba(255,255,255,0.1);
       padding-bottom: env(safe-area-inset-bottom, 0px);
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
     }
     #cs-overlay.ui-hidden #cs-modal { transform: translateY(100%); }
 
@@ -314,7 +319,7 @@
     }
     .cs-header h3 { font-size: 1.1rem; margin: 0; font-weight: 700; color: #fff; }
     #cs-close { 
-      background: rgba(255,255,255,0.1); border: none; color: var(--text); 
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.05); color: var(--text); 
       width: 30px; height: 30px; border-radius: 50%; 
       display: flex; align-items: center; justify-content: center; cursor: pointer;
     }
@@ -326,11 +331,11 @@
     .cs-item {
       width: 100%; text-align: left; padding: 1rem 1.2rem;
       background: none; border: none; color: var(--text);
-      font-size: 0.95rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 0.95rem; border-bottom: 1px solid rgba(255,255,255,0.03);
       cursor: pointer; transition: background 0.2s;
       border-radius: 12px;
     }
-    .cs-item:active { background: rgba(255,255,255,0.05); }
+    .cs-item:active { background: rgba(255,255,255,0.08); }
     .cs-item.active { color: var(--accent); font-weight: 700; background: rgba(99,102,241,0.15); border-color: transparent;}
     .cs-item:last-child { border-bottom: none; }
 
@@ -367,13 +372,21 @@
     </div>
     <h1>Offline Reader</h1>
     <p class="subtitle">Read your archives offline.<br>Private and fast extraction.</p>
-    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
-      <span class="drop-icon">📂</span>
-      <p style="font-weight:700">Drop files here</p>
-      <p style="font-size: .8rem; color: var(--muted); margin-top: .4rem;">or tap to browse</p>
-    </div>
-    <button class="open-btn" onclick="document.getElementById('file-input').click()">Open Archive</button>
-    <p class="hint">Supports .cbz and .zip</p>
+    
+    <button id="mobile-upload-btn" onclick="document.getElementById('file-input').click()">
+      <div class="btn-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+      </div>
+      <div class="btn-text">
+        <span class="btn-title">Select Comic Archive</span>
+        <span class="btn-sub">Tap to browse .cbz or .zip</span>
+      </div>
+    </button>
+    
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
   </div>
 
@@ -407,6 +420,9 @@
     </footer>
 
     <div id="autoscroll-bar" class="ui-hidden">
+      <button class="as-btn" id="as-mode-toggle">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+      </button>
       <button class="as-btn" id="as-slower">−</button>
       <button class="as-btn" id="as-playpause">
         <svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
@@ -448,7 +464,17 @@
     let maxChapterNum = 0; 
     let baseChapterOffset = 0;
 
-    const SPEED_LEVELS = [0.3, 0.6, 1.0, 1.6, 2.5, 4.0, 6.0, 9.0];
+    // --- Jump Mode State ---
+    let scrollMode = 'smooth';
+    let jumpIntervalIdx = 3; // defaults to 3s
+    let isJumping = false;
+    let jumpStartY = 0;
+    let jumpTargetY = 0;
+    let jumpStartTime = 0;
+    const JUMP_DURATION = 250; 
+    const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5]; // ordered slow -> fast
+
+    const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
     const MEMORY_WINDOW = 12;
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
@@ -836,11 +862,14 @@
       resetIdle();
     });
 
-    // --- Smooth Auto Scroll via Window Scroll ---
+    // --- Smooth & Jump Auto Scroll Logic ---
     let lastTime = 0;
     let idleTimer = null;
+    let scrollAccumulator = 0; // Tracks fractional sub-pixels for ultra-slow speeds
     const playIcon = `<svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>`;
     const pauseIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+    const smoothIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`;
+    const jumpIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="16"></line><polyline points="16 12 12 16 8 12"></polyline><line x1="6" y1="20" x2="18" y2="20"></line></svg>`;
 
     function resetIdle() {
       clearTimeout(idleTimer);
@@ -855,16 +884,53 @@
     function autoStep(timestamp) {
       if (!autoRunning) return;
       if (!lastTime) lastTime = timestamp;
-      const dt = timestamp - lastTime;
-      lastTime = timestamp;
-      const speed = SPEED_LEVELS[speedIdx] / 16.6; 
-      window.scrollBy(0, speed * dt);
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) stopAutoScroll();
-      else requestAnimationFrame(autoStep);
+
+      if (scrollMode === 'smooth') {
+        const dt = timestamp - lastTime;
+        lastTime = timestamp;
+        const speed = SPEED_LEVELS[speedIdx] / 16.6; 
+        
+        // Accumulate sub-pixels to bypass browser limitations on fractional scrolling
+        scrollAccumulator += speed * dt;
+        if (scrollAccumulator >= 1) {
+          const pixelsToScroll = Math.floor(scrollAccumulator);
+          window.scrollBy(0, pixelsToScroll);
+          scrollAccumulator -= pixelsToScroll; // Keep the remainder
+        }
+      } else {
+        if (isJumping) {
+          const elapsed = timestamp - jumpStartTime;
+          const progress = Math.min(elapsed / JUMP_DURATION, 1);
+          // Smooth easeOutCubic curve for snappy landing
+          const ease = 1 - Math.pow(1 - progress, 3);
+          window.scrollTo(0, jumpStartY + (jumpTargetY - jumpStartY) * ease);
+          
+          if (progress >= 1) {
+            isJumping = false;
+            lastTime = timestamp; // Reset delay timer after jump finishes
+          }
+        } else {
+          const dt = timestamp - lastTime;
+          const currentInterval = JUMP_LEVELS[jumpIntervalIdx] * 1000;
+          if (dt >= currentInterval) {
+            isJumping = true;
+            jumpStartTime = timestamp;
+            jumpStartY = window.scrollY;
+            // 70% jump gives a 30% overlap, ensuring large text bubbles are never skipped
+            jumpTargetY = jumpStartY + (window.innerHeight * 0.70);
+          }
+        }
+      }
+
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+        stopAutoScroll();
+      } else {
+        requestAnimationFrame(autoStep);
+      }
     }
 
     function startAutoScroll() {
-      autoRunning = true; lastTime = 0;
+      autoRunning = true; lastTime = 0; scrollAccumulator = 0;
       document.getElementById('as-playpause').innerHTML = pauseIcon;
       uiHidden = true;
       updateUI();
@@ -872,6 +938,7 @@
     }
     function stopAutoScroll() { 
       autoRunning = false; 
+      isJumping = false;
       document.getElementById('as-playpause').innerHTML = playIcon; 
       resetIdle(); 
     }
@@ -881,13 +948,55 @@
       el.addEventListener('click', resetIdle);
     });
 
+    document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
+      e.stopPropagation();
+      scrollMode = scrollMode === 'smooth' ? 'jump' : 'smooth';
+      document.getElementById('as-mode-toggle').innerHTML = scrollMode === 'smooth' ? smoothIcon : jumpIcon;
+      isJumping = false;
+      lastTime = 0; // reset loop timer
+      updateSpeedLabel();
+      resetIdle();
+    });
+
     document.getElementById('as-playpause').addEventListener('click', () => autoRunning ? stopAutoScroll() : startAutoScroll());
-    document.getElementById('as-faster').addEventListener('click', () => { if(speedIdx < SPEED_LEVELS.length-1) speedIdx++; updateSpeedLabel(); resetIdle(); });
-    document.getElementById('as-slower').addEventListener('click', () => { if(speedIdx > 0) speedIdx--; updateSpeedLabel(); resetIdle(); });
+    
+    document.getElementById('as-faster').addEventListener('click', (e) => { 
+      e.stopPropagation();
+      if (scrollMode === 'smooth') {
+        if (speedIdx < SPEED_LEVELS.length-1) speedIdx++; 
+      } else {
+        if (jumpIntervalIdx < JUMP_LEVELS.length-1) jumpIntervalIdx++; 
+      }
+      updateSpeedLabel(); 
+      resetIdle(); 
+    });
+
+    document.getElementById('as-slower').addEventListener('click', (e) => { 
+      e.stopPropagation();
+      if (scrollMode === 'smooth') {
+        if (speedIdx > 0) speedIdx--; 
+      } else {
+        if (jumpIntervalIdx > 0) jumpIntervalIdx--; 
+      }
+      updateSpeedLabel(); 
+      resetIdle(); 
+    });
     
     function updateSpeedLabel() { 
-      const diff = speedIdx - 3;
-      document.getElementById('as-speed-label').textContent = diff === 0 ? '•' : (diff > 0 ? '+' + diff : diff.toString()); 
+      if (scrollMode === 'smooth') {
+        const diff = speedIdx - 3;
+        let label = '•';
+        if (diff === -3) label = '≡';
+        else if (diff === -2) label = '=';
+        else if (diff === -1) label = '-';
+        else if (diff === 1) label = 'I';
+        else if (diff === 2) label = 'II';
+        else if (diff === 3) label = 'III';
+        else if (diff === 4) label = 'IV';
+        document.getElementById('as-speed-label').textContent = label;
+      } else {
+        document.getElementById('as-speed-label').textContent = JUMP_LEVELS[jumpIntervalIdx] + 's';
+      }
     }
 
     readerPages.addEventListener('click', () => {

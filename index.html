@@ -583,26 +583,22 @@
 
       comicTitle.textContent = getComicTitle(files);
 
-      if (files.length === 1) {
-        const zip = await JSZip.loadAsync(await files[0].arrayBuffer());
-        const groups = await extractEntries(zip, files[0].name);
-        groups.forEach(g => {
-          const start = pages.length;
-          g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
-          const { displayNum, cleanName } = extractChapterInfo(g.name);
-          chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
-        });
-      } else {
-        files.sort((a,b) => naturalSort(a.name, b.name));
-        for (const f of files) {
+      // Sort all files naturally first
+      files.sort((a,b) => naturalSort(a.name, b.name));
+
+      // Process all files through the same deep extraction logic
+      for (const f of files) {
+        try {
           const zip = await JSZip.loadAsync(await f.arrayBuffer());
-          const imgs = Object.values(zip.files).filter(f => !f.dir && IMAGE_EXT.test(f.name)).sort((a,b) => naturalSort(a.name, b.name));
-          if (imgs.length) {
+          const groups = await extractEntries(zip, f.name);
+          groups.forEach(g => {
             const start = pages.length;
-            imgs.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
-            const { displayNum, cleanName } = extractChapterInfo(f.name);
+            g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
+            const { displayNum, cleanName } = extractChapterInfo(g.name);
             chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
-          }
+          });
+        } catch (err) {
+          console.error("Failed to read archive: " + f.name, err);
         }
       }
 

@@ -39,7 +39,7 @@
       justify-content: center;
       min-height: 100vh;
       padding: 2rem 1.5rem;
-      gap: 1.5rem;
+      gap: 2rem; /* Slightly increased gap for the simplified look */
       text-align: center;
       background: var(--bg);
     }
@@ -50,12 +50,10 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      margin-bottom: 0.5rem;
       filter: drop-shadow(0 0 20px rgba(99,102,241,0.3));
     }
 
     h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.5px; }
-    .subtitle { color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 280px; }
 
     #mobile-upload-btn {
       width: 100%; max-width: 340px;
@@ -88,7 +86,6 @@
     .btn-sub { font-size: 0.85rem; color: var(--muted); }
 
     #file-input { display: none; }
-    .hint { font-size: .74rem; color: var(--muted); margin-top: 1rem; }
 
     /* ── Loading Screen ── */
     #loading-screen {
@@ -130,7 +127,7 @@
       backdrop-filter: blur(24px) saturate(150%);
       -webkit-backdrop-filter: blur(24px) saturate(150%);
       border-bottom: 1px solid rgba(255,255,255,0.06);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #reader-header.ui-hidden { transform: translateY(-100%); }
 
@@ -353,17 +350,13 @@
   <div id="upload-screen">
     <div class="hero-graphic">
       <svg width="100%" height="48" viewBox="0 0 400 48" fill="var(--accent)">
-        <!-- Center Diamond Motif -->
         <path d="M200 4 L220 24 L200 44 L180 24 Z" opacity="1"/>
         <path d="M200 12 L212 24 L200 36 L188 24 Z" fill="var(--bg)"/>
         <path d="M200 16 L208 24 L200 32 L192 24 Z" opacity="0.8"/>
-        <!-- Flanking Diamonds -->
         <path d="M140 16 L148 24 L140 32 L132 24 Z" opacity="0.6"/>
         <path d="M260 16 L268 24 L260 32 L252 24 Z" opacity="0.6"/>
-        <!-- Outer Dots -->
         <circle cx="90" cy="24" r="2" opacity="0.4"/>
         <circle cx="310" cy="24" r="2" opacity="0.4"/>
-        <!-- Connecting Trailing Lines -->
         <rect x="20" y="23.5" width="60" height="1" opacity="0.2"/>
         <rect x="100" y="23.5" width="22" height="1" opacity="0.3"/>
         <rect x="156" y="23.5" width="16" height="1" opacity="0.4"/>
@@ -372,8 +365,8 @@
         <rect x="228" y="23.5" width="16" height="1" opacity="0.4"/>
       </svg>
     </div>
+    
     <h1>Offline Reader</h1>
-    <p class="subtitle">Read your archives offline.<br>Private and fast extraction.</p>
     
     <button id="mobile-upload-btn" onclick="document.getElementById('file-input').click()">
       <div class="btn-icon">
@@ -389,7 +382,6 @@
       </div>
     </button>
     
-    <p class="hint">Your files never leave your device.</p>
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
   </div>
 
@@ -433,7 +425,6 @@
       <button class="as-btn" id="as-faster">+</button>
     </div>
 
-    <!-- Chapter Selector Modal -->
     <div id="cs-overlay" class="ui-hidden">
       <div id="cs-modal">
         <div class="cs-header">
@@ -451,7 +442,6 @@
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
-    // --- Core State ---
     let pages = []; 
     let chapters = [];
     let blobUrls = [];
@@ -466,18 +456,16 @@
     let baseChapterOffset = 0;
     let isTransitioning = false; 
 
-    // --- Scrolling Logic State ---
     let scrollMode = 'smooth';
     let jumpIntervalIdx = 3; 
     let isJumping = false;
     let jumpStartY = 0;
     let jumpTargetY = 0;
     let jumpStartTime = 0;
-    const JUMP_DURATION = 120; // Snappy 120ms jump
+    const JUMP_DURATION = 120;
     const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5]; 
     const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
     
-    // Performance Windows
     const MEMORY_WINDOW = 12;
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
@@ -491,7 +479,6 @@
           <rect x="140" y="7.5" width="30" height="1" opacity="0.3"/>
         </svg>`;
 
-    // --- DOM Cache ---
     const uploadScreen = document.getElementById('upload-screen');
     const loadingScreen = document.getElementById('loading-screen');
     const readerScreen = document.getElementById('reader-screen');
@@ -510,7 +497,6 @@
     const csList = document.getElementById('cs-list');
     const csClose = document.getElementById('cs-close');
 
-    // --- Utilities ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
     function basename(path) { return path.replace(/^.*[\\/]/, ''); }
     function showScreen(id) {
@@ -537,15 +523,12 @@
           const fallbackMatch = name.match(/(?:-\s+|\[)0*(\d+(\.\d+)?)/);
           if (fallbackMatch) displayNum = parseFloat(fallbackMatch[1]);
       }
-
       const parts = name.split(/\s+-\s+/);
       let cleanName = name;
       if (parts.length > 1) {
           cleanName = parts[parts.length - 1].trim();
       }
-
       cleanName = cleanName.replace(/^(?:c|ch|chapter|v|vol|volume)\.?\s*0*\d+(\.\d+)?\s+/i, '');
-
       if (/^(?:c|ch|chapter|v|vol|volume)?\.?\s*0*\d+(\.\d+)?$/i.test(cleanName)) {
           const extracted = cleanName.match(/\d+(\.\d+)?/)[0];
           cleanName = `Chapter ${parseFloat(extracted)}`;
@@ -553,14 +536,11 @@
       return { displayNum, cleanName };
     }
 
-    // --- Extraction ---
     async function extractEntries(zip, fallbackName) {
       const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
       const archives = allFiles.filter(f => ARCHIVE_EXT.test(f.name));
       const images = allFiles.filter(f => IMAGE_EXT.test(f.name));
-
       if (!archives.length) return images.length ? [{ images, name: fallbackName }] : [];
-
       const result = [];
       for (const arch of archives) {
         loadingText.textContent = `Opening: ${basename(arch.name)}`;
@@ -577,16 +557,12 @@
     fileInput.addEventListener('change', async e => {
       const files = Array.from(e.target.files).filter(f => ARCHIVE_EXT.test(f.name));
       if (!files.length) return;
-      
       showScreen('loading-screen');
       pages = []; chapters = []; blobUrls.forEach(URL.revokeObjectURL); blobUrls = [];
       readerPages.innerHTML = '';
       window.scrollTo(0, 0); 
-      maxChapterNum = 0;
-      baseChapterOffset = 0; 
-
+      maxChapterNum = 0; baseChapterOffset = 0; 
       comicTitle.textContent = getComicTitle(files);
-
       files.sort((a,b) => naturalSort(a.name, b.name));
       for (const f of files) {
         loadingText.textContent = `Reading: ${f.name}`;
@@ -599,11 +575,8 @@
             const { displayNum, cleanName } = extractChapterInfo(g.name);
             chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
           });
-        } catch (err) {
-          console.error("Archive Processing Error:", err);
-        }
+        } catch (err) { console.error("Archive Error:", err); }
       }
-
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
       if (validNums.length > 0) {
         maxChapterNum = Math.max(...validNums);
@@ -611,7 +584,6 @@
       } else {
         maxChapterNum = chapters.length;
       }
-
       renderPages();
       showScreen('reader-screen');
       uiHidden = false;
@@ -623,21 +595,15 @@
 
     function renderPages() {
       const frag = document.createDocumentFragment();
-      
-      // Top Buffer Decor
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
       topDecor.innerHTML = GEOMETRIC_SVG;
       frag.appendChild(topDecor);
-
-      // Wrap chapters in containers for O(1) visibility toggling
       chapters.forEach((ch, idx) => {
         const chContainer = document.createElement('div');
         chContainer.className = 'chapter-container';
         chContainer.dataset.chapterIndex = idx;
-        
         if (chapterMode && idx === currentChIdx) chContainer.classList.add('active');
-
         if (chapters.length > 1) {
           const div = document.createElement('div');
           div.className = 'chapter-divider';
@@ -645,7 +611,6 @@
           div.textContent = ch.name;
           chContainer.appendChild(div);
         }
-        
         for (let i = ch.start; i <= ch.end; i++) {
           const wrap = document.createElement('div');
           wrap.className = 'page-wrapper';
@@ -660,19 +625,14 @@
         }
         frag.appendChild(chContainer);
       });
-
-      // Bottom Buffer Decor
       const botDecor = document.createElement('div');
       botDecor.className = 'reader-decor reader-bottom-decor';
       botDecor.innerHTML = GEOMETRIC_SVG;
       frag.appendChild(botDecor);
-
       readerPages.appendChild(frag);
-      
       if (chapterMode) readerPages.classList.add('mode-chapter');
     }
 
-    // --- Loading Logic ---
     async function loadPage(idx) {
       const p = pages[idx];
       if (!p || p.url || p.loading) return;
@@ -704,10 +664,7 @@
           URL.revokeObjectURL(p.url);
           blobUrls = blobUrls.filter(u => u !== p.url);
           p.url = null; p.loading = false; 
-          if (p.el) {
-            p.el.src = ''; 
-            p.el.classList.add('placeholder');
-          }
+          if (p.el) { p.el.src = ''; p.el.classList.add('placeholder'); }
         }
       });
     }
@@ -719,21 +676,14 @@
       const observer = new IntersectionObserver(entries => {
         entries.forEach(e => {
           const idx = parseInt(e.target.dataset.index);
-          if (e.isIntersecting) {
-            visiblePages.add(idx);
-          } else {
-            visiblePages.delete(idx);
-          }
+          if (e.isIntersecting) { visiblePages.add(idx); } else { visiblePages.delete(idx); }
         });
-
         if (visiblePages.size > 0) {
           const minVisible = Math.min(...Array.from(visiblePages));
           if (minVisible !== currentPage) {
             currentPage = minVisible;
             updateIndicator();
           }
-          
-          // Debounce extractions to prevent crash during 11,000+ page high-speed scrolling
           clearTimeout(scrollDebounce);
           scrollDebounce = setTimeout(() => {
             for(let i = currentPage - 2; i <= currentPage + 4; i++) {
@@ -746,12 +696,10 @@
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
     }
 
-    // --- UI Setup ---
     function setupUI() {
       const multi = chapters.length > 1;
       chapterNav.classList.toggle('hidden', !multi);
       modeToggle.classList.toggle('hidden', !multi);
-      
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
@@ -761,7 +709,6 @@
         modeToggle.style.fontSize = '1.2rem';
         applyScrollMode();
       }
-      
       updateIndicator();
     }
 
@@ -784,42 +731,25 @@
       }
     }
 
-    // --- Navigation Logic ---
     let jumpDebounce = null; 
-
     function jumpToChapter(idx) {
       if (idx < 0 || idx >= chapters.length || isTransitioning) return;
-      
       isTransitioning = true;
       currentChIdx = idx;
       currentPage = chapters[currentChIdx].start;
-      
       if (autoRunning) stopAutoScroll();
       updateIndicator();
-
       clearTimeout(jumpDebounce);
       jumpDebounce = setTimeout(() => {
         clearTimeout(scrollDebounce);
         visiblePages.clear(); 
-
-        if (chapterMode) {
-          applyChapterMode();
-          window.scrollTo(0, 0);
-        } else {
-          applyScrollMode();
-        }
-
-        // Pre-load at destination
+        if (chapterMode) { applyChapterMode(); window.scrollTo(0, 0); } else { applyScrollMode(); }
         for (let i = currentPage; i <= Math.min(currentPage + 3, pages.length - 1); i++) loadPage(i);
         unloadDistant(); 
-
         if (!chapterMode) {
           const targetContainer = document.querySelector(`.chapter-container[data-chapter-index="${currentChIdx}"]`);
-          if (targetContainer) {
-              targetContainer.scrollIntoView({ behavior: 'auto', block: 'start' });
-          }
+          if (targetContainer) { targetContainer.scrollIntoView({ behavior: 'auto', block: 'start' }); }
         }
-        
         isTransitioning = false;
       }, 150); 
     }
@@ -829,18 +759,12 @@
       chapters.forEach((ch, idx) => {
         const btn = document.createElement('button');
         btn.className = 'cs-item' + (idx === currentChIdx ? ' active' : '');
-        
         let label = ch.name;
         if (ch.displayNum !== null && !label.toLowerCase().includes('chapter') && !label.toLowerCase().includes('ch.')) {
           label = `Ch. ${ch.displayNum} - ${label}`;
         }
         btn.textContent = label;
-        
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          jumpToChapter(idx);
-          closeChapterSelector();
-        };
+        btn.onclick = (e) => { e.stopPropagation(); jumpToChapter(idx); closeChapterSelector(); };
         csList.appendChild(btn);
       });
     }
@@ -848,30 +772,19 @@
     function openChapterSelector() {
       populateChapterSelector();
       csOverlay.classList.remove('ui-hidden');
-      setTimeout(() => {
-        const active = csList.querySelector('.active');
-        if (active) active.scrollIntoView({ block: 'center' });
-      }, 50);
+      setTimeout(() => { const active = csList.querySelector('.active'); if (active) active.scrollIntoView({ block: 'center' }); }, 50);
     }
+    function closeChapterSelector() { csOverlay.classList.add('ui-hidden'); resetIdle(); }
 
-    function closeChapterSelector() {
-      csOverlay.classList.add('ui-hidden');
-      resetIdle(); 
-    }
+    chapterLabelBtn.addEventListener('click', (e) => { e.stopPropagation(); openChapterSelector(); });
+    csClose.addEventListener('click', (e) => { e.stopPropagation(); closeChapterSelector(); });
+    csOverlay.addEventListener('click', (e) => { if (e.target === csOverlay) closeChapterSelector(); });
 
-    // --- Mode Toggles ---
     modeToggle.addEventListener('click', () => {
       if (isTransitioning) return;
       chapterMode = !chapterMode;
-      
-      if (chapterMode) {
-        modeToggle.textContent = 'Chapter';
-        modeToggle.style.fontSize = '0.75rem';
-      } else {
-        modeToggle.textContent = '∞';
-        modeToggle.style.fontSize = '1.2rem';
-      }
-
+      if (chapterMode) { modeToggle.textContent = 'Chapter'; modeToggle.style.fontSize = '0.75rem'; } 
+      else { modeToggle.textContent = '∞'; modeToggle.style.fontSize = '1.2rem'; }
       if (autoRunning) stopAutoScroll();
       jumpToChapter(currentChIdx); 
     });
@@ -882,7 +795,6 @@
         el.classList.toggle('active', parseInt(el.dataset.chapterIndex) === currentChIdx);
       });
     }
-
     function applyScrollMode() {
       readerPages.classList.remove('mode-chapter');
       document.querySelectorAll('.chapter-container').forEach(el => el.classList.remove('active'));
@@ -894,10 +806,11 @@
       autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
     }
 
-    // --- Auto-scroll Engine ---
-    let lastTime = 0;
-    let idleTimer = null;
-    let scrollAccumulator = 0; 
+    document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
+      e.stopPropagation(); autoscrollEnabled = !autoscrollEnabled; updateUI(); resetIdle();
+    });
+
+    let lastTime = 0; let idleTimer = null; let scrollAccumulator = 0; 
     const playIcon = `<svg style="transform: translateX(1px)" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>`;
     const pauseIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
     const smoothIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`;
@@ -905,24 +818,16 @@
 
     function resetIdle() {
       clearTimeout(idleTimer);
-      if (!uiHidden) {
-        idleTimer = setTimeout(() => {
-          uiHidden = true;
-          updateUI();
-        }, 4000); // UI lasts 4 seconds
-      }
+      if (!uiHidden) { idleTimer = setTimeout(() => { uiHidden = true; updateUI(); }, 4000); }
     }
 
     function autoStep(timestamp) {
       if (!autoRunning) return;
       if (!lastTime) lastTime = timestamp;
-
       if (scrollMode === 'smooth') {
         const dt = timestamp - lastTime;
         lastTime = timestamp;
         const speed = SPEED_LEVELS[speedIdx] / 16.6; 
-        
-        // Accurate fractional sub-pixel accumulator
         scrollAccumulator += speed * dt;
         if (scrollAccumulator >= 1) {
           const pixelsToScroll = Math.floor(scrollAccumulator);
@@ -935,143 +840,78 @@
           const progress = Math.min(elapsed / JUMP_DURATION, 1);
           const ease = 1 - Math.pow(1 - progress, 3);
           window.scrollTo(0, jumpStartY + (jumpTargetY - jumpStartY) * ease);
-          
-          if (progress >= 1) {
-            isJumping = false;
-            lastTime = timestamp; 
-          }
+          if (progress >= 1) { isJumping = false; lastTime = timestamp; }
         } else {
           const dt = timestamp - lastTime;
-          const currentInterval = JUMP_LEVELS[jumpIntervalIdx] * 1000;
-          if (dt >= currentInterval) {
-            isJumping = true;
-            jumpStartTime = timestamp;
-            jumpStartY = window.scrollY;
-            jumpTargetY = jumpStartY + (window.innerHeight * 0.70); // 70% height jump
+          if (dt >= JUMP_LEVELS[jumpIntervalIdx] * 1000) {
+            isJumping = true; jumpStartTime = timestamp; jumpStartY = window.scrollY;
+            jumpTargetY = jumpStartY + (window.innerHeight * 0.70);
           }
         }
       }
-
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
-        stopAutoScroll();
-      } else {
-        requestAnimationFrame(autoStep);
-      }
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) { stopAutoScroll(); } 
+      else { requestAnimationFrame(autoStep); }
     }
 
     function startAutoScroll() {
       if (isTransitioning) return;
       autoRunning = true; lastTime = 0; scrollAccumulator = 0;
       document.getElementById('as-playpause').innerHTML = pauseIcon;
-      uiHidden = true;
-      updateUI();
-      requestAnimationFrame(autoStep);
+      uiHidden = true; updateUI(); requestAnimationFrame(autoStep);
     }
-
     function stopAutoScroll() { 
-      autoRunning = false; 
-      isJumping = false;
-      document.getElementById('as-playpause').innerHTML = playIcon; 
-      resetIdle(); 
+      autoRunning = false; isJumping = false;
+      document.getElementById('as-playpause').innerHTML = playIcon; resetIdle(); 
     }
 
-    // --- Listeners ---
     [readerHeader, readerFooter, autoscrollBar].forEach(el => {
       el.addEventListener('touchstart', resetIdle, {passive: true});
       el.addEventListener('click', resetIdle);
-    });
-
-    document.getElementById('autoscroll-toggle').addEventListener('click', (e) => { 
-      e.stopPropagation(); 
-      autoscrollEnabled = !autoscrollEnabled;
-      updateUI();
-      resetIdle();
     });
 
     document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
       scrollMode = scrollMode === 'smooth' ? 'jump' : 'smooth';
       document.getElementById('as-mode-toggle').innerHTML = scrollMode === 'smooth' ? smoothIcon : jumpIcon;
-      isJumping = false;
-      lastTime = 0; 
-      updateSpeedLabel();
-      resetIdle();
+      isJumping = false; lastTime = 0; updateSpeedLabel(); resetIdle();
     });
 
     document.getElementById('as-playpause').addEventListener('click', () => autoRunning ? stopAutoScroll() : startAutoScroll());
-    
     document.getElementById('as-faster').addEventListener('click', (e) => { 
       e.stopPropagation();
-      if (scrollMode === 'smooth') {
-        if (speedIdx < SPEED_LEVELS.length-1) speedIdx++; 
-      } else {
-        if (jumpIntervalIdx < JUMP_LEVELS.length-1) jumpIntervalIdx++; 
-      }
-      updateSpeedLabel(); 
-      resetIdle(); 
+      if (scrollMode === 'smooth') { if (speedIdx < SPEED_LEVELS.length-1) speedIdx++; } 
+      else { if (jumpIntervalIdx < JUMP_LEVELS.length-1) jumpIntervalIdx++; }
+      updateSpeedLabel(); resetIdle(); 
     });
-
     document.getElementById('as-slower').addEventListener('click', (e) => { 
       e.stopPropagation();
-      if (scrollMode === 'smooth') {
-        if (speedIdx > 0) speedIdx--; 
-      } else {
-        if (jumpIntervalIdx > 0) jumpIntervalIdx--; 
-      }
-      updateSpeedLabel(); 
-      resetIdle(); 
+      if (scrollMode === 'smooth') { if (speedIdx > 0) speedIdx--; } 
+      else { if (jumpIntervalIdx > 0) jumpIntervalIdx--; }
+      updateSpeedLabel(); resetIdle(); 
     });
     
     function updateSpeedLabel() { 
       if (scrollMode === 'smooth') {
         const diff = speedIdx - 3;
         let label = '•';
-        if (diff === -3) label = '≡';
-        else if (diff === -2) label = '=';
-        else if (diff === -1) label = '-';
-        else if (diff === 1) label = 'I';
-        else if (diff === 2) label = 'II';
-        else if (diff === 3) label = 'III';
-        else if (diff === 4) label = 'IV';
+        if (diff === -3) label = '≡'; else if (diff === -2) label = '='; else if (diff === -1) label = '-';
+        else if (diff === 1) label = 'I'; else if (diff === 2) label = 'II'; else if (diff === 3) label = 'III'; else if (diff === 4) label = 'IV';
         document.getElementById('as-speed-label').textContent = label;
-      } else {
-        document.getElementById('as-speed-label').textContent = JUMP_LEVELS[jumpIntervalIdx] + 's';
-      }
+      } else { document.getElementById('as-speed-label').textContent = JUMP_LEVELS[jumpIntervalIdx] + 's'; }
     }
 
     readerPages.addEventListener('click', () => {
       if (autoRunning) { stopAutoScroll(); uiHidden = false; updateUI(); resetIdle(); return; }
-      uiHidden = !uiHidden;
-      updateUI();
-      if (!uiHidden) resetIdle();
-      else clearTimeout(idleTimer);
+      uiHidden = !uiHidden; updateUI();
+      if (!uiHidden) resetIdle(); else clearTimeout(idleTimer);
     });
 
-    chapterLabelBtn.addEventListener('click', (e) => { e.stopPropagation(); openChapterSelector(); });
-    csClose.addEventListener('click', (e) => { e.stopPropagation(); closeChapterSelector(); });
-    csOverlay.addEventListener('click', (e) => { if (e.target === csOverlay) closeChapterSelector(); });
     document.getElementById('close-btn').addEventListener('click', () => { location.reload(); });
-    
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && autoRunning) {
-        stopAutoScroll();
-        uiHidden = false; 
-        updateUI();
-        resetIdle();
-      }
+      if (document.hidden && autoRunning) { stopAutoScroll(); uiHidden = false; updateUI(); resetIdle(); }
     });
-
-    document.getElementById('next-ch').addEventListener('click', (e) => {
-      e.stopPropagation();
-      jumpToChapter(currentChIdx + 1);
-      resetIdle();
-    });
-
-    document.getElementById('prev-ch').addEventListener('click', (e) => {
-      e.stopPropagation();
-      jumpToChapter(currentChIdx - 1);
-      resetIdle();
-    });
+    document.getElementById('next-ch').addEventListener('click', (e) => { e.stopPropagation(); jumpToChapter(currentChIdx + 1); resetIdle(); });
+    document.getElementById('prev-ch').addEventListener('click', (e) => { e.stopPropagation(); jumpToChapter(currentChIdx - 1); resetIdle(); });
   </script>
 </body>
 </html>

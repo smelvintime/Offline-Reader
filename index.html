@@ -456,7 +456,7 @@
     let blobUrls = [];
     let currentPage = 0;
     let currentChIdx = 0;
-    let chapterMode = false;
+    let chapterMode = true; // Changed: Chapter Mode is now the default
     let autoRunning = false;
     let speedIdx = 3;
     let uiHidden = false;
@@ -586,27 +586,20 @@
 
       comicTitle.textContent = getComicTitle(files);
 
-      if (files.length === 1) {
-        const zip = await JSZip.loadAsync(await files[0].arrayBuffer());
-        const groups = await extractEntries(zip, files[0].name);
+      // Uniformly route all selections (single or multiple) through the extractor
+      files.sort((a,b) => naturalSort(a.name, b.name));
+      
+      for (const f of files) {
+        loadingText.textContent = `Reading: ${f.name}`;
+        const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        
+        const groups = await extractEntries(zip, f.name);
         groups.forEach(g => {
           const start = pages.length;
           g.images.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
           const { displayNum, cleanName } = extractChapterInfo(g.name);
           chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
         });
-      } else {
-        files.sort((a,b) => naturalSort(a.name, b.name));
-        for (const f of files) {
-          const zip = await JSZip.loadAsync(await f.arrayBuffer());
-          const imgs = Object.values(zip.files).filter(f => !f.dir && IMAGE_EXT.test(f.name)).sort((a,b) => naturalSort(a.name, b.name));
-          if (imgs.length) {
-            const start = pages.length;
-            imgs.forEach(entry => pages.push({ entry, url: null, loading: false, aspectLocked: false }));
-            const { displayNum, cleanName } = extractChapterInfo(f.name);
-            chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
-          }
-        }
       }
 
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
@@ -700,24 +693,36 @@
     }
 
     let visiblePages = new Set();
+    let scrollDebounce = null; // Added to prevent rapid-scroll crashing
+
     function setupObservers() {
       const observer = new IntersectionObserver(entries => {
         entries.forEach(e => {
           const idx = parseInt(e.target.dataset.index);
           if (e.isIntersecting) {
             visiblePages.add(idx);
-            for(let i = idx - 2; i <= idx + 4; i++) if(i >= 0 && i < pages.length) loadPage(i);
           } else {
             visiblePages.delete(idx);
           }
         });
+
         if (visiblePages.size > 0) {
           const minVisible = Math.min(...Array.from(visiblePages));
           if (minVisible !== currentPage) {
             currentPage = minVisible;
             updateIndicator();
-            unloadDistant();
           }
+          
+          // --- FAST SCROLL CRASH FIX ---
+          // Wait 100ms before extracting files. If you are scrolling through 11,000 pages 
+          // super fast, this ignores the middle pages and only extracts where you actually stop.
+          clearTimeout(scrollDebounce);
+          scrollDebounce = setTimeout(() => {
+            for(let i = currentPage - 2; i <= currentPage + 4; i++) {
+              if(i >= 0 && i < pages.length) loadPage(i);
+            }
+            unloadDistant();
+          }, 100);
         }
       }, { threshold: 0.05 }); 
       document.querySelectorAll('.page-wrapper').forEach(w => observer.observe(w));
@@ -727,6 +732,18 @@
       const multi = chapters.length > 1;
       chapterNav.classList.toggle('hidden', !multi);
       modeToggle.classList.toggle('hidden', !multi);
+      
+      // Setup the button correctly based on the new default
+      if (chapterMode) {
+        modeToggle.textContent = 'Chapter';
+        modeToggle.style.fontSize = '0.75rem';
+        applyChapterMode();
+      } else {
+        modeToggle.textContent = '∞';
+        modeToggle.style.fontSize = '1.2rem';
+        applyScrollMode();
+      }
+      
       updateIndicator();
     }
 

@@ -477,7 +477,7 @@
     let jumpStartY = 0;
     let jumpTargetY = 0;
     let jumpStartTime = 0;
-    const JUMP_DURATION = 250; 
+    const JUMP_DURATION = 120; // Cut from 250ms for a much quicker snap!
     const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5]; 
 
     const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
@@ -800,12 +800,19 @@
         clearTimeout(scrollDebounce);
         visiblePages.clear(); 
 
+        // FIX: Properly apply the correct CSS mode so Infinite Mode un-hides the other chapters
         if (chapterMode) {
           applyChapterMode();
           window.scrollTo(0, 0);
-          for (let i = currentPage; i <= Math.min(currentPage + 3, chapters[currentChIdx].end); i++) loadPage(i);
-          unloadDistant(); // Instantly wipe distant memory to prevent crash
         } else {
+          applyScrollMode();
+        }
+
+        // Instantly load the pages at our destination to prevent staring at empty placeholders
+        for (let i = currentPage; i <= Math.min(currentPage + 3, pages.length - 1); i++) loadPage(i);
+        unloadDistant(); 
+
+        if (!chapterMode) {
           // Optimized scroll-into-view targeting the container wrapper
           const targetContainer = document.querySelector(`.chapter-container[data-chapter-index="${currentChIdx}"]`);
           if (targetContainer) {
@@ -921,7 +928,7 @@
         idleTimer = setTimeout(() => {
           uiHidden = true;
           updateUI();
-        }, 2000); 
+        }, 4000); 
       }
     }
 

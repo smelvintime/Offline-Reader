@@ -414,49 +414,37 @@
       padding: 0 1rem; /* space between | separator and diamond */
     }
 
-    /* ── Size-cap notice banner ── */
-    #size-notice {
+    /* ── Notice banners — shared layout ── */
+    #size-notice, #order-notice {
       position: fixed;
-      top: calc(3rem + env(safe-area-inset-top, 0px));
       left: 50%;
       transform: translateX(-50%);
-      z-index: 150;
+      width: max-content;
+      max-width: calc(100vw - 0.8rem);
       display: flex;
       align-items: center;
       gap: 0.6rem;
-      background: rgba(180, 120, 0, 0.92);
       color: #fff;
       font-size: 0.8rem;
       font-weight: 600;
-      padding: 0.5rem 0.9rem 0.5rem 1rem;
-      border-radius: 16px;
+      padding: 0.45rem 0.9rem 0.45rem 1rem;
+      border-radius: 12px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      max-width: calc(100vw - 0.5rem);
       white-space: normal;
       pointer-events: auto;
+    }
+    #size-notice {
+      top: calc(3rem + env(safe-area-inset-top, 0px));
+      z-index: 150;
+      background: rgba(180, 120, 0, 0.92);
     }
     #size-notice.hidden { display: none !important; }
 
     /* ── Order-warning notice (blue/info) ── */
     #order-notice {
-      position: fixed;
       top: calc(3rem + env(safe-area-inset-top, 0px));
-      left: 50%;
-      transform: translateX(-50%);
       z-index: 149;
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
       background: rgba(30, 90, 180, 0.92);
-      color: #fff;
-      font-size: 0.8rem;
-      font-weight: 600;
-      padding: 0.5rem 0.9rem 0.5rem 1rem;
-      border-radius: 16px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      max-width: calc(100vw - 0.5rem);
-      white-space: normal;
-      pointer-events: auto;
     }
     /* If size-notice is also visible, push order-notice below it */
     #size-notice:not(.hidden) ~ #order-notice {

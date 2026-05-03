@@ -14,12 +14,13 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:     #0a0a0a;
-      --surf:   rgba(255, 255, 255, 0.08);
-      --border: rgba(255, 255, 255, 0.1);
-      --accent: #6366f1;
-      --text:   #f0f0f0;
-      --muted:  #a0a0a0;
+      --bg:       #0a0a0a;
+      --surf:     rgba(255, 255, 255, 0.08);
+      --border:   rgba(255, 255, 255, 0.1);
+      --accent:   #6366f1;
+      --text:     #f0f0f0;
+      --muted:    #a0a0a0;
+      --page-gap: 0px;
     }
 
     html, body {
@@ -149,10 +150,14 @@
     #reader-footer.ui-hidden { transform: translateY(100%); }
 
     #comic-title {
-      flex: 1;
+      position: absolute;
+      left: 0; right: 0;
+      text-align: center;
+      padding: 0 3.5rem; /* keep clear of back button (left) and mode toggle (right) */
       font-size: .85rem; font-weight: 700;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+      pointer-events: none;
     }
 
     /* ── Scrolling Area ── */
@@ -171,17 +176,21 @@
     }
     .reader-top-decor {
       padding-top: calc(env(safe-area-inset-top, 0px) + 3rem);
+      flex-direction: column;
+      gap: 1rem;
     }
     .reader-bottom-decor {
       padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6rem);
     }
 
     /* #chapter-slot uses flex-column so sub-pixel aspect-ratio rounding doesn't
-       leave hairline gaps between pages (especially visible on 3× iPhone screens) */
+       leave hairline gaps between pages (especially visible on 3× iPhone screens).
+       --page-gap is controlled by the gap toggle button and persisted to localStorage. */
     #chapter-slot {
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: var(--page-gap);
     }
 
     .page-wrapper {
@@ -244,6 +253,7 @@
     #chapter-label-btn:active { background: rgba(255,255,255,0.15); }
 
     #mode-toggle {
+      margin-left: auto;
       font-weight: 700;
       background: var(--surf);
       border: 1px solid var(--border);
@@ -348,11 +358,18 @@
     #cs-overlay.ui-hidden #cs-modal { transform: translateY(100%); }
 
     .cs-header {
-      display: flex; justify-content: space-between; align-items: center;
+      position: relative;
+      display: flex; align-items: center;
       padding: 1.2rem 1.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
     }
-    .cs-header h3 { font-size: 1.1rem; margin: 0; font-weight: 700; color: #fff; }
+    .cs-header h3 {
+      font-size: 1.1rem; margin: 0; font-weight: 700; color: #fff;
+      width: 100%; text-align: center;
+      padding: 0 2.5rem; /* keep text clear of the absolute-positioned close button */
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     #cs-close {
+      position: absolute; right: 1.5rem;
       background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.05); color: var(--text);
       width: 30px; height: 30px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -458,6 +475,46 @@
       display: flex; align-items: center;
       flex-shrink: 0; /* always stays visible even when text wraps */
     }
+
+    /* ── In-reader resume prompt ── */
+    #in-reader-resume {
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 14px;
+      padding: 0.55rem 1.1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.1rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s;
+      width: calc(100% - 2rem);
+      max-width: 420px;
+    }
+    #in-reader-resume:active { background: rgba(99, 102, 241, 0.18); }
+    #in-reader-resume .resume-label {
+      font-size: 0.65rem; font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    #in-reader-resume .resume-body {
+      font-size: 0.8rem; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      width: 100%;
+      text-align: center;
+    }
+
+    /* ── Mini resume button (footer, bookmark icon) ── */
+    #resume-mini-btn { color: var(--accent); }
+
+    /* ── Upload screen resume hint ── */
+    #upload-session-hint {
+      font-size: 0.78rem;
+      color: var(--muted);
+      opacity: 0.8;
+      margin-top: -0.75rem;
+    }
   </style>
 </head>
 <body>
@@ -498,6 +555,7 @@
 
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
     <p class="hint">600 MB limit</p>
+    <p id="upload-session-hint" class="hidden">↩ Re-upload to resume: <span id="upload-hint-title"></span></p>
   </div>
 
   <div id="loading-screen">
@@ -508,7 +566,11 @@
   <div id="reader-screen">
     <header id="reader-header">
       <button class="icon-btn" id="close-btn">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 7L13 10L10 13L7 10Z"/>
+          <rect x="1" y="9.5" width="4" height="1" rx="0.5"/>
+          <rect x="15" y="9.5" width="4" height="1" rx="0.5"/>
+        </svg>
       </button>
       <span id="comic-title">Comic</span>
       <button id="mode-toggle" class="hidden" style="font-size: 0.75rem;">Chapter</button>
@@ -523,7 +585,18 @@
         <button class="icon-btn" id="chapter-label-btn">1/1</button>
         <button class="icon-btn" id="next-ch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       </div>
-      <button class="icon-btn" id="autoscroll-toggle" style="margin-left: auto;">
+      <button class="icon-btn" id="gap-toggle" style="margin-left: auto;">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <rect x="2" y="2" width="16" height="6" rx="1"/>
+          <rect x="2" y="12" width="16" height="6" rx="1"/>
+        </svg>
+      </button>
+      <button class="icon-btn hidden" id="resume-mini-btn" title="Resume reading">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="autoscroll-toggle">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
       </button>
     </footer>
@@ -593,6 +666,18 @@
     // rapid taps cancel the previous pending render before queueing a new one.
     let chapterJumpTimer = null;
 
+    // Session persistence — remembers title, chapter, and page across iOS evictions.
+    let lastLoadedFileNames  = []; // sorted file names from the most recent load
+    let sessionSaveTimer     = null;
+    // True while a valid saved session exists for the current files and the user
+    // hasn't yet tapped Resume or navigated away from chapter 1.
+    let sessionPendingResume = false;
+
+    // Page gap — cycles through Off / Small / Large to add breathing room between pages.
+    const GAP_LEVELS = [0, 16, 40]; // px
+    let gapLevel = parseInt(localStorage.getItem('or.gap') || '0');
+    if (gapLevel < 0 || gapLevel >= GAP_LEVELS.length) gapLevel = 0;
+
     // --- Jump Mode State ---
     let scrollMode = 'smooth';
     let jumpIntervalIdx = 3;
@@ -636,6 +721,47 @@
     const csOverlay      = document.getElementById('cs-overlay');
     const csList         = document.getElementById('cs-list');
     const csClose        = document.getElementById('cs-close');
+
+    // --- Session persistence ---
+    function saveSession() {
+      if (!chapters.length || !lastLoadedFileNames.length) return;
+      const ch = chapters[currentChIdx];
+      const chDisplay = ch.displayNum !== null ? ch.displayNum : (currentChIdx + 1);
+      try {
+        localStorage.setItem('or.session', JSON.stringify({
+          title:         comicTitle.textContent,
+          chIdx:         currentChIdx,
+          pageIdx:       currentPage,
+          chDisplay,
+          pageInChapter: currentPage - ch.start + 1,
+          files:         lastLoadedFileNames,
+        }));
+      } catch (e) {}
+    }
+    function loadSavedSession() {
+      try { return JSON.parse(localStorage.getItem('or.session')); } catch (e) { return null; }
+    }
+    function clearSession() { localStorage.removeItem('or.session'); }
+
+    // Dismisses all resume UI (both the big in-reader button and the footer mini button).
+    // Call this when the user explicitly resumes — NOT when auto-transitioning big → mini.
+    function clearResumeUI() {
+      sessionPendingResume = false;
+      const bigBtn = document.getElementById('in-reader-resume');
+      if (bigBtn) bigBtn.remove();
+      document.getElementById('resume-mini-btn').classList.add('hidden');
+    }
+
+    // Show a discrete hint on the upload screen if there is a saved session to return to.
+    function initUploadHint() {
+      const saved = loadSavedSession();
+      if (!saved || !saved.title) return;
+      let label = saved.title;
+      if (saved.chDisplay != null) label += ' \xb7 Ch. ' + saved.chDisplay;
+      if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
+      document.getElementById('upload-hint-title').textContent = label;
+      document.getElementById('upload-session-hint').classList.remove('hidden');
+    }
 
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -743,7 +869,44 @@
 
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
-      topDecor.innerHTML = GEOMETRIC_SVG;
+      // Determine if a resume prompt applies for the currently-loaded files.
+      const saved = loadSavedSession();
+      // If saved.files is absent (pre-v2 session), trust the session as a one-time
+      // fallback; otherwise require an exact sorted-filename match so stale sessions
+      // from a different series don't surface.
+      const namesMatch = saved && (
+        !saved.files ||
+        (saved.files.length === lastLoadedFileNames.length &&
+         saved.files.every((n, i) => n === lastLoadedFileNames[i]))
+      );
+      const hasResume = namesMatch && saved.chIdx < chapters.length;
+      if (hasResume && chapterMode) {
+        const resumeEl = document.createElement('button');
+        resumeEl.id = 'in-reader-resume';
+        resumeEl.innerHTML =
+          `<span class="resume-label">Resume Reading</span>` +
+          `<span class="resume-body">${saved.title} &middot; Ch. ${saved.chDisplay} &middot; p. ${saved.pageInChapter}</span>`;
+        resumeEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          clearResumeUI();
+          jumpToChapter(saved.chIdx, saved.pageIdx);
+          resetIdle();
+        });
+        topDecor.appendChild(resumeEl);
+        sessionPendingResume = true;
+      } else if (hasResume) {
+        // Scroll mode: activate the footer mini button instead of the big button.
+        document.getElementById('resume-mini-btn').classList.remove('hidden');
+        sessionPendingResume = true;
+      }
+
+      // Geometric logo — always rendered, below the resume button when present.
+      // Use firstElementChild (not firstChild) — the template literal starts with
+      // a newline so firstChild would be a text node, not the SVG element.
+      const svgWrap = document.createElement('div');
+      svgWrap.innerHTML = GEOMETRIC_SVG;
+      topDecor.appendChild(svgWrap.firstElementChild);
+
       frag.appendChild(topDecor);
 
       const slot = document.createElement('div');
@@ -868,6 +1031,7 @@
       if (!files.length) { isLoading = false; return; }
 
       showScreen('loading-screen');
+      lastLoadedFileNames = files.map(f => f.name).sort();
 
       // Revoke any URLs from a previous session and fully reset state.
       pages.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
@@ -877,6 +1041,10 @@
       window.scrollTo(0, 0);
       maxChapterNum = 0;
       baseChapterOffset = 0;
+
+      // Reset resume state so a fresh load starts clean.
+      sessionPendingResume = false;
+      document.getElementById('resume-mini-btn').classList.add('hidden');
 
       // Hide any leftover notices from a previous load.
       document.getElementById('size-notice').classList.add('hidden');
@@ -1196,11 +1364,6 @@
       chapterNav.classList.toggle('hidden', !multi);
       modeToggle.classList.toggle('hidden', !multi);
 
-      // In chapter mode the footer prev/next arrows are replaced by the bottom
-      // decorator nav; in scroll mode the footer arrows are the primary controls.
-      document.getElementById('prev-ch').classList.toggle('hidden', chapterMode);
-      document.getElementById('next-ch').classList.toggle('hidden', chapterMode);
-
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
@@ -1230,6 +1393,9 @@
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
       }
+      // Debounce session save — writes position 1.5 s after scrolling settles.
+      clearTimeout(sessionSaveTimer);
+      sessionSaveTimer = setTimeout(saveSession, 1500);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1276,8 +1442,17 @@
       }
     }
 
-    function jumpToChapter(idx) {
+    function jumpToChapter(idx, targetPageIdx = null) {
       if (idx < 0 || idx >= chapters.length) return;
+
+      // Resume transition: if user navigates away from chapter 1 without tapping
+      // the big resume button, auto-dismiss it and show the mini bookmark button instead.
+      if (sessionPendingResume && idx > 0) {
+        const bigBtn = document.getElementById('in-reader-resume');
+        if (bigBtn) bigBtn.remove();
+        sessionPendingResume = false;
+        document.getElementById('resume-mini-btn').classList.remove('hidden');
+      }
 
       if (chapterMode) {
         // Tear down current chapter: revoke URLs, clear img srcs, wipe DOM slot.
@@ -1298,8 +1473,19 @@
         chapterJumpTimer = setTimeout(() => {
           renderChapter(currentChIdx);
           updateBottomDecor(); // refresh prev/next arrow availability
-          for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
+          // When restoring a session, jump to the saved page; otherwise start from top.
+          const ch = chapters[currentChIdx];
+          const startIdx = (targetPageIdx !== null)
+            ? Math.min(Math.max(targetPageIdx, ch.start), ch.end)
+            : currentPage;
+          for (let i = startIdx; i <= Math.min(startIdx + 5, ch.end); i++) {
             loadPage(i);
+          }
+          if (targetPageIdx !== null) {
+            const wrap = ch.wrappers[startIdx - ch.start];
+            if (wrap) wrap.scrollIntoView();
+            currentPage = startIdx;
+            updateIndicator();
           }
         }, 150);
       } else {
@@ -1330,6 +1516,7 @@
     }
 
     function openChapterSelector() {
+      document.querySelector('.cs-header h3').textContent = comicTitle.textContent;
       populateChapterSelector();
       csOverlay.classList.remove('ui-hidden');
       setTimeout(() => {
@@ -1370,15 +1557,10 @@
     // --- Mode Toggle ---
     modeToggle.addEventListener('click', () => {
       chapterMode = !chapterMode;
-      const prevChBtn = document.getElementById('prev-ch');
-      const nextChBtn = document.getElementById('next-ch');
 
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
-        // Footer prev/next replaced by bottom-decor nav in chapter mode.
-        prevChBtn.classList.add('hidden');
-        nextChBtn.classList.add('hidden');
         // 150 ms defer: same crash-prevention as jumpToChapter.
         teardownAll();
         window.scrollTo(0, 0);
@@ -1393,9 +1575,14 @@
       } else {
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
-        // Restore footer nav in scroll mode; plain geometric bottom decor.
-        prevChBtn.classList.remove('hidden');
-        nextChBtn.classList.remove('hidden');
+        // When switching to scroll mode, if the big resume button is still showing,
+        // dismiss it and activate the footer mini button instead.
+        if (sessionPendingResume) {
+          const bigBtn = document.getElementById('in-reader-resume');
+          if (bigBtn) bigBtn.remove();
+          sessionPendingResume = false;
+          document.getElementById('resume-mini-btn').classList.remove('hidden');
+        }
         teardownAll();
         renderAllChapters();
         updateBottomDecor();
@@ -1416,6 +1603,23 @@
       readerFooter.classList.toggle('ui-hidden', uiHidden);
       autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
     }
+
+    function applyGap() {
+      document.documentElement.style.setProperty('--page-gap', GAP_LEVELS[gapLevel] + 'px');
+      const btn = document.getElementById('gap-toggle');
+      btn.style.color = gapLevel > 0 ? 'var(--accent)' : '';
+      try { localStorage.setItem('or.gap', gapLevel); } catch (e) {}
+    }
+
+    document.getElementById('gap-toggle').addEventListener('click', (e) => {
+      e.stopPropagation();
+      gapLevel = (gapLevel + 1) % GAP_LEVELS.length;
+      applyGap();
+      resetIdle();
+    });
+
+    // Apply saved gap on load.
+    applyGap();
 
     document.getElementById('autoscroll-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1590,11 +1794,15 @@
     document.getElementById('close-btn').addEventListener('click', () => { location.reload(); });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && autoRunning) {
-        stopAutoScroll();
-        uiHidden = false;
-        updateUI();
-        resetIdle();
+      if (document.hidden) {
+        // Save immediately — this is the last reliable moment before iOS may evict the page.
+        saveSession();
+        if (autoRunning) {
+          stopAutoScroll();
+          uiHidden = false;
+          updateUI();
+          resetIdle();
+        }
       }
     });
 
@@ -1610,6 +1818,20 @@
       jumpToChapter(currentChIdx - 1);
       resetIdle();
     });
+
+    // Mini resume button — shown in footer after dismissing big resume prompt,
+    // or always in scroll mode when a saved session exists.
+    document.getElementById('resume-mini-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const saved = loadSavedSession();
+      if (!saved) return;
+      clearResumeUI();
+      jumpToChapter(saved.chIdx, saved.pageIdx);
+      resetIdle();
+    });
+
+    // Show a discrete upload-screen hint if there's a previous session to return to.
+    initUploadHint();
   </script>
 </body>
 </html>

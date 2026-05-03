@@ -1,8 +1,9 @@
-const CACHE_NAME = 'cbz-reader-v2.5';
+const CACHE_NAME = 'cbz-reader-v2.6';
 const SHELL_ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
 ];
 

@@ -374,38 +374,37 @@
       align-items: center;
       width: 100%;
       max-width: 400px;
-      padding: 0 2.5rem; /* pull buttons away from screen edges */
     }
     .ch-bottom-nav-btn {
+      flex: 1;                  /* equal width columns guarantee diamond stays centred */
       background: none;
       border: none;
       color: var(--muted);
       display: flex;
       align-items: center;
       gap: 1rem;
-      padding: 0.9rem 1.5rem; /* ~44 px tall tap target */
+      padding: 0.9rem 1.5rem;   /* ~44 px tall tap target */
       cursor: pointer;
       opacity: 0.7;
       font-family: 'Courier New', monospace;
       font-size: 0.9rem;
       letter-spacing: 0.05em;
-      flex-shrink: 0;
       user-select: none;
       -webkit-user-select: none;
       transition: opacity 0.15s;
     }
     .ch-bottom-nav-btn:active { opacity: 0.35; }
     .ch-bottom-nav-btn:disabled { opacity: 0.18; pointer-events: none; }
-    /* Strip inner padding so | sits flush at the button's visual edge */
-    .ch-bottom-nav-btn:first-child { padding-right: 0; }
-    .ch-bottom-nav-btn:last-child  { padding-left: 0; }
+    /* Prev: right-align so | sits at the inner edge; Next: left-align same way */
+    .ch-bottom-nav-btn:first-child { justify-content: flex-end;   padding-right: 0; }
+    .ch-bottom-nav-btn:last-child  { justify-content: flex-start; padding-left: 0; }
     .ch-nav-sep { opacity: 0.45; }
     .ch-bottom-nav-center {
       flex: 1;
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 0 1.75rem; /* space between | separator and diamond */
+      padding: 0 1rem; /* space between | separator and diamond */
     }
 
     /* ── Size-cap notice banner ── */
@@ -847,8 +846,9 @@
         // nodes hold their pixel data in memory even after slot.innerHTML='',
         // causing an OOM crash on iPhone when the next chapter starts loading.
         if (p.el) { p.el.src = ''; p.el.onload = null; }
-        p.el   = null;
-        p.wrap = null;
+        p.el          = null;
+        p.wrap        = null;
+        p.aspectLocked = false; // reset so the new wrapper gets the correct ratio on reload
       });
 
       const slot = document.getElementById('chapter-slot');

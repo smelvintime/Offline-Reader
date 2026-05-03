@@ -422,9 +422,10 @@
       font-size: 0.8rem;
       font-weight: 600;
       padding: 0.5rem 0.9rem 0.5rem 1rem;
-      border-radius: 100px;
+      border-radius: 16px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      white-space: nowrap;
+      max-width: calc(100vw - 2rem);
+      white-space: normal;
       pointer-events: auto;
     }
     #size-notice.hidden { display: none !important; }
@@ -444,9 +445,10 @@
       font-size: 0.8rem;
       font-weight: 600;
       padding: 0.5rem 0.9rem 0.5rem 1rem;
-      border-radius: 100px;
+      border-radius: 16px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      white-space: nowrap;
+      max-width: calc(100vw - 2rem);
+      white-space: normal;
       pointer-events: auto;
     }
     /* If size-notice is also visible, push order-notice below it */
@@ -454,18 +456,12 @@
       top: calc(5.5rem + env(safe-area-inset-top, 0px));
     }
     #order-notice.hidden { display: none !important; }
-    #order-notice-dismiss {
+    #order-notice-dismiss, #size-notice-dismiss {
       background: none; border: none; color: #fff;
       padding: 0; cursor: pointer; line-height: 1;
       opacity: 0.85; font-size: 1rem;
       display: flex; align-items: center;
-    }
-
-    #size-notice-dismiss {
-      background: none; border: none; color: #fff;
-      padding: 0; cursor: pointer; line-height: 1;
-      opacity: 0.85; font-size: 1rem;
-      display: flex; align-items: center;
+      flex-shrink: 0; /* always stays visible even when text wraps */
     }
   </style>
 </head>

@@ -564,7 +564,9 @@
     <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+          integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
+          crossorigin="anonymous"></script>
   <script>
     // --- Service Worker ---
     if ('serviceWorker' in navigator) {
@@ -586,6 +588,10 @@
 
     // pageObserver is module-level so it can be disconnected before recreation on reload.
     let pageObserver = null;
+
+    // chapterJumpTimer guards the 150 ms deferred render in jumpToChapter so that
+    // rapid taps cancel the previous pending render before queueing a new one.
+    let chapterJumpTimer = null;
 
     // --- Jump Mode State ---
     let scrollMode = 'smooth';
@@ -853,10 +859,13 @@
     // File Loading
     // ─────────────────────────────────────────────────────────────────────────────
 
+    let isLoading = false;
     fileInput.addEventListener('change', async e => {
+      if (isLoading) return;
+      isLoading = true;
       const files = Array.from(e.target.files).filter(f => ARCHIVE_EXT.test(f.name));
       fileInput.value = ''; // Reset so the same file can be re-opened without a page reload
-      if (!files.length) return;
+      if (!files.length) { isLoading = false; return; }
 
       showScreen('loading-screen');
 
@@ -894,6 +903,7 @@
         document.getElementById('order-notice-text').textContent =
           '⚠ Multiple series detected — please load one series at a time';
         showNotice(document.getElementById('order-notice'));
+        isLoading = false;
         return;
       }
 
@@ -1048,6 +1058,7 @@
           document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed 600 MB limit';
           showNotice(notice);
         }
+        isLoading = false;
         return;
       }
 
@@ -1070,6 +1081,7 @@
       if (chapterMode && chapters.length > 0) {
         jumpToChapter(0);
       }
+      isLoading = false;
     });
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1280,7 +1292,10 @@
         // WebKit's image-resource cleanup runs during GC, which needs idle time.
         // 150 ms is imperceptible to users but reliably prevents the OOM crash on
         // large chapters.
-        setTimeout(() => {
+        // clearTimeout ensures rapid taps cancel the previous pending render so
+        // we never queue two renderChapter calls for the same slot.
+        clearTimeout(chapterJumpTimer);
+        chapterJumpTimer = setTimeout(() => {
           renderChapter(currentChIdx);
           updateBottomDecor(); // refresh prev/next arrow availability
           for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
@@ -1298,7 +1313,7 @@
 
     // --- Chapter Selector Modal ---
     function populateChapterSelector() {
-      csList.innerHTML = '';
+      const frag = document.createDocumentFragment();
       chapters.forEach((ch, idx) => {
         const btn = document.createElement('button');
         btn.className = 'cs-item' + (idx === currentChIdx ? ' active' : '');
@@ -1308,8 +1323,10 @@
           jumpToChapter(idx);
           closeChapterSelector();
         };
-        csList.appendChild(btn);
+        frag.appendChild(btn);
       });
+      csList.innerHTML = '';
+      csList.appendChild(frag); // single reflow instead of one per chapter
     }
 
     function openChapterSelector() {
@@ -1365,7 +1382,8 @@
         // 150 ms defer: same crash-prevention as jumpToChapter.
         teardownAll();
         window.scrollTo(0, 0);
-        setTimeout(() => {
+        clearTimeout(chapterJumpTimer);
+        chapterJumpTimer = setTimeout(() => {
           renderChapter(currentChIdx);
           updateBottomDecor();
           for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {

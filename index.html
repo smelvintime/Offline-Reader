@@ -374,6 +374,7 @@
       align-items: center;
       width: 100%;
       max-width: 400px;
+      padding: 0 2.5rem; /* pull buttons away from screen edges */
     }
     .ch-bottom-nav-btn {
       background: none;
@@ -381,8 +382,8 @@
       color: var(--muted);
       display: flex;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.6rem 1rem;
+      gap: 1rem;
+      padding: 0.9rem 1.5rem; /* ~44 px tall tap target */
       cursor: pointer;
       opacity: 0.7;
       font-family: 'Courier New', monospace;
@@ -395,6 +396,9 @@
     }
     .ch-bottom-nav-btn:active { opacity: 0.35; }
     .ch-bottom-nav-btn:disabled { opacity: 0.18; pointer-events: none; }
+    /* Strip inner padding so | sits flush at the button's visual edge */
+    .ch-bottom-nav-btn:first-child { padding-right: 0; }
+    .ch-bottom-nav-btn:last-child  { padding-left: 0; }
     .ch-nav-sep { opacity: 0.45; }
     .ch-bottom-nav-center {
       flex: 1;
@@ -963,12 +967,32 @@
         return an - bn;
       });
 
+      // ── Phase 2.5: deduplicate ────────────────────────────────────────────────────
+      // After sorting, any group whose chapter number (or normalised name for
+      // unnumbered chapters) has already appeared is a duplicate — the user loaded
+      // overlapping zips. Keep the first occurrence, drop the rest, warn if any removed.
+      const seenNums  = new Set();
+      const seenNames = new Set();
+      let dupCount = 0;
+      const dedupedGroups = allGroups.filter(({ group: g }) => {
+        const { displayNum } = extractChapterInfo(g.name);
+        if (displayNum !== null) {
+          if (seenNums.has(displayNum)) { dupCount++; return false; }
+          seenNums.add(displayNum);
+        } else {
+          const key = g.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (key && seenNames.has(key)) { dupCount++; return false; }
+          if (key) seenNames.add(key);
+        }
+        return true;
+      });
+
       // ── Phase 3: apply cap in sorted order, then build pages[]/chapters[] ─────────
       let bytesLoaded    = 0;
       let skippedChapters = 0;
       let capReached     = false;
 
-      for (const { group: g, groupBytes } of allGroups) {
+      for (const { group: g, groupBytes } of dedupedGroups) {
         if (capReached || bytesLoaded + groupBytes > SIZE_CAP) {
           capReached = true;
           skippedChapters++;
@@ -996,6 +1020,10 @@
       if (innerSeriesKeys.size > 1 && outerKeys.size > 1) {
         document.getElementById('order-notice-text').textContent =
           '⚠ Multiple series detected — please load one series at a time';
+        document.getElementById('order-notice').classList.remove('hidden');
+      } else if (dupCount > 0) {
+        document.getElementById('order-notice-text').textContent =
+          `⚠ ${dupCount} duplicate chapter${dupCount > 1 ? 's' : ''} removed — overlapping zips detected`;
         document.getElementById('order-notice').classList.remove('hidden');
       } else if (emptyFiles.length > 0) {
         const n = emptyFiles.length;
@@ -1283,11 +1311,7 @@
       chapters.forEach((ch, idx) => {
         const btn = document.createElement('button');
         btn.className = 'cs-item' + (idx === currentChIdx ? ' active' : '');
-        let label = ch.name;
-        if (ch.displayNum !== null && !label.toLowerCase().includes('chapter') && !label.toLowerCase().includes('ch.')) {
-          label = `Ch. ${ch.displayNum} - ${label}`;
-        }
-        btn.textContent = label;
+        btn.textContent = ch.name;
         btn.onclick = (e) => {
           e.stopPropagation();
           jumpToChapter(idx);

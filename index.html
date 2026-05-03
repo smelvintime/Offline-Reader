@@ -368,6 +368,42 @@
 
     .hidden { display: none !important; }
 
+    /* ── Bottom chapter nav (chapter mode only) ── */
+    .ch-bottom-nav {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      max-width: 400px;
+    }
+    .ch-bottom-nav-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.6rem 1rem;
+      cursor: pointer;
+      opacity: 0.7;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: opacity 0.15s;
+    }
+    .ch-bottom-nav-btn:active { opacity: 0.35; }
+    .ch-bottom-nav-btn:disabled { opacity: 0.18; pointer-events: none; }
+    .ch-nav-sep { opacity: 0.45; }
+    .ch-bottom-nav-center {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 0 1.75rem; /* space between | separator and diamond */
+    }
+
     /* ── Size-cap notice banner ── */
     #size-notice {
       position: fixed;
@@ -715,8 +751,9 @@
       frag.appendChild(slot);
 
       const botDecor = document.createElement('div');
+      botDecor.id = 'bot-decor';
       botDecor.className = 'reader-decor reader-bottom-decor';
-      botDecor.innerHTML = GEOMETRIC_SVG;
+      botDecor.innerHTML = GEOMETRIC_SVG; // updateBottomDecor() will replace in chapter mode
       frag.appendChild(botDecor);
 
       readerPages.appendChild(frag);
@@ -1128,6 +1165,11 @@
       chapterNav.classList.toggle('hidden', !multi);
       modeToggle.classList.toggle('hidden', !multi);
 
+      // In chapter mode the footer prev/next arrows are replaced by the bottom
+      // decorator nav; in scroll mode the footer arrows are the primary controls.
+      document.getElementById('prev-ch').classList.toggle('hidden', chapterMode);
+      document.getElementById('next-ch').classList.toggle('hidden', chapterMode);
+
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
@@ -1139,6 +1181,7 @@
       }
 
       updateIndicator();
+      updateBottomDecor();
     }
 
     function updateIndicator() {
@@ -1162,23 +1205,69 @@
     // Chapter Navigation
     // ─────────────────────────────────────────────────────────────────────────────
 
+    // Refresh the bottom decorator for the current mode and chapter position.
+    // Chapter mode + multi-chapter → shows  < | — ◆ — | >  prev/next buttons.
+    // Scroll mode or single chapter  → shows the plain geometric SVG.
+    function updateBottomDecor() {
+      const botDecor = document.getElementById('bot-decor');
+      if (!botDecor) return;
+
+      const multi   = chapters.length > 1;
+      const hasPrev = multi && currentChIdx > 0;
+      const hasNext = multi && currentChIdx < chapters.length - 1;
+
+      if (chapterMode && multi) {
+        botDecor.innerHTML = `
+          <div class="ch-bottom-nav">
+            <button class="ch-bottom-nav-btn" id="bot-prev-ch" ${hasPrev ? '' : 'disabled'}>
+              <span>&lt;</span><span class="ch-nav-sep">|</span>
+            </button>
+            <div class="ch-bottom-nav-center">${GEOMETRIC_SVG}</div>
+            <button class="ch-bottom-nav-btn" id="bot-next-ch" ${hasNext ? '' : 'disabled'}>
+              <span class="ch-nav-sep">|</span><span>&gt;</span>
+            </button>
+          </div>`;
+
+        const prevBtn = botDecor.querySelector('#bot-prev-ch');
+        const nextBtn = botDecor.querySelector('#bot-next-ch');
+        if (prevBtn) prevBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          jumpToChapter(currentChIdx - 1);
+          resetIdle();
+        });
+        if (nextBtn) nextBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          jumpToChapter(currentChIdx + 1);
+          resetIdle();
+        });
+      } else {
+        botDecor.innerHTML = GEOMETRIC_SVG;
+      }
+    }
+
     function jumpToChapter(idx) {
       if (idx < 0 || idx >= chapters.length) return;
 
       if (chapterMode) {
-        // Tear down the current chapter's DOM and images before building the new
-        // one. This keeps the DOM small and prevents a memory spike from loading
-        // new images while old ones are still resident.
+        // Tear down current chapter: revoke URLs, clear img srcs, wipe DOM slot.
         teardownAll();
-        currentChIdx  = idx;
-        currentPage   = chapters[currentChIdx].start;
-        renderChapter(currentChIdx);
+        currentChIdx = idx;
+        currentPage  = chapters[currentChIdx].start;
         window.scrollTo(0, 0);
         updateIndicator();
-        // Eagerly decode the first few pages so there's no blank wait at chapter start.
-        for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
-          loadPage(i);
-        }
+        // Defer render by 150 ms after teardownAll() so iOS Safari has a full
+        // event-loop idle window to actually free the decoded bitmap memory from
+        // the previous chapter. requestAnimationFrame (~16 ms) isn't long enough —
+        // WebKit's image-resource cleanup runs during GC, which needs idle time.
+        // 150 ms is imperceptible to users but reliably prevents the OOM crash on
+        // large chapters.
+        setTimeout(() => {
+          renderChapter(currentChIdx);
+          updateBottomDecor(); // refresh prev/next arrow availability
+          for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
+            loadPage(i);
+          }
+        }, 150);
       } else {
         // Scroll mode: all wrappers already exist; just navigate to the chapter.
         currentChIdx = idx;
@@ -1249,19 +1338,34 @@
     // --- Mode Toggle ---
     modeToggle.addEventListener('click', () => {
       chapterMode = !chapterMode;
+      const prevChBtn = document.getElementById('prev-ch');
+      const nextChBtn = document.getElementById('next-ch');
+
       if (chapterMode) {
         modeToggle.textContent = 'Chapter';
         modeToggle.style.fontSize = '0.75rem';
-        // Switch to chapter mode: discard all-chapters DOM, render only current chapter.
+        // Footer prev/next replaced by bottom-decor nav in chapter mode.
+        prevChBtn.classList.add('hidden');
+        nextChBtn.classList.add('hidden');
+        // 150 ms defer: same crash-prevention as jumpToChapter.
         teardownAll();
-        renderChapter(currentChIdx);
         window.scrollTo(0, 0);
+        setTimeout(() => {
+          renderChapter(currentChIdx);
+          updateBottomDecor();
+          for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
+            loadPage(i);
+          }
+        }, 150);
       } else {
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
-        // Switch to scroll mode: discard chapter DOM, render everything.
+        // Restore footer nav in scroll mode; plain geometric bottom decor.
+        prevChBtn.classList.remove('hidden');
+        nextChBtn.classList.remove('hidden');
         teardownAll();
         renderAllChapters();
+        updateBottomDecor();
         requestAnimationFrame(() => {
           const firstWrap = chapters[currentChIdx].wrappers[0];
           if (firstWrap) firstWrap.scrollIntoView();

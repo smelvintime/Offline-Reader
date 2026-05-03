@@ -893,7 +893,7 @@
         showScreen('upload-screen');
         document.getElementById('order-notice-text').textContent =
           '⚠ Multiple series detected — please load one series at a time';
-        document.getElementById('order-notice').classList.remove('hidden');
+        showNotice(document.getElementById('order-notice'));
         return;
       }
 
@@ -1011,16 +1011,16 @@
       if (innerSeriesKeys.size > 1 && outerKeys.size > 1) {
         document.getElementById('order-notice-text').textContent =
           '⚠ Multiple series detected — please load one series at a time';
-        document.getElementById('order-notice').classList.remove('hidden');
+        showNotice(document.getElementById('order-notice'));
       } else if (dupCount > 0) {
         document.getElementById('order-notice-text').textContent =
-          `⚠ ${dupCount} duplicate chapter${dupCount > 1 ? 's' : ''} removed — overlapping zips detected`;
-        document.getElementById('order-notice').classList.remove('hidden');
+          `${dupCount} duplicate chapter${dupCount > 1 ? 's' : ''} removed — overlapping zips detected`;
+        showNotice(document.getElementById('order-notice'));
       } else if (emptyFiles.length > 0) {
         const n = emptyFiles.length;
         document.getElementById('order-notice-text').textContent =
           `⚠ ${n} file${n > 1 ? 's' : ''} skipped — no readable chapters found inside`;
-        document.getElementById('order-notice').classList.remove('hidden');
+        showNotice(document.getElementById('order-notice'));
       }
 
       if (capReached) {
@@ -1028,14 +1028,14 @@
         document.getElementById('size-notice-text').textContent = skippedChapters > 0
           ? `${skippedChapters} chapter${skippedChapters > 1 ? 's' : ''} not loaded — 600 MB limit reached`
           : 'Some content not loaded — 600 MB limit reached';
-        notice.classList.remove('hidden');
+        showNotice(notice);
       }
 
       // ── Chapter order warning ─────────────────────────────────────────────────────
       // If no chapter contained a recognisable number we had no basis for sorting,
       // so reading order may be wrong — warn the user.
       if (chapters.length > 1 && chapters.every(c => c.displayNum === null)) {
-        document.getElementById('order-notice').classList.remove('hidden');
+        showNotice(document.getElementById('order-notice'));
       }
       // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1046,7 +1046,7 @@
         if (capReached) {
           const notice = document.getElementById('size-notice');
           document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed 600 MB limit';
-          notice.classList.remove('hidden');
+          showNotice(notice);
         }
         return;
       }
@@ -1422,6 +1422,13 @@
           updateUI();
         }, 2000);
       }
+    }
+
+    const noticeTimers = {};
+    function showNotice(el) {
+      el.classList.remove('hidden');
+      clearTimeout(noticeTimers[el.id]);
+      noticeTimers[el.id] = setTimeout(() => el.classList.add('hidden'), 6000);
     }
 
     function autoStep(timestamp) {

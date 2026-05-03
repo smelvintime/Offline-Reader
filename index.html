@@ -511,18 +511,6 @@
       <button class="as-btn" id="as-faster">+</button>
     </div>
 
-    <!-- Size-cap notice -->
-    <div id="size-notice" class="hidden">
-      <span id="size-notice-text"></span>
-      <button id="size-notice-dismiss" aria-label="Dismiss">✕</button>
-    </div>
-
-    <!-- Order-warning notice -->
-    <div id="order-notice" class="hidden">
-      <span>⚠ Chapter order may be incorrect — filenames unrecognised</span>
-      <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
-    </div>
-
     <!-- Chapter Selector Modal -->
     <div id="cs-overlay" class="ui-hidden">
       <div id="cs-modal">
@@ -533,6 +521,17 @@
         <div id="cs-list"></div>
       </div>
     </div>
+  </div>
+
+  <!-- Notices live outside all screen divs so they're visible regardless of which
+       screen is currently shown (upload, loading, or reader). -->
+  <div id="size-notice" class="hidden">
+    <span id="size-notice-text"></span>
+    <button id="size-notice-dismiss" aria-label="Dismiss">✕</button>
+  </div>
+  <div id="order-notice" class="hidden">
+    <span id="order-notice-text">⚠ Chapter order may be incorrect — filenames unrecognised</span>
+    <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -569,7 +568,8 @@
     const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5];
 
     const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
-    const MEMORY_WINDOW = 25;
+    const MEMORY_WINDOW = 25; // Pages within this distance keep their URL active
+    const CACHE_WINDOW  = 60; // Pages within this distance keep decoded bitmap (no flash on scroll-back); beyond this src is cleared to free memory
     const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
     const ARCHIVE_EXT = /\.(cbz|zip)$/i;
 
@@ -609,12 +609,40 @@
       document.getElementById(id).style.display = id === 'reader-screen' ? 'block' : 'flex';
     }
 
-    function getComicTitle(files) {
-      if (!files.length) return "Comic";
-      let name = files[0].name.replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
-      let mainTitle = name.replace(/\s*(?:-?\s*(?:c|ch|vol|chapter|volume)\.?\s*\d+).*$/i, '').trim();
-      mainTitle = mainTitle.replace(/\s*-\s*ch\.\d+.*$/i, '').trim();
-      return mainTitle;
+    // Strip chapter/volume numbers from a name and return the series portion.
+    // Preserves original casing — used for display titles.
+    function stripChapterRefs(name) {
+      let t = name.replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ');
+      t = t.replace(/\s*(?:-?\s*(?:c|ch|vol|chapter|volume)\.?\s*[\d.-]+).*$/i, '').trim();
+      t = t.replace(/\s*-\s*ch\.[\d.-]+.*$/i, '').trim();
+      return t;
+    }
+
+    // Try outer zip filenames first. If none yield a meaningful title, fall back to
+    // innerNames (inner CBZ archive names collected during loading). This double-check
+    // means a renamed outer zip like "ch.51-ch.100.zip" won't produce a bad title as
+    // long as the inner CBZ names carry the real series name.
+    function getComicTitle(files, innerNames = []) {
+      for (const f of files) {
+        const t = stripChapterRefs(f.name);
+        if (t.length > 3) return t;
+      }
+      // Outer names are all bare chapter refs — try inner CBZ names.
+      for (const name of innerNames) {
+        const t = stripChapterRefs(name);
+        if (t.length > 3) return t;
+      }
+      return files[0]?.name.replace(/\.(cbz|zip)$/i, '').replace(/_/g, ' ').trim() || "Comic";
+    }
+
+    // Returns a comparison key for series detection — lowercase alphanumeric only.
+    // Strips all hyphens, spaces, and punctuation so that "Star-Embracing Swordmaster",
+    // "Star Embracing Swordmaster", and "StarEmbracingSwordmaster" all produce the same
+    // key and are correctly treated as the same series.
+    // Returns '' if the result has no letters (filters pure-number names like "001").
+    function seriesKey(filename) {
+      const key = stripChapterRefs(filename).toLowerCase().replace(/[^a-z0-9]/g, '');
+      return (key.length > 3 && /[a-z]/.test(key)) ? key : '';
     }
 
     function extractChapterInfo(filename) {
@@ -773,8 +801,13 @@
           p.url = null;
         }
         p.loading = false;
-        // p.el / p.wrap are stale after slot.innerHTML=''; they'll be
-        // reassigned by the next renderChapter / renderAllChapters call.
+        // Explicitly clear src and drop the element reference so the browser can
+        // release the decoded bitmap immediately. Without this, disconnected <img>
+        // nodes hold their pixel data in memory even after slot.innerHTML='',
+        // causing an OOM crash on iPhone when the next chapter starts loading.
+        if (p.el) { p.el.src = ''; p.el.onload = null; }
+        p.el   = null;
+        p.wrap = null;
       });
 
       const slot = document.getElementById('chapter-slot');
@@ -808,15 +841,10 @@
       document.getElementById('size-notice').classList.add('hidden');
       document.getElementById('order-notice').classList.add('hidden');
 
-      comicTitle.textContent = getComicTitle(files);
-
-      // Sort files by extracted chapter number BEFORE loading so that the 600 MB cap
-      // always cuts from the highest-numbered end, not arbitrarily by filename.
-      // e.g. "ch.51-100.zip" sorts before "MySeries-ch.1-50.zip" alphabetically,
-      // which would mean chapters 1-50 get dropped. By pre-sorting numerically the
-      // cap trims the tail (highest chapters) instead. Files without a parseable
-      // number fall back to natural (alphabetical) sort so single-file loads are
-      // unaffected.
+      // Pre-sort files by chapter number as a minor optimisation — it causes the loading
+      // progress text to read out in chapter order, and means JSZip allocations happen
+      // low-to-high. The 600 MB cap is now applied AFTER a global cross-file chapter
+      // sort in Phase 2, so this pre-sort is no longer the critical correctness path.
       files.sort((a, b) => {
         const { displayNum: an } = extractChapterInfo(a.name);
         const { displayNum: bn } = extractChapterInfo(b.name);
@@ -826,50 +854,117 @@
         return an - bn;
       });
 
-      // 600 MB soft cap — checked at chapter granularity so a large zip is partially
-      // included rather than skipped entirely. Each group's (chapter's) budget is
-      // estimated by prorating the outer file's compressed size across its groups by
-      // image count, which is a good proxy for decoded memory pressure.
+      // Multi-series check: if the files appear to be from more than one series,
+      // warn the user and stay on the upload screen rather than mixing them.
+      const outerKeys = new Set(files.map(f => seriesKey(f.name)).filter(k => k));
+      if (outerKeys.size > 1) {
+        showScreen('upload-screen');
+        document.getElementById('order-notice-text').textContent =
+          '⚠ Multiple series detected — please load one series at a time';
+        document.getElementById('order-notice').classList.remove('hidden');
+        return;
+      }
+
+      // 600 MB soft cap applied after sorting all chapters globally so the cap always
+      // trims the highest-numbered chapters, regardless of which zip file they came from
+      // or what order the browser handed the files to us.
+      //
+      // Phase 1 — open every zip and collect chapter groups (no page construction yet).
+      // Phase 2 — sort all groups by chapter number across ALL files.
+      // Phase 3 — walk the sorted list, apply the cap, then build pages[]/chapters[].
       const SIZE_CAP = 600 * 1024 * 1024; // 600 MB in bytes
-      let bytesLoaded    = 0;
-      let skippedChapters = 0;
-      let capReached     = false;
 
+      // Collect inner archive names across all files so we can:
+      //  (a) fall back to them for the title if outer zip names are bare chapter refs
+      //  (b) run a secondary multi-series check against the actual chapter names
+      const innerArchiveNames = [];
+      const innerSeriesKeys   = new Set();
+      const emptyFiles        = []; // files that had no recognisable chapters
+
+      // allGroups: flat list of { group, groupBytes } across every file, unsorted.
+      const allGroups = [];
+
+      // ── Phase 1: open all zips, collect groups ────────────────────────────────────
       for (const f of files) {
-        // Once the cap is reached don't bother loading any more zip files into memory.
-        if (capReached) break;
-
         loadingText.textContent = `Reading: ${f.name}`;
         try {
           const zip    = await JSZip.loadAsync(await f.arrayBuffer());
           const groups = await extractEntries(zip, f.name);
-          if (!groups.length) continue;
+
+          if (!groups.length) {
+            emptyFiles.push(f.name);
+            continue;
+          }
+
+          // Collect inner names for title fallback + secondary series check.
+          groups.forEach(g => {
+            innerArchiveNames.push(g.name);
+            const k = seriesKey(g.name);
+            if (k) innerSeriesKeys.add(k);
+          });
 
           // Prorate this file's compressed size across its groups by image count.
           const totalImages = groups.reduce((s, g) => s + g.images.length, 0);
-
-          for (const g of groups) {
+          groups.forEach(g => {
             const groupBytes = totalImages > 0
               ? Math.round(f.size * g.images.length / totalImages)
               : Math.round(f.size / groups.length);
-
-            if (capReached || bytesLoaded + groupBytes > SIZE_CAP) {
-              capReached = true;
-              skippedChapters++;
-              continue; // count remaining groups in this file, but don't add them
-            }
-
-            const start = pages.length;
-            g.images.forEach(entry => pages.push({
-              entry, url: null, loading: false, aspectLocked: false, gen: 0
-            }));
-            const { displayNum, cleanName } = extractChapterInfo(g.name);
-            chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
-            bytesLoaded += groupBytes;
-          }
+            allGroups.push({ group: g, groupBytes });
+          });
         } catch (err) {
           console.error("Failed to read archive: " + f.name, err);
         }
+      }
+
+      // ── Phase 2: sort ALL groups by chapter number across every file ──────────────
+      allGroups.sort((a, b) => {
+        const { displayNum: an } = extractChapterInfo(a.group.name);
+        const { displayNum: bn } = extractChapterInfo(b.group.name);
+        if (an === null && bn === null) return naturalSort(a.group.name, b.group.name);
+        if (an === null) return 1;
+        if (bn === null) return -1;
+        return an - bn;
+      });
+
+      // ── Phase 3: apply cap in sorted order, then build pages[]/chapters[] ─────────
+      let bytesLoaded    = 0;
+      let skippedChapters = 0;
+      let capReached     = false;
+
+      for (const { group: g, groupBytes } of allGroups) {
+        if (capReached || bytesLoaded + groupBytes > SIZE_CAP) {
+          capReached = true;
+          skippedChapters++;
+          continue;
+        }
+
+        const start = pages.length;
+        g.images.forEach(entry => pages.push({
+          entry, url: null, loading: false, aspectLocked: false, gen: 0
+        }));
+        const { displayNum, cleanName } = extractChapterInfo(g.name);
+        chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
+        bytesLoaded += groupBytes;
+      }
+
+      // Title: set now that inner archive names are available as a fallback,
+      // so renamed outer zips (e.g. "ch.51-ch.100.zip") don't produce a wrong title.
+      comicTitle.textContent = getComicTitle(files, innerArchiveNames);
+
+      // Secondary multi-series check using inner archive names (more reliable than
+      // outer zip names). Uses seriesKey so punctuation/spacing variants of the same
+      // name don't produce false positives. Only warns if the keys from BOTH sources
+      // (outer filenames AND inner archive names) indicate multiple series — one bad
+      // outer name alone (e.g. "ch.51-ch.100.zip") never triggers this.
+      if (innerSeriesKeys.size > 1 && outerKeys.size > 1) {
+        document.getElementById('order-notice-text').textContent =
+          '⚠ Multiple series detected — please load one series at a time';
+        document.getElementById('order-notice').classList.remove('hidden');
+      } else if (emptyFiles.length > 0) {
+        const n = emptyFiles.length;
+        document.getElementById('order-notice-text').textContent =
+          `⚠ ${n} file${n > 1 ? 's' : ''} skipped — no readable chapters found inside`;
+        document.getElementById('order-notice').classList.remove('hidden');
       }
 
       if (capReached) {
@@ -880,33 +975,11 @@
         notice.classList.remove('hidden');
       }
 
-      // ── Chapter ordering fix ──────────────────────────────────────────────────────
-      // Files are loaded in natural-sort filename order, which can be wrong when the
-      // user has renamed zips (e.g. "ch.51-100.zip" sorts before "MySeries-ch.1-50.zip").
-      // After all chapters are built, sort by extracted chapter number so reading order
-      // is always correct regardless of filename. Then rebuild pages[] to match the new
-      // order so that contiguous page indices are preserved (required for unloadDistant).
-      // This is a one-time O(n) reference-copy — no new objects, no image loads.
-      if (chapters.length > 1) {
-        if (chapters.some(c => c.displayNum !== null)) {
-          chapters.sort((a, b) => {
-            if (a.displayNum === null) return 1;  // unnumbered chapters go to end
-            if (b.displayNum === null) return -1;
-            return a.displayNum - b.displayNum;
-          });
-          const sortedPages = [];
-          chapters.forEach(ch => {
-            const base = sortedPages.length;
-            for (let i = ch.start; i <= ch.end; i++) sortedPages.push(pages[i]);
-            ch.start = base;
-            ch.end   = sortedPages.length - 1;
-          });
-          pages = sortedPages;
-        } else {
-          // None of the chapter names contained a recognisable number — we have no
-          // reliable way to determine reading order, so warn the user.
-          document.getElementById('order-notice').classList.remove('hidden');
-        }
+      // ── Chapter order warning ─────────────────────────────────────────────────────
+      // If no chapter contained a recognisable number we had no basis for sorting,
+      // so reading order may be wrong — warn the user.
+      if (chapters.length > 1 && chapters.every(c => c.displayNum === null)) {
+        document.getElementById('order-notice').classList.remove('hidden');
       }
       // ─────────────────────────────────────────────────────────────────────────────
 
@@ -979,14 +1052,20 @@
 
     function unloadDistant() {
       pages.forEach((p, i) => {
-        if (p.url && Math.abs(i - currentPage) > MEMORY_WINDOW) {
+        const dist = Math.abs(i - currentPage);
+
+        if (dist > CACHE_WINDOW) {
+          // Hard window: free the decoded bitmap entirely to cap memory during long
+          // scrolling sessions. Pages this far back are unlikely to be scrolled to.
+          if (p.url) { URL.revokeObjectURL(p.url); p.url = null; }
+          if (p.el && p.el.src) { p.el.src = ''; }
+          p.loading = false; p.gen++;
+        } else if (dist > MEMORY_WINDOW && p.url) {
+          // Soft window: revoke the URL but keep p.el.src so the browser retains
+          // the decoded bitmap in its image cache — prevents black-placeholder
+          // flashes if the user scrolls back within 60 pages.
           URL.revokeObjectURL(p.url);
           p.url = null; p.loading = false; p.gen++;
-          // Do NOT clear p.el.src here. After revoking the object URL the browser
-          // keeps the decoded bitmap in its image cache, so the image stays visible
-          // while the page is in view — preventing black-placeholder flashes on fast
-          // scrolling. The image will naturally disappear when its wrapper is
-          // scrolled far enough out of view that the browser discards it.
         }
       });
     }

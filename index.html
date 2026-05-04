@@ -451,7 +451,7 @@
       pointer-events: auto;
     }
     #size-notice {
-      top: calc(3rem + env(safe-area-inset-top, 0px));
+      bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
       z-index: 150;
       background: rgba(180, 120, 0, 0.92);
     }
@@ -459,13 +459,13 @@
 
     /* ── Order-warning notice (blue/info) ── */
     #order-notice {
-      top: calc(3rem + env(safe-area-inset-top, 0px));
+      bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
       z-index: 149;
       background: rgba(30, 90, 180, 0.92);
     }
-    /* If size-notice is also visible, push order-notice below it */
+    /* If size-notice is also visible, push order-notice above it */
     #size-notice:not(.hidden) ~ #order-notice {
-      top: calc(5.5rem + env(safe-area-inset-top, 0px));
+      bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
     }
     #order-notice.hidden { display: none !important; }
     #order-notice-dismiss, #size-notice-dismiss {
@@ -555,7 +555,7 @@
 
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
     <p class="hint">600 MB limit</p>
-    <p id="upload-session-hint" class="hidden">↩ Re-upload to resume: <span id="upload-hint-title"></span></p>
+    <p id="upload-session-hint" class="hidden">Re-upload to resume: <span id="upload-hint-title"></span></p>
   </div>
 
   <div id="loading-screen">
@@ -734,6 +734,7 @@
           pageIdx:       currentPage,
           chDisplay,
           pageInChapter: currentPage - ch.start + 1,
+          totalPages:    pages.length,
           files:         lastLoadedFileNames,
         }));
       } catch (e) {}
@@ -750,6 +751,8 @@
       const bigBtn = document.getElementById('in-reader-resume');
       if (bigBtn) bigBtn.remove();
       document.getElementById('resume-mini-btn').classList.add('hidden');
+      const logo = document.getElementById('top-decor-logo');
+      if (logo) logo.classList.remove('hidden');
     }
 
     // Show a discrete hint on the upload screen if there is a saved session to return to.
@@ -757,8 +760,14 @@
       const saved = loadSavedSession();
       if (!saved || !saved.title) return;
       let label = saved.title;
-      if (saved.chDisplay != null) label += ' \xb7 Ch. ' + saved.chDisplay;
-      if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
+      if (saved.totalPages > 0 && saved.pageIdx != null) {
+        label += ' \xb7 ' + Math.round((saved.pageIdx + 1) / saved.totalPages * 100) + '%';
+      } else if (saved.chDisplay != null) {
+        label += ' \xb7 Ch. ' + saved.chDisplay;
+        if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
+      }
+      // += ' \xb7 Ch. ' + saved.chDisplay;
+      // if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
       document.getElementById('upload-hint-title').textContent = label;
       document.getElementById('upload-session-hint').classList.remove('hidden');
     }
@@ -871,16 +880,19 @@
       topDecor.className = 'reader-decor reader-top-decor';
       // Determine if a resume prompt applies for the currently-loaded files.
       const saved = loadSavedSession();
-      // If saved.files is absent (pre-v2 session), trust the session as a one-time
-      // fallback; otherwise require an exact sorted-filename match so stale sessions
-      // from a different series don't surface.
+      // Accept if either file-list is a subset of the other.  This lets a user
+      // re-upload only ch.1–50 of a series they read to ch.45 (subset match),
+      // or upload ch.1–100 after saving with only ch.1–50 (superset match).
+      // Pre-v2 sessions have no saved.files — trust them as a one-time fallback.
+      const curSet = new Set(lastLoadedFileNames);
+      const savSet = saved && saved.files ? new Set(saved.files) : null;
       const namesMatch = saved && (
         !saved.files ||
-        (saved.files.length === lastLoadedFileNames.length &&
-         saved.files.every((n, i) => n === lastLoadedFileNames[i]))
+        lastLoadedFileNames.every(n => savSet.has(n)) ||
+        saved.files.every(n => curSet.has(n))
       );
       const hasResume = namesMatch && saved.chIdx < chapters.length;
-      if (hasResume && chapterMode) {
+      if (hasResume) {
         const resumeEl = document.createElement('button');
         resumeEl.id = 'in-reader-resume';
         resumeEl.innerHTML =
@@ -894,18 +906,18 @@
         });
         topDecor.appendChild(resumeEl);
         sessionPendingResume = true;
-      } else if (hasResume) {
-        // Scroll mode: activate the footer mini button instead of the big button.
-        document.getElementById('resume-mini-btn').classList.remove('hidden');
-        sessionPendingResume = true;
       }
 
-      // Geometric logo — always rendered, below the resume button when present.
+      // Geometric logo — rendered at top-decor; hidden when the big resume button
+      // replaces it at the chapter-1 landing position, then revealed on dismiss.
       // Use firstElementChild (not firstChild) — the template literal starts with
       // a newline so firstChild would be a text node, not the SVG element.
       const svgWrap = document.createElement('div');
       svgWrap.innerHTML = GEOMETRIC_SVG;
-      topDecor.appendChild(svgWrap.firstElementChild);
+      const svgEl = svgWrap.firstElementChild;
+      svgEl.id = 'top-decor-logo';
+      if (hasResume) svgEl.classList.add('hidden');
+      topDecor.appendChild(svgEl);
 
       frag.appendChild(topDecor);
 
@@ -1381,12 +1393,8 @@
     function updateIndicator() {
       const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
       if (chIdx !== -1) currentChIdx = chIdx;
-      if (chapterMode) {
-        const ch = chapters[currentChIdx];
-        pageIndicator.textContent = `${currentPage - ch.start + 1} / ${ch.end - ch.start + 1}`;
-      } else {
-        pageIndicator.textContent = `${currentPage + 1} / ${pages.length}`;
-      }
+      const pct = pages.length > 0 ? Math.round((currentPage + 1) / pages.length * 100) : 0;
+      pageIndicator.textContent = pct + '%';
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
         const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
@@ -1452,6 +1460,8 @@
         if (bigBtn) bigBtn.remove();
         sessionPendingResume = false;
         document.getElementById('resume-mini-btn').classList.remove('hidden');
+        const logo = document.getElementById('top-decor-logo');
+        if (logo) logo.classList.remove('hidden');
       }
 
       if (chapterMode) {
@@ -1575,14 +1585,8 @@
       } else {
         modeToggle.textContent = '∞';
         modeToggle.style.fontSize = '1.2rem';
-        // When switching to scroll mode, if the big resume button is still showing,
-        // dismiss it and activate the footer mini button instead.
-        if (sessionPendingResume) {
-          const bigBtn = document.getElementById('in-reader-resume');
-          if (bigBtn) bigBtn.remove();
-          sessionPendingResume = false;
-          document.getElementById('resume-mini-btn').classList.remove('hidden');
-        }
+        // When switching to scroll mode, leave any pending resume button as-is —
+        // the big button remains visible at the top in both modes.
         teardownAll();
         renderAllChapters();
         updateBottomDecor();

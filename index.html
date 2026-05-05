@@ -853,7 +853,7 @@
 
         if (progressPct !== null) {
           const barWrap = document.createElement('span');
-          barWrap.style.cssText = 'flex-shrink:0;display:flex;align-items:center;';
+          barWrap.style.cssText = 'flex-shrink:0;display:flex;align-items:center;margin-left:auto;';
           barWrap.innerHTML = buildProgressBar(progressPct, 44);
           info.appendChild(barWrap);
         }
@@ -1509,11 +1509,13 @@
       const H = 9, barH = 3, barY = 3;
       const fillW = Math.min(Math.round((pct / 100) * W), W);
       const svgW  = W;
+      const track = `<rect x="0" y="${barY}" width="${W}" height="${barH}" rx="0.5" fill="currentColor" opacity="0.07"/>`;
       if (fillW === 0) {
-        return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;"></svg>`;
+        return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">${track}</svg>`;
       }
       if (pct >= 100) {
         return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">` +
+          track +
           `<rect x="0" y="${barY}" width="${W}" height="${barH}" rx="0.5" fill="#6366f1" opacity="0.88"/>` +
           `</svg>`;
       }
@@ -1528,6 +1530,7 @@
             `<stop offset="100%" stop-color="#6366f1" stop-opacity="0.15"/>` +
           `</linearGradient>` +
         `</defs>` +
+        track +
         `<rect x="0" y="${barY}" width="${fillW}" height="${barH}" rx="0.5" fill="url(#${uid})"/>` +
         `</svg>`
       );

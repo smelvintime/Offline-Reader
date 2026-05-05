@@ -555,7 +555,7 @@
 
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
     <p class="hint">600 MB limit</p>
-    <p id="upload-session-hint" class="hidden">Re-upload to resume: <span id="upload-hint-title"></span></p>
+    <p id="upload-session-hint" class="hidden">Resume: <span id="upload-hint-title"></span></p>
   </div>
 
   <div id="loading-screen">
@@ -637,9 +637,7 @@
     <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
-          integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
-          crossorigin="anonymous"></script>
+  <script src="./jszip.min.js"></script>
   <script>
     // --- Service Worker ---
     if ('serviceWorker' in navigator) {
@@ -733,8 +731,9 @@
           chIdx:         currentChIdx,
           pageIdx:       currentPage,
           chDisplay,
-          pageInChapter: currentPage - ch.start + 1,
-          totalPages:    pages.length,
+          pageInChapter:     currentPage - ch.start + 1,
+          chapterTotalPages: ch.end - ch.start + 1,
+          totalPages:        pages.length,
           files:         lastLoadedFileNames,
         }));
       } catch (e) {}
@@ -760,14 +759,13 @@
       const saved = loadSavedSession();
       if (!saved || !saved.title) return;
       let label = saved.title;
-      if (saved.totalPages > 0 && saved.pageIdx != null) {
-        label += ' \xb7 ' + Math.round((saved.pageIdx + 1) / saved.totalPages * 100) + '%';
-      } else if (saved.chDisplay != null) {
+      if (saved.chDisplay != null) {
         label += ' \xb7 Ch. ' + saved.chDisplay;
-        if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
+        if (saved.chapterTotalPages > 0 && saved.pageInChapter != null) {
+          label += ' · ' + Math.round(saved.pageInChapter / saved.chapterTotalPages * 100) + '%';
+        }
       }
-      // += ' \xb7 Ch. ' + saved.chDisplay;
-      // if (saved.pageInChapter != null) label += ' \xb7 p. ' + saved.pageInChapter;
+     
       document.getElementById('upload-hint-title').textContent = label;
       document.getElementById('upload-session-hint').classList.remove('hidden');
     }
@@ -895,9 +893,16 @@
       if (hasResume) {
         const resumeEl = document.createElement('button');
         resumeEl.id = 'in-reader-resume';
-        resumeEl.innerHTML =
-          `<span class="resume-label">Resume Reading</span>` +
-          `<span class="resume-body">${saved.title} &middot; Ch. ${saved.chDisplay} &middot; p. ${saved.pageInChapter}</span>`;
+        // Use textContent (not innerHTML) to prevent XSS from maliciously-named CBZ files.
+        const resumeLabel = document.createElement('span');
+        resumeLabel.className = 'resume-label';
+        resumeLabel.textContent = 'Resume Reading';
+        const resumeBody = document.createElement('span');
+        resumeBody.className = 'resume-body';
+        resumeBody.textContent = saved.title + ' \xb7 Ch. ' + saved.chDisplay + ' \xb7 p. ' + saved.pageInChapter;
+        resumeEl.appendChild(resumeLabel);
+        resumeEl.appendChild(resumeBody);
+        // XSS note: textContent used instead of innerHTML. ${saved.chDisplay} &middot; p. ${saved.pageInChapter}</span>`;
         resumeEl.addEventListener('click', function(e) {
           e.stopPropagation();
           clearResumeUI();
@@ -1393,8 +1398,11 @@
     function updateIndicator() {
       const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
       if (chIdx !== -1) currentChIdx = chIdx;
-      const pct = pages.length > 0 ? Math.round((currentPage + 1) / pages.length * 100) : 0;
-      pageIndicator.textContent = pct + '%';
+      const ch = chapters[currentChIdx];
+      const chPct = (ch && ch.end > ch.start)
+        ? Math.round((currentPage - ch.start + 1) / (ch.end - ch.start + 1) * 100)
+        : 100;
+      pageIndicator.textContent = chPct + '%';
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
         const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);

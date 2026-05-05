@@ -1,10 +1,10 @@
-const CACHE_NAME = 'cbz-reader-v3.1';
+const CACHE_NAME = 'cbz-reader-v3.2';
 const SHELL_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon.svg',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  './jszip.min.js',
 ];
 
 self.addEventListener('install', event => {
@@ -29,5 +29,6 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
+      .catch(() => new Response('Offline — resource not cached', { status: 503, statusText: 'Service Unavailable' }))
   );
 });

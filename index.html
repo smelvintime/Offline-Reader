@@ -505,15 +505,42 @@
       text-align: center;
     }
 
-    /* ── Mini resume button (footer, bookmark icon) ── */
-    #resume-mini-btn { color: var(--accent); }
-
-    /* ── Upload screen resume hint ── */
-    #upload-session-hint {
+    /* ── Upload screen library list ── */
+    #library-list {
+      width: 100%;
+      max-width: 360px;
+      margin-top: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .library-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
       font-size: 0.78rem;
       color: var(--muted);
-      opacity: 0.8;
-      margin-top: -0.75rem;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      opacity: 0.85;
+    }
+    .library-info {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-right: 0.75rem;
+    }
+    .library-date {
+      flex-shrink: 0;
+      opacity: 0.55;
+      font-size: 0.7rem;
+    }
+    .resume-missing {
+      font-size: 0.72rem;
+      color: var(--muted);
+      opacity: 0.7;
+      padding: 0.4rem 0.75rem;
     }
   </style>
 </head>
@@ -555,7 +582,7 @@
 
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
     <p class="hint">600 MB limit</p>
-    <p id="upload-session-hint" class="hidden">Resume: <span id="upload-hint-title"></span></p>
+    <div id="library-list" class="hidden"></div>
   </div>
 
   <div id="loading-screen">
@@ -589,11 +616,6 @@
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <rect x="2" y="2" width="16" height="6" rx="1"/>
           <rect x="2" y="12" width="16" height="6" rx="1"/>
-        </svg>
-      </button>
-      <button class="icon-btn hidden" id="resume-mini-btn" title="Resume reading">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
         </svg>
       </button>
       <button class="icon-btn" id="autoscroll-toggle">
@@ -667,11 +689,7 @@
     // Session persistence — remembers title, chapter, and page across iOS evictions.
     let lastLoadedFileNames  = []; // sorted file names from the most recent load
     let sessionSaveTimer     = null;
-    // True while a valid saved session exists for the current files and the user
-    // hasn't yet tapped Resume or navigated away from chapter 1.
-    let sessionPendingResume = false;
-
-    // Page gap — cycles through Off / Small / Large to add breathing room between pages.
+// Page gap — cycles through Off / Small / Large to add breathing room between pages.
     const GAP_LEVELS = [0, 16, 40]; // px
     let gapLevel = parseInt(localStorage.getItem('or.gap') || '0');
     if (gapLevel < 0 || gapLevel >= GAP_LEVELS.length) gapLevel = 0;
@@ -721,54 +739,110 @@
     const csClose        = document.getElementById('cs-close');
 
     // --- Session persistence ---
-    function saveSession() {
+    // ── Reading library: up to 5 most-recently-read series ─────────────────────
+    function loadLibrary() {
+      try { return JSON.parse(localStorage.getItem('or.library')) || []; } catch (e) { return []; }
+    }
+
+    function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
-      const ch = chapters[currentChIdx];
+      const ch       = chapters[currentChIdx];
       const chDisplay = ch.displayNum !== null ? ch.displayNum : (currentChIdx + 1);
+      const key      = seriesKey(lastLoadedFileNames[0]);
+      const title    = comicTitle.textContent;
+      let library    = loadLibrary();
+      const prev     = library.find(function(e) { return e.key === key; }) || {};
+
+      // High-water mark: only ever advance, never regress.
+      const isNewMax            = currentPage > (prev.maxPageIdx != null ? prev.maxPageIdx : -1);
+      const maxPageIdx          = isNewMax ? currentPage                  : prev.maxPageIdx;
+      const maxChIdx            = isNewMax ? currentChIdx                 : prev.chIdx;
+      const maxChDisplay        = isNewMax ? chDisplay                    : prev.chDisplay;
+      const maxPageInChapter    = isNewMax ? currentPage - ch.start + 1  : prev.pageInChapter;
+      const maxChapterTotalPages = isNewMax ? ch.end - ch.start + 1      : prev.chapterTotalPages;
+      const completed           = maxPageIdx >= pages.length - 1;
+
+      const entry = {
+        title, key,
+        maxPageIdx, chIdx: maxChIdx, chDisplay: maxChDisplay,
+        pageInChapter: maxPageInChapter, chapterTotalPages: maxChapterTotalPages,
+        totalPages: pages.length, completed,
+        lastRead: new Date().toISOString(),
+      };
+      library = library.filter(function(e) { return e.key !== key; });
+      library.unshift(entry);
+      library = library.slice(0, 5);
+      try { localStorage.setItem('or.library', JSON.stringify(library)); } catch (e) {}
+    }
+
+    // Migrate a single or.session entry into the new or.library format (runs once).
+    function migrateOldSession() {
+      if (localStorage.getItem('or.library')) return;
       try {
-        localStorage.setItem('or.session', JSON.stringify({
-          title:         comicTitle.textContent,
-          chIdx:         currentChIdx,
-          pageIdx:       currentPage,
-          chDisplay,
-          pageInChapter:     currentPage - ch.start + 1,
-          chapterTotalPages: ch.end - ch.start + 1,
-          totalPages:        pages.length,
-          files:         lastLoadedFileNames,
-        }));
+        const s = JSON.parse(localStorage.getItem('or.session'));
+        if (!s || !s.title) return;
+        const key = s.files && s.files.length ? seriesKey(s.files[0]) : '';
+        const entry = {
+          title: s.title, key,
+          maxPageIdx: s.pageIdx || 0, chIdx: s.chIdx || 0,
+          chDisplay: s.chDisplay, pageInChapter: s.pageInChapter,
+          chapterTotalPages: s.chapterTotalPages, totalPages: s.totalPages,
+          completed: false, lastRead: new Date().toISOString(),
+        };
+        localStorage.setItem('or.library', JSON.stringify([entry]));
       } catch (e) {}
     }
-    function loadSavedSession() {
-      try { return JSON.parse(localStorage.getItem('or.session')); } catch (e) { return null; }
-    }
-    function clearSession() { localStorage.removeItem('or.session'); }
 
-    // Dismisses all resume UI (both the big in-reader button and the footer mini button).
-    // Call this when the user explicitly resumes — NOT when auto-transitioning big → mini.
+    function formatDate(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      const diffDays = Math.floor((Date.now() - d) / 86400000);
+      if (diffDays === 0) return 'Today';
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7)  return diffDays + ' days ago';
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    // Dismisses the in-reader resume button and reveals the logo.
     function clearResumeUI() {
-      sessionPendingResume = false;
       const bigBtn = document.getElementById('in-reader-resume');
       if (bigBtn) bigBtn.remove();
-      document.getElementById('resume-mini-btn').classList.add('hidden');
       const logo = document.getElementById('top-decor-logo');
       if (logo) logo.classList.remove('hidden');
     }
 
-    // Show a discrete hint on the upload screen if there is a saved session to return to.
-    function initUploadHint() {
-      const saved = loadSavedSession();
-      if (!saved || !saved.title) return;
-      let label = saved.title;
-      if (saved.chDisplay != null) {
-        label += ' \xb7 Ch. ' + saved.chDisplay;
-        if (saved.chapterTotalPages > 0 && saved.pageInChapter != null) {
-          label += ' · ' + Math.round(saved.pageInChapter / saved.chapterTotalPages * 100) + '%';
+    // Populate the library list on the upload screen (up to 5 recent series).
+    function initLibraryList() {
+      const library = loadLibrary();
+      const listEl  = document.getElementById('library-list');
+      listEl.innerHTML = '';
+      if (!library.length) return;
+      library.forEach(function(entry) {
+        const row  = document.createElement('div');
+        row.className = 'library-row';
+        const info = document.createElement('span');
+        info.className = 'library-info';
+        let lbl = entry.title;
+        if (entry.completed) {
+          lbl += ' · Ch. ' + entry.chDisplay + ' · Completed';
+        } else if (entry.chDisplay != null) {
+          lbl += ' · Ch. ' + entry.chDisplay;
+          if (entry.chapterTotalPages > 0 && entry.pageInChapter != null)
+            lbl += ' · ' + Math.round(entry.pageInChapter / entry.chapterTotalPages * 100) + '%';
         }
-      }
-     
-      document.getElementById('upload-hint-title').textContent = label;
-      document.getElementById('upload-session-hint').classList.remove('hidden');
+        info.textContent = lbl;
+        const date = document.createElement('span');
+        date.className = 'library-date';
+        date.textContent = formatDate(entry.lastRead);
+        row.appendChild(info);
+        row.appendChild(date);
+        listEl.appendChild(row);
+      });
+      listEl.classList.remove('hidden');
     }
+    /* LEGACY_REMOVED — old initUploadHint body (contains \xb7 escape, cannot be edited inline):
+        label += ' \xb7 Ch. ' + saved.chDisplay;
+    */
 
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -876,41 +950,42 @@
 
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
-      // Determine if a resume prompt applies for the currently-loaded files.
-      const saved = loadSavedSession();
-      // Accept if either file-list is a subset of the other.  This lets a user
-      // re-upload only ch.1–50 of a series they read to ch.45 (subset match),
-      // or upload ch.1–100 after saving with only ch.1–50 (superset match).
-      // Pre-v2 sessions have no saved.files — trust them as a one-time fallback.
-      const curSet = new Set(lastLoadedFileNames);
-      const savSet = saved && saved.files ? new Set(saved.files) : null;
-      const namesMatch = saved && (
-        !saved.files ||
-        lastLoadedFileNames.every(n => savSet.has(n)) ||
-        saved.files.every(n => curSet.has(n))
-      );
-      const hasResume = namesMatch && saved.chIdx < chapters.length;
+      // Match loaded files to library by series key; show resume button if found.
+      const curKey = lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '';
+      const _lib   = loadLibrary();
+      const saved  = curKey ? _lib.find(function(e) { return e.key === curKey; }) : null;
+      const hasResume      = saved && saved.chIdx < chapters.length;
+      const chapterMissing = saved && !hasResume;
       if (hasResume) {
         const resumeEl = document.createElement('button');
         resumeEl.id = 'in-reader-resume';
-        // Use textContent (not innerHTML) to prevent XSS from maliciously-named CBZ files.
         const resumeLabel = document.createElement('span');
         resumeLabel.className = 'resume-label';
-        resumeLabel.textContent = 'Resume Reading';
+        resumeLabel.textContent = saved.completed ? 'Completed' : 'Resume Reading';
         const resumeBody = document.createElement('span');
         resumeBody.className = 'resume-body';
+        let bodyText = saved.title + ' · Ch. ' + saved.chDisplay;
+        if (!saved.completed && saved.chapterTotalPages > 0 && saved.pageInChapter != null)
+          bodyText += ' · ' + Math.round(saved.pageInChapter / saved.chapterTotalPages * 100) + '%';
+        resumeBody.textContent = bodyText;
+        if (false) { /* LEGACY: next line used old \xb7 escape — neutralised */
         resumeBody.textContent = saved.title + ' \xb7 Ch. ' + saved.chDisplay + ' \xb7 p. ' + saved.pageInChapter;
+        } /* end legacy neutralise */
         resumeEl.appendChild(resumeLabel);
         resumeEl.appendChild(resumeBody);
         // XSS note: textContent used instead of innerHTML. ${saved.chDisplay} &middot; p. ${saved.pageInChapter}</span>`;
         resumeEl.addEventListener('click', function(e) {
           e.stopPropagation();
           clearResumeUI();
-          jumpToChapter(saved.chIdx, saved.pageIdx);
+          jumpToChapter(saved.chIdx, saved.maxPageIdx);
           resetIdle();
         });
         topDecor.appendChild(resumeEl);
-        sessionPendingResume = true;
+      } else if (chapterMissing) {
+        const noticeEl = document.createElement('div');
+        noticeEl.className = 'resume-missing';
+        noticeEl.textContent = 'Last read: Ch. ' + saved.chDisplay + ' — not in this file';
+        topDecor.appendChild(noticeEl);
       }
 
       // Geometric logo — rendered at top-decor; hidden when the big resume button
@@ -1059,9 +1134,9 @@
       maxChapterNum = 0;
       baseChapterOffset = 0;
 
-      // Reset resume state so a fresh load starts clean.
-      sessionPendingResume = false;
-      document.getElementById('resume-mini-btn').classList.add('hidden');
+      // Tear down any stale resume UI from a previous load.
+      const staleResume = document.getElementById('in-reader-resume');
+      if (staleResume) staleResume.remove();
 
       // Hide any leftover notices from a previous load.
       document.getElementById('size-notice').classList.add('hidden');
@@ -1411,7 +1486,7 @@
       }
       // Debounce session save — writes position 1.5 s after scrolling settles.
       clearTimeout(sessionSaveTimer);
-      sessionSaveTimer = setTimeout(saveSession, 1500);
+      sessionSaveTimer = setTimeout(saveToLibrary, 1500);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -1461,13 +1536,11 @@
     function jumpToChapter(idx, targetPageIdx = null) {
       if (idx < 0 || idx >= chapters.length) return;
 
-      // Resume transition: if user navigates away from chapter 1 without tapping
-      // the big resume button, auto-dismiss it and show the mini bookmark button instead.
-      if (sessionPendingResume && idx > 0) {
+      // If user navigates away from chapter 1 without tapping the resume button,
+      // auto-dismiss it and reveal the logo.
+      if (idx > 0) {
         const bigBtn = document.getElementById('in-reader-resume');
         if (bigBtn) bigBtn.remove();
-        sessionPendingResume = false;
-        document.getElementById('resume-mini-btn').classList.remove('hidden');
         const logo = document.getElementById('top-decor-logo');
         if (logo) logo.classList.remove('hidden');
       }
@@ -1808,7 +1881,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         // Save immediately — this is the last reliable moment before iOS may evict the page.
-        saveSession();
+        saveToLibrary();
         if (autoRunning) {
           stopAutoScroll();
           uiHidden = false;
@@ -1831,19 +1904,9 @@
       resetIdle();
     });
 
-    // Mini resume button — shown in footer after dismissing big resume prompt,
-    // or always in scroll mode when a saved session exists.
-    document.getElementById('resume-mini-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const saved = loadSavedSession();
-      if (!saved) return;
-      clearResumeUI();
-      jumpToChapter(saved.chIdx, saved.pageIdx);
-      resetIdle();
-    });
-
-    // Show a discrete upload-screen hint if there's a previous session to return to.
-    initUploadHint();
+    // Migrate any pre-library session and populate the home-screen library list.
+    migrateOldSession();
+    initLibraryList();
   </script>
 </body>
 </html>

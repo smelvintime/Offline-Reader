@@ -234,6 +234,7 @@
       display: flex; align-items: center; justify-content: center;
     }
     .icon-btn:active { background: rgba(255,255,255,0.1); }
+    .icon-btn:disabled { opacity: 0.15; pointer-events: none; }
 
     #chapter-nav {
       position: absolute;
@@ -266,7 +267,7 @@
       align-items: center;
       justify-content: center;
     }
-    #page-indicator { font-size: .75rem; color: var(--text); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+    #page-indicator { color: var(--text); display: flex; align-items: center; }
 
     /* ── Auto-scroll bar ──
        Solid background instead of backdrop-filter: three simultaneous blur layers
@@ -517,19 +518,27 @@
     .library-row {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
+      align-items: center;
       font-size: 0.78rem;
       color: var(--muted);
-      padding: 0.3rem 0;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding: 0.45rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
       opacity: 0.85;
     }
     .library-info {
       flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .library-info-text {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      margin-right: 0.75rem;
+      flex-shrink: 1;
+      min-width: 0;
     }
     .library-date {
       flex-shrink: 0;
@@ -754,12 +763,15 @@
       const prev     = library.find(function(e) { return e.key === key; }) || {};
 
       // High-water mark: only ever advance, never regress.
-      const isNewMax            = currentPage > (prev.maxPageIdx != null ? prev.maxPageIdx : -1);
-      const maxPageIdx          = isNewMax ? currentPage                  : prev.maxPageIdx;
-      const maxChIdx            = isNewMax ? currentChIdx                 : prev.chIdx;
-      const maxChDisplay        = isNewMax ? chDisplay                    : prev.chDisplay;
-      const maxPageInChapter    = isNewMax ? currentPage - ch.start + 1  : prev.pageInChapter;
-      const maxChapterTotalPages = isNewMax ? ch.end - ch.start + 1      : prev.chapterTotalPages;
+      // Use ch.end when the last page of the chapter is visible so the homepage
+      // bar shows 100% rather than 99% (currentPage is min-visible, not max-visible).
+      const effectivePage       = visiblePages.has(ch.end) ? ch.end : currentPage;
+      const isNewMax            = effectivePage > (prev.maxPageIdx != null ? prev.maxPageIdx : -1);
+      const maxPageIdx          = isNewMax ? effectivePage               : prev.maxPageIdx;
+      const maxChIdx            = isNewMax ? currentChIdx                : prev.chIdx;
+      const maxChDisplay        = isNewMax ? chDisplay                   : prev.chDisplay;
+      const maxPageInChapter    = isNewMax ? effectivePage - ch.start + 1 : prev.pageInChapter;
+      const maxChapterTotalPages = isNewMax ? ch.end - ch.start + 1     : prev.chapterTotalPages;
       const completed           = maxPageIdx >= pages.length - 1;
 
       const entry = {
@@ -818,22 +830,38 @@
       listEl.innerHTML = '';
       if (!library.length) return;
       library.forEach(function(entry) {
-        const row  = document.createElement('div');
+        const row = document.createElement('div');
         row.className = 'library-row';
-        const info = document.createElement('span');
+
+        const info = document.createElement('div');
         info.className = 'library-info';
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'library-info-text';
+
         let lbl = entry.title;
+        let progressPct = null;
         if (entry.completed) {
           lbl += ' · Ch. ' + entry.chDisplay + ' · Completed';
         } else if (entry.chDisplay != null) {
           lbl += ' · Ch. ' + entry.chDisplay;
           if (entry.chapterTotalPages > 0 && entry.pageInChapter != null)
-            lbl += ' · ' + Math.round(entry.pageInChapter / entry.chapterTotalPages * 100) + '%';
+            progressPct = Math.round(entry.pageInChapter / entry.chapterTotalPages * 100);
         }
-        info.textContent = lbl;
+        textSpan.textContent = lbl;
+        info.appendChild(textSpan);
+
+        if (progressPct !== null) {
+          const barWrap = document.createElement('span');
+          barWrap.style.cssText = 'flex-shrink:0;display:flex;align-items:center;';
+          barWrap.innerHTML = buildProgressBar(progressPct, 44);
+          info.appendChild(barWrap);
+        }
+
         const date = document.createElement('span');
         date.className = 'library-date';
         date.textContent = formatDate(entry.lastRead);
+
         row.appendChild(info);
         row.appendChild(date);
         listEl.appendChild(row);
@@ -965,9 +993,14 @@
         const resumeBody = document.createElement('span');
         resumeBody.className = 'resume-body';
         let bodyText = saved.title + ' · Ch. ' + saved.chDisplay;
-        if (!saved.completed && saved.chapterTotalPages > 0 && saved.pageInChapter != null)
-          bodyText += ' · ' + Math.round(saved.pageInChapter / saved.chapterTotalPages * 100) + '%';
-        resumeBody.textContent = bodyText;
+        resumeBody.appendChild(document.createTextNode(bodyText));
+        if (!saved.completed && saved.chapterTotalPages > 0 && saved.pageInChapter != null) {
+          const pct = Math.round(saved.pageInChapter / saved.chapterTotalPages * 100);
+          const barWrap = document.createElement('span');
+          barWrap.style.cssText = 'display:inline-block;vertical-align:middle;margin-left:0.5rem;';
+          barWrap.innerHTML = buildProgressBar(pct);
+          resumeBody.appendChild(barWrap);
+        }
         if (false) { /* LEGACY: next line used old \xb7 escape — neutralised */
         resumeBody.textContent = saved.title + ' \xb7 Ch. ' + saved.chDisplay + ' \xb7 p. ' + saved.pageInChapter;
         } /* end legacy neutralise */
@@ -1470,19 +1503,54 @@
       updateBottomDecor();
     }
 
+    let _barUid = 0;
+    function buildProgressBar(pct, customW) {
+      const W = (typeof customW === 'number') ? customW : 72;
+      const H = 9, barH = 3, barY = 3;
+      const fillW = Math.min(Math.round((pct / 100) * W), W);
+      const svgW  = W;
+      if (fillW === 0) {
+        return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;"></svg>`;
+      }
+      if (pct >= 100) {
+        return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">` +
+          `<rect x="0" y="${barY}" width="${W}" height="${barH}" rx="0.5" fill="#6366f1" opacity="0.88"/>` +
+          `</svg>`;
+      }
+      const uid  = 'pf' + (++_barUid);
+      const FADE = 8;
+      const g1   = Math.max(0, fillW - FADE);
+      return (
+        `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">` +
+        `<defs>` +
+          `<linearGradient id="${uid}" x1="${g1}" x2="${fillW}" y1="0" y2="0" gradientUnits="userSpaceOnUse">` +
+            `<stop offset="0%"   stop-color="#6366f1" stop-opacity="0.88"/>` +
+            `<stop offset="100%" stop-color="#6366f1" stop-opacity="0.15"/>` +
+          `</linearGradient>` +
+        `</defs>` +
+        `<rect x="0" y="${barY}" width="${fillW}" height="${barH}" rx="0.5" fill="url(#${uid})"/>` +
+        `</svg>`
+      );
+    }
+
     function updateIndicator() {
       const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
       if (chIdx !== -1) currentChIdx = chIdx;
       const ch = chapters[currentChIdx];
+      const atEnd = ch && visiblePages.has(ch.end);
       const chPct = (ch && ch.end > ch.start)
-        ? Math.round((currentPage - ch.start + 1) / (ch.end - ch.start + 1) * 100)
+        ? (atEnd ? 100 : Math.round((currentPage - ch.start + 1) / (ch.end - ch.start + 1) * 100))
         : 100;
-      pageIndicator.textContent = chPct + '%';
+      pageIndicator.innerHTML = buildProgressBar(chPct);
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
         const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
+        const prevChBtn = document.getElementById('prev-ch');
+        const nextChBtn = document.getElementById('next-ch');
+        if (prevChBtn) prevChBtn.disabled = currentChIdx === 0;
+        if (nextChBtn) nextChBtn.disabled = currentChIdx === chapters.length - 1;
       }
       // Debounce session save — writes position 1.5 s after scrolling settles.
       clearTimeout(sessionSaveTimer);

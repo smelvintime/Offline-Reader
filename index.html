@@ -60,7 +60,7 @@
       width: 100%; max-width: 340px;
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 20px;
+      border-radius: 10px; /* reduced from 20px — less pill-shaped */
       padding: 1.2rem;
       display: flex;
       align-items: center;
@@ -246,7 +246,7 @@
     }
     #chapter-label-btn {
       font-size: .8rem; font-weight: 700; padding: .4rem .8rem;
-      background: var(--surf); border-radius: 12px; margin: 0 .2rem;
+      background: var(--surf); border-radius: 8px; margin: 0 .2rem; /* reduced from 12px */
       color: var(--text);
       border: 1px solid var(--border);
       transition: background 0.2s;
@@ -309,7 +309,7 @@
     #as-mode-toggle {
       width: 34px; height: 34px;
       opacity: 1;
-      border-radius: 50%;
+      border-radius: 8px; /* reduced from 50% — less bubbly */
       color: var(--accent);
       background: rgba(99, 102, 241, 0.15);
       border: 1px solid rgba(99, 102, 241, 0.3);
@@ -515,15 +515,17 @@
       flex-direction: column;
       gap: 0.25rem;
     }
+    /* Library row: single horizontal line — title, bar (right-aligned), then date */
     .library-row {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
       font-size: 0.78rem;
       color: var(--muted);
       padding: 0.45rem 0;
       border-bottom: 1px solid rgba(255,255,255,0.08);
       opacity: 0.85;
+      gap: 0.75rem; /* padding between the progress bar and the date */
     }
     .library-info {
       flex: 1;
@@ -851,6 +853,7 @@
         textSpan.textContent = lbl;
         info.appendChild(textSpan);
 
+        // Progress bar is right-aligned within the info section
         if (progressPct !== null) {
           const barWrap = document.createElement('span');
           barWrap.style.cssText = 'flex-shrink:0;display:flex;align-items:center;margin-left:auto;';
@@ -858,6 +861,7 @@
           info.appendChild(barWrap);
         }
 
+        // Date is a flex sibling of info; gap on .library-row creates spacing from the bar
         const date = document.createElement('span');
         date.className = 'library-date';
         date.textContent = formatDate(entry.lastRead);
@@ -1504,7 +1508,11 @@
     }
 
     let _barUid = 0;
-    function buildProgressBar(pct, customW) {
+    // fillColor: optional SVG color string for the filled portion.
+    // Defaults to indigo (#6366f1) for home-screen library bars.
+    // Pass 'var(--text)' for the reader-footer bar to render it in off-white.
+    function buildProgressBar(pct, customW, fillColor) {
+      const color = fillColor || '#6366f1';
       const W = (typeof customW === 'number') ? customW : 72;
       const H = 9, barH = 3, barY = 3;
       const fillW = Math.min(Math.round((pct / 100) * W), W);
@@ -1516,7 +1524,7 @@
       if (pct >= 100) {
         return `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">` +
           track +
-          `<rect x="0" y="${barY}" width="${W}" height="${barH}" rx="0.5" fill="#6366f1" opacity="0.88"/>` +
+          `<rect x="0" y="${barY}" width="${W}" height="${barH}" rx="0.5" fill="${color}" opacity="0.88"/>` +
           `</svg>`;
       }
       const uid  = 'pf' + (++_barUid);
@@ -1526,8 +1534,8 @@
         `<svg width="${svgW}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">` +
         `<defs>` +
           `<linearGradient id="${uid}" x1="${g1}" x2="${fillW}" y1="0" y2="0" gradientUnits="userSpaceOnUse">` +
-            `<stop offset="0%"   stop-color="#6366f1" stop-opacity="0.88"/>` +
-            `<stop offset="100%" stop-color="#6366f1" stop-opacity="0.15"/>` +
+            `<stop offset="0%"   stop-color="${color}" stop-opacity="0.88"/>` +
+            `<stop offset="100%" stop-color="${color}" stop-opacity="0.15"/>` +
           `</linearGradient>` +
         `</defs>` +
         track +
@@ -1544,7 +1552,8 @@
       const chPct = (ch && ch.end > ch.start)
         ? (atEnd ? 100 : Math.round((currentPage - ch.start + 1) / (ch.end - ch.start + 1) * 100))
         : 100;
-      pageIndicator.innerHTML = buildProgressBar(chPct);
+      // Reader footer bar uses off-white (--text) instead of the default indigo
+      pageIndicator.innerHTML = buildProgressBar(chPct, undefined, 'var(--text)');
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
         const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);

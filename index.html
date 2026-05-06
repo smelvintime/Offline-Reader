@@ -1002,7 +1002,7 @@
           const pct = Math.round(saved.pageInChapter / saved.chapterTotalPages * 100);
           const barWrap = document.createElement('span');
           barWrap.style.cssText = 'display:inline-block;vertical-align:middle;margin-left:0.5rem;';
-          barWrap.innerHTML = buildProgressBar(pct);
+          barWrap.innerHTML = buildProgressBar(pct, 44); /* match home-screen bar width */
           resumeBody.appendChild(barWrap);
         }
         if (false) { /* LEGACY: next line used old \xb7 escape — neutralised */
@@ -1553,7 +1553,7 @@
         ? (atEnd ? 100 : Math.round((currentPage - ch.start + 1) / (ch.end - ch.start + 1) * 100))
         : 100;
       // Reader footer bar uses off-white (--text) instead of the default indigo
-      pageIndicator.innerHTML = buildProgressBar(chPct, undefined, 'var(--text)');
+      pageIndicator.innerHTML = buildProgressBar(chPct, 44, 'var(--text)'); /* 44px width matches home-screen bar; off-white in reader */
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
         const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);

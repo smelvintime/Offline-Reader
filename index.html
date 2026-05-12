@@ -554,188 +554,409 @@
       padding: 0.4rem 0.75rem;
     }
 
-    /* ── Online Library Screen ── */
-    #online-screen {
+    /* ═══════════════════════════════════════════════════════
+       ONLINE HOMEPAGE
+    ═══════════════════════════════════════════════════════ */
+
+    #home-screen {
+      display: none;
+      flex-direction: column;
+      min-height: 100vh;
+      background: var(--bg);
+      padding-bottom: 2rem;
+    }
+
+    /* ── Site header ── */
+    #home-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10,10,10,0.88);
+      backdrop-filter: blur(24px) saturate(150%);
+      -webkit-backdrop-filter: blur(24px) saturate(150%);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: calc(env(safe-area-inset-top,0px) + 0.6rem) 1rem 0.6rem;
+    }
+    #home-header-inner {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      max-width: 860px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    #home-logo {
+      font-size: 1.1rem;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      color: var(--text);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    #home-logo svg { color: var(--accent); }
+
+    /* Search */
+    #home-search-wrap {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+    #home-search {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 0.55rem 0.9rem 0.55rem 2.4rem;
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #home-search:focus {
+      border-color: var(--accent);
+      background: rgba(99,102,241,0.08);
+    }
+    #home-search::placeholder { color: var(--muted); }
+    #home-search-icon {
+      position: absolute;
+      left: 0.7rem; top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    /* ── Offline badge ── */
+    #offline-badge {
+      display: none;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(30,30,30,0.95);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    #offline-badge.visible { display: flex; }
+
+    /* ── Scroll body ── */
+    #home-body {
+      flex: 1;
+      padding: 1.25rem 1rem 0;
+      max-width: 860px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ── Section labels ── */
+    .home-section-label {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .home-section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+    }
+
+    /* ── Latest updates row ── */
+    #latest-updates-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin-bottom: 2rem;
+    }
+    .update-row {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.7rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.045);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s;
+      border-radius: 8px;
+      padding-left: 0.4rem;
+      padding-right: 0.4rem;
+    }
+    .update-row:active { background: rgba(255,255,255,0.05); }
+    .update-thumb {
+      width: 42px;
+      height: 56px;
+      border-radius: 6px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: #111;
+    }
+    .update-thumb-ph {
+      width: 42px; height: 56px;
+      border-radius: 6px; flex-shrink: 0;
+      background: linear-gradient(135deg,#1a1a2e,#16213e);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; color: var(--accent);
+    }
+    .update-info { flex: 1; min-width: 0; }
+    .update-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .update-meta {
+      font-size: 0.75rem;
+      color: var(--accent);
+      margin-top: 0.15rem;
+    }
+    .update-date {
+      font-size: 0.68rem;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    /* ── Series grid ── */
+    #series-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 2rem;
+    }
+    .series-card {
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-align: left;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.15s;
+    }
+    .series-card:active { transform: scale(0.95); }
+    .series-cover-wrap {
+      width: 100%;
+      aspect-ratio: 2/3;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #111;
+      margin-bottom: 0.45rem;
+    }
+    .series-cover {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    .series-cover-ph {
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg,#1a1a2e,#16213e);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem; color: var(--accent);
+    }
+    .series-card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .series-card-meta {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+
+    /* ── Home loading/error state ── */
+    #home-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      gap: 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    .home-state-title { font-size: 1rem; font-weight: 700; }
+    #home-retry-btn {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.65rem 1.5rem;
+      color: var(--accent);
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       SERIES DETAIL SCREEN
+    ══════════════════════════════════════════════════════ */
+
+    #series-screen {
       display: none;
       flex-direction: column;
       min-height: 100vh;
       background: var(--bg);
     }
 
-    #online-header {
+    #series-header {
       position: sticky;
       top: 0;
-      z-index: 50;
+      z-index: 100;
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1rem 0.75rem;
-      background: rgba(10, 10, 10, 0.88);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      padding: calc(env(safe-area-inset-top,0px) + 0.65rem) 1rem 0.65rem;
+      background: rgba(10,10,10,0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       border-bottom: 1px solid rgba(255,255,255,0.06);
     }
-
-    #online-back-btn {
-      background: none; border: none; color: var(--accent);
-      padding: 0.4rem; cursor: pointer;
+    #series-back-btn {
+      background: none; border: none;
+      color: var(--accent); padding: 0.4rem; cursor: pointer;
       display: flex; align-items: center; border-radius: 8px; flex-shrink: 0;
     }
-    #online-back-btn:active { background: rgba(255,255,255,0.08); }
-
-    #online-header-title {
-      font-size: 1rem; font-weight: 700; color: var(--text);
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+    #series-back-btn:active { background: rgba(255,255,255,0.08); }
+    #series-header-title {
+      flex: 1; font-size: 1rem; font-weight: 700; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
 
-    #online-content {
-      flex: 1;
-      padding: 1rem;
-      overflow-y: auto;
-    }
-
-    /* ── Series Grid ── */
-    .series-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-      gap: 0.75rem;
-    }
-
-    .series-card {
-      background: var(--surf); border: 1px solid var(--border);
-      border-radius: 12px; overflow: hidden; cursor: pointer;
-      transition: transform 0.15s, background 0.15s;
-      -webkit-tap-highlight-color: transparent;
-      text-align: left; /* reset button alignment */
+    #series-body {
+      padding: 1.25rem 1rem;
+      max-width: 860px;
+      margin: 0 auto;
       width: 100%;
     }
-    .series-card:active { transform: scale(0.96); background: rgba(255,255,255,0.12); }
 
-    .series-cover {
-      width: 100%; aspect-ratio: 2/3; object-fit: cover;
-      display: block; background: #111;
+    /* Hero row */
+    #series-hero {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      align-items: flex-start;
     }
-    .series-cover-placeholder {
-      width: 100%; aspect-ratio: 2/3;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    #series-hero-cover {
+      width: 100px;
+      aspect-ratio: 2/3;
+      border-radius: 10px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: #111;
+    }
+    #series-hero-cover-ph {
+      width: 100px;
+      aspect-ratio: 2/3;
+      border-radius: 10px;
+      flex-shrink: 0;
+      background: linear-gradient(135deg,#1a1a2e,#16213e);
       display: flex; align-items: center; justify-content: center;
-      color: var(--accent); font-size: 2rem;
+      font-size: 2.5rem; color: var(--accent);
+    }
+    #series-hero-info { flex: 1; min-width: 0; }
+    #series-hero-title {
+      font-size: 1.15rem;
+      font-weight: 900;
+      color: var(--text);
+      line-height: 1.25;
+      margin-bottom: 0.4rem;
+    }
+    #series-hero-desc {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.55;
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    #series-hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.6rem;
+    }
+    .series-tag {
+      font-size: 0.68rem; font-weight: 700;
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 6px;
+      padding: 0.2rem 0.5rem;
+      color: var(--accent);
     }
 
-    .series-info { padding: 0.6rem 0.75rem 0.75rem; }
-    .series-title {
-      font-size: 0.8rem; font-weight: 700; color: var(--text); line-height: 1.3;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    /* Chapter list */
+    #series-chapter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
     }
-    .series-meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
-
-    /* ── Chapter List ── */
-    .chapter-list { display: flex; flex-direction: column; gap: 0.3rem; }
-
-    .chapter-item {
-      display: flex; align-items: center;
-      padding: 0.85rem 1rem;
-      background: var(--surf); border: 1px solid var(--border); border-radius: 10px;
-      cursor: pointer; transition: background 0.15s; gap: 0.75rem;
+    .ch-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 0.9rem;
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
       -webkit-tap-highlight-color: transparent;
       width: 100%; text-align: left;
     }
-    .chapter-item:active { background: rgba(255,255,255,0.12); }
-
-    .chapter-num {
-      font-size: 0.75rem; font-weight: 700; color: var(--accent); min-width: 3.5rem; flex-shrink: 0;
+    .ch-item:active { background: rgba(255,255,255,0.12); }
+    .ch-num {
+      font-size: 0.75rem; font-weight: 700;
+      color: var(--accent); min-width: 3.5rem; flex-shrink: 0;
     }
-    .chapter-name {
+    .ch-name {
       flex: 1; font-size: 0.9rem; color: var(--text);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .chapter-arrow { color: var(--muted); opacity: 0.5; flex-shrink: 0; display: flex; align-items: center; }
+    .ch-date {
+      font-size: 0.68rem; color: var(--muted); flex-shrink: 0;
+    }
+    .ch-arrow {
+      color: var(--muted); opacity: 0.45;
+      display: flex; align-items: center; flex-shrink: 0;
+    }
 
-    /* ── Catalog URL section on upload screen ── */
-    .catalog-section {
-      width: 100%; max-width: 340px;
-      display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+    /* ── No results ── */
+    .no-results {
+      text-align: center; color: var(--muted);
+      font-size: 0.85rem; padding: 2rem 0;
+    }
+
+    /* ── Offline reader mode notice on upload screen ── */
+    #offline-reader-badge {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 10px;
+      padding: 0.6rem 1rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      width: 100%;
+      max-width: 340px;
       margin-top: 0.5rem;
     }
-
-    .or-divider {
-      display: flex; align-items: center; gap: 0.75rem;
-      color: var(--muted); font-size: 0.75rem; width: 100%;
-    }
-    .or-divider::before, .or-divider::after {
-      content: ''; flex: 1; height: 1px; background: var(--border);
-    }
-
-    #catalog-url-section {
-      display: none;
-      flex-direction: column;
-      gap: 0.5rem;
-      width: 100%;
-    }
-    #catalog-url-section.visible { display: flex; }
-
-    #catalog-url-row { display: flex; width: 100%; gap: 0.5rem; }
-
-    #catalog-url-input {
-      flex: 1; min-width: 0;
-      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 8px; padding: 0.65rem 0.9rem;
-      color: var(--text); font-size: 0.85rem; outline: none;
-    }
-    #catalog-url-input:focus { border-color: var(--accent); background: rgba(99,102,241,0.08); }
-    #catalog-url-input::placeholder { color: var(--muted); opacity: 0.7; }
-
-    #catalog-load-btn {
-      background: var(--accent); border: none; border-radius: 8px;
-      padding: 0.65rem 1rem; color: #fff;
-      font-size: 0.9rem; font-weight: 700; cursor: pointer; flex-shrink: 0;
-      transition: opacity 0.2s;
-    }
-    #catalog-load-btn:active { opacity: 0.7; }
-    #catalog-load-btn:disabled { opacity: 0.4; pointer-events: none; }
-
-    #recent-catalogs { width: 100%; display: flex; flex-direction: column; gap: 0.3rem; }
-
-    .recent-catalog-item {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.5rem 0.75rem;
-      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 8px; cursor: pointer; transition: background 0.15s;
-      -webkit-tap-highlight-color: transparent; width: 100%; text-align: left;
-    }
-    .recent-catalog-item:active { background: rgba(255,255,255,0.08); }
-    .recent-catalog-name { flex: 1; font-size: 0.8rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .recent-catalog-url { font-size: 0.65rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; flex-shrink: 0; }
-
-    /* ── Offline Indicator ── */
-    #offline-indicator {
-      position: fixed;
-      top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 9999;
-      background: rgba(30, 30, 30, 0.96);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 20px;
-      padding: 0.3rem 0.9rem;
-      font-size: 0.72rem; font-weight: 600; color: var(--muted);
-      pointer-events: none;
-      opacity: 0; transition: opacity 0.35s;
-      white-space: nowrap;
-    }
-    #offline-indicator.visible { opacity: 1; }
-
-    /* ── Online states ── */
-    .online-loading {
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; padding: 4rem 1rem; gap: 1rem;
-    }
-    .online-empty {
-      display: flex; flex-direction: column; align-items: center;
-      padding: 3rem 1rem; gap: 0.75rem; text-align: center;
-      color: var(--muted); font-size: 0.9rem;
-    }
-    .online-error-title { font-size: 1rem; font-weight: 700; color: #ef4444; }
+    #offline-reader-badge.visible { display: flex; }
   </style>
 </head>
 <body>
@@ -777,41 +998,68 @@
     <input type="file" id="file-input" accept=".cbz,.zip" multiple>
     <p class="hint">600 MB limit</p>
     <div id="library-list" class="hidden"></div>
+    <div id="offline-reader-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+      Offline mode — connect to internet for the full library
+    </div>
+  </div>
 
-    <div class="catalog-section">
-      <div class="or-divider">or</div>
-      <button id="online-open-btn" class="mobile-upload-btn" style="width:100%;max-width:340px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1.2rem;display:flex;align-items:center;gap:1.2rem;cursor:pointer;transition:all 0.2s;text-align:left;-webkit-tap-highlight-color:transparent;">
-        <div class="btn-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="2" y1="12" x2="22" y2="12"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-          </svg>
+  <!-- ═══ ONLINE HOME SCREEN ═══ -->
+  <div id="home-screen">
+    <header id="home-header">
+      <div id="home-header-inner">
+        <div id="home-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.5 9H22L16 13.5L18.5 20.5L12 16L5.5 20.5L8 13.5L2 9H9.5Z"/></svg>
+          Reader
         </div>
-        <div class="btn-text">
-          <span class="btn-title">Online Library</span>
-          <span class="btn-sub">Load catalog from URL</span>
+        <div id="home-search-wrap">
+          <span id="home-search-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </span>
+          <input type="search" id="home-search" placeholder="Search series…" autocomplete="off" spellcheck="false">
         </div>
-      </button>
-      <div id="catalog-url-section">
-        <div id="catalog-url-row">
-          <input type="url" id="catalog-url-input" placeholder="https://example.com/catalog.json" autocomplete="url" spellcheck="false">
-          <button id="catalog-load-btn">Go</button>
+        <div id="offline-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+          Offline
         </div>
-        <div id="recent-catalogs"></div>
+      </div>
+    </header>
+    <div id="home-body">
+      <div id="home-state">
+        <div class="spinner"></div>
+        <div>Loading library…</div>
+      </div>
+      <div id="latest-section" style="display:none">
+        <div class="home-section-label">Latest Updates</div>
+        <div id="latest-updates-list"></div>
+      </div>
+      <div id="series-section" style="display:none">
+        <div class="home-section-label">All Series</div>
+        <div id="series-grid"></div>
       </div>
     </div>
   </div>
 
-  <!-- Online Library Screen -->
-  <div id="online-screen">
-    <header id="online-header">
-      <button id="online-back-btn">
+  <!-- ═══ SERIES DETAIL SCREEN ═══ -->
+  <div id="series-screen">
+    <header id="series-header">
+      <button id="series-back-btn">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <span id="online-header-title">Library</span>
+      <span id="series-header-title">Series</span>
     </header>
-    <div id="online-content"></div>
+    <div id="series-body">
+      <div id="series-hero">
+        <div id="series-hero-cover-ph">📖</div>
+        <div id="series-hero-info">
+          <div id="series-hero-title"></div>
+          <div id="series-hero-desc"></div>
+          <div id="series-hero-meta"></div>
+        </div>
+      </div>
+      <div class="home-section-label">Chapters</div>
+      <div id="series-chapter-list"></div>
+    </div>
   </div>
 
   <div id="loading-screen">
@@ -887,8 +1135,6 @@
     <span id="order-notice-text">⚠ Chapter order may be incorrect — filenames unrecognised</span>
     <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
   </div>
-
-  <div id="offline-indicator">⚡ Offline</div>
 
   <script src="./jszip.min.js"></script>
   <script>
@@ -1099,10 +1345,12 @@
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
     function basename(path) { return path.replace(/^.*[\\/]/, ''); }
-    const onlineScreen = document.getElementById('online-screen');
+
+    const homeScreen   = document.getElementById('home-screen');
+    const seriesScreen = document.getElementById('series-screen');
 
     function showScreen(id) {
-      [uploadScreen, loadingScreen, readerScreen, onlineScreen].forEach(s => s.style.display = 'none');
+      [uploadScreen, loadingScreen, readerScreen, homeScreen, seriesScreen].forEach(s => s.style.display = 'none');
       document.getElementById(id).style.display = id === 'reader-screen' ? 'block' : 'flex';
     }
 
@@ -1660,7 +1908,7 @@
         const dist = Math.abs(i - currentPage);
 
         if (p.directUrl) {
-          // Online page: clear src for distant pages (no blob URL to revoke).
+          // Online page: just clear src for distant pages (no blob URL to revoke).
           if (dist > CACHE_WINDOW) {
             if (p.el && p.el.src) p.el.src = '';
             p.url = null; p.loading = false; p.gen++;
@@ -2205,7 +2453,16 @@
       else clearTimeout(idleTimer);
     });
 
-    // close-btn handler defined below (in Online Library section) to support back-navigation from online chapters.
+    document.getElementById('close-btn').addEventListener('click', () => {
+      // If reading an online chapter, go back to the series detail screen
+      if (readerOrigin === 'series') {
+        pages.forEach(p => { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
+        pages = []; chapters = [];
+        showScreen('series-screen');
+      } else {
+        location.reload();
+      }
+    });
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -2237,208 +2494,277 @@
     migrateOldSession();
     initLibraryList();
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Online Library
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ONLINE MODE — fetches /catalog.json automatically, no user input required.
+    // When online  → shows home-screen (series grid, latest updates, search).
+    // When offline → shows upload-screen (existing CBZ reader).
+    // Switches automatically when connectivity changes.
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    let onlineCatalog  = null;  // parsed catalog JSON
-    let onlineView     = 'series'; // 'series' | 'chapters'
-    let onlineSeriesIdx = -1;
-    // Track which screen opened the reader so the close button can go back there.
-    let readerOrigin   = 'upload-screen'; // 'upload-screen' | 'online-screen'
+    let catalog       = null;   // parsed catalog.json
+    let filteredSeries = [];    // current search results
+    let currentSeriesIdx = -1;  // index into catalog.series for series-screen
+    let readerOrigin  = 'upload'; // 'upload' | 'series' — controls close-btn behaviour
 
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    function escH(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // ── Catalog persistence ───────────────────────────────────────────────────────
-
-    function loadRecentCatalogs() {
-      try { return JSON.parse(localStorage.getItem('or.catalogs')) || []; } catch(e) { return []; }
+    function fmtDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso), diff = Math.floor((Date.now() - d) / 86400000);
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      if (diff < 7)  return diff + 'd ago';
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
-    function saveRecentCatalog(url, name) {
-      let cats = loadRecentCatalogs();
-      cats = cats.filter(function(c) { return c.url !== url; });
-      cats.unshift({ url: url, name: name, lastAccessed: new Date().toISOString() });
-      cats = cats.slice(0, 5);
-      try { localStorage.setItem('or.catalogs', JSON.stringify(cats)); } catch(e) {}
-    }
+    // ── Catalog fetch ─────────────────────────────────────────────────────────────
 
-    function initRecentCatalogs() {
-      const cats = loadRecentCatalogs();
-      const container = document.getElementById('recent-catalogs');
-      if (!container) return;
-      container.innerHTML = '';
-      if (!cats.length) return;
-      cats.forEach(function(c) {
-        const item = document.createElement('button');
-        item.className = 'recent-catalog-item';
-        const nameEl = document.createElement('span');
-        nameEl.className = 'recent-catalog-name';
-        nameEl.textContent = c.name;
-        const urlEl = document.createElement('span');
-        urlEl.className = 'recent-catalog-url';
-        urlEl.textContent = c.url;
-        item.appendChild(nameEl);
-        item.appendChild(urlEl);
-        item.addEventListener('click', function() {
-          document.getElementById('catalog-url-input').value = c.url;
-          loadCatalog(c.url);
-        });
-        container.appendChild(item);
-      });
-    }
-
-    // ── Catalog loading ───────────────────────────────────────────────────────────
-
-    async function loadCatalog(url) {
-      if (!url) return;
-      showScreen('online-screen');
-      document.getElementById('online-content').innerHTML =
-        '<div class="online-loading"><div class="spinner"></div>' +
-        '<p style="color:var(--muted);font-size:.85rem">Loading catalog…</p></div>';
-      document.getElementById('online-header-title').textContent = 'Loading…';
-
+    async function fetchCatalog() {
       try {
-        const r = await fetch(url);
+        const r = await fetch('./catalog.json', { cache: 'no-cache' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        const data = await r.json();
-        onlineCatalog  = data;
-        onlineView     = 'series';
-        onlineSeriesIdx = -1;
-        saveRecentCatalog(url, data.name || url);
-        document.getElementById('online-header-title').textContent = data.name || 'Library';
-        renderSeriesList();
-      } catch(err) {
-        document.getElementById('online-content').innerHTML =
-          '<div class="online-empty"><div class="online-error-title">Failed to load catalog</div>' +
-          '<div>' + escHtml(err.message) + '</div>' +
-          '<div style="font-size:0.75rem;margin-top:0.5rem;color:var(--muted)">Make sure the URL is a valid catalog.json and the server allows CORS.</div></div>';
-        document.getElementById('online-header-title').textContent = 'Error';
+        return await r.json();
+      } catch(e) {
+        return null;
       }
     }
 
-    // ── Series list ───────────────────────────────────────────────────────────────
+    // ── Render home screen ────────────────────────────────────────────────────────
 
-    function renderSeriesList() {
-      const content  = document.getElementById('online-content');
-      const seriesList = (onlineCatalog && onlineCatalog.series) || [];
+    function renderHome(data) {
+      catalog = data;
+      filteredSeries = (data.series || []).slice();
 
-      if (!seriesList.length) {
-        content.innerHTML = '<div class="online-empty"><div>No series found in this catalog.</div></div>';
-        return;
-      }
+      const state   = document.getElementById('home-state');
+      const latestS = document.getElementById('latest-section');
+      const seriesS = document.getElementById('series-section');
+      state.style.display = 'none';
+      latestS.style.display = 'block';
+      seriesS.style.display = 'block';
 
-      const grid = document.createElement('div');
-      grid.className = 'series-grid';
+      renderLatest(filteredSeries);
+      renderSeriesGrid(filteredSeries);
+    }
 
-      seriesList.forEach(function(s, idx) {
-        const card = document.createElement('button');
-        card.className = 'series-card';
+    function renderLatest(seriesList) {
+      const container = document.getElementById('latest-updates-list');
+      container.innerHTML = '';
 
-        // Cover image or placeholder
-        const coverWrap = document.createElement('div');
+      // Build list: one row per series, sorted by most recently updated chapter
+      const sorted = seriesList.slice().sort(function(a, b) {
+        const aDate = latestDate(a), bDate = latestDate(b);
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return new Date(bDate) - new Date(aDate);
+      }).slice(0, 15);
+
+      sorted.forEach(function(s, i) {
+        const latestCh = latestChapter(s);
+        const row = document.createElement('div');
+        row.className = 'update-row';
+
+        // Thumbnail
         if (s.cover) {
           const img = document.createElement('img');
-          img.className = 'series-cover';
-          img.alt = '';
-          img.loading = 'lazy';
-          img.src = s.cover;
-          img.onerror = function() {
-            img.style.display = 'none';
-            const ph = document.createElement('div');
-            ph.className = 'series-cover-placeholder';
-            ph.textContent = '📖';
-            coverWrap.appendChild(ph);
-          };
-          coverWrap.appendChild(img);
+          img.className = 'update-thumb';
+          img.src = s.cover; img.alt = '';
+          img.onerror = function() { img.replaceWith(makePh('update-thumb-ph')); };
+          row.appendChild(img);
         } else {
-          const ph = document.createElement('div');
-          ph.className = 'series-cover-placeholder';
-          ph.textContent = '📖';
-          coverWrap.appendChild(ph);
+          row.appendChild(makePh('update-thumb-ph'));
         }
 
         const info = document.createElement('div');
-        info.className = 'series-info';
-
+        info.className = 'update-info';
         const titleEl = document.createElement('div');
-        titleEl.className = 'series-title';
+        titleEl.className = 'update-title';
         titleEl.textContent = s.title || 'Untitled';
-
-        const chCount = (s.chapters || []).length;
         const metaEl = document.createElement('div');
-        metaEl.className = 'series-meta';
-        metaEl.textContent = chCount + ' chapter' + (chCount !== 1 ? 's' : '');
-
+        metaEl.className = 'update-meta';
+        metaEl.textContent = latestCh ? 'Ch. ' + latestCh.num : 'No chapters';
         info.appendChild(titleEl);
         info.appendChild(metaEl);
-        card.appendChild(coverWrap);
-        card.appendChild(info);
+        row.appendChild(info);
 
-        card.addEventListener('click', function() {
-          onlineSeriesIdx = idx;
-          onlineView = 'chapters';
-          document.getElementById('online-header-title').textContent = s.title || 'Chapters';
-          renderChapterList(s);
-        });
+        const dateEl = document.createElement('div');
+        dateEl.className = 'update-date';
+        dateEl.textContent = fmtDate(latestDate(s));
+        row.appendChild(dateEl);
 
-        grid.appendChild(card);
+        const idx = (catalog.series || []).indexOf(s);
+        row.addEventListener('click', function() { openSeries(idx); });
+        container.appendChild(row);
       });
-
-      content.innerHTML = '';
-      content.appendChild(grid);
     }
 
-    // ── Chapter list ──────────────────────────────────────────────────────────────
+    function renderSeriesGrid(seriesList) {
+      const grid = document.getElementById('series-grid');
+      grid.innerHTML = '';
 
-    function renderChapterList(series) {
-      const content  = document.getElementById('online-content');
-      const chaps    = series.chapters || [];
-
-      if (!chaps.length) {
-        content.innerHTML = '<div class="online-empty"><div>No chapters found.</div></div>';
+      if (!seriesList.length) {
+        grid.innerHTML = '<div class="no-results">No series found</div>';
         return;
       }
 
-      const list = document.createElement('div');
-      list.className = 'chapter-list';
+      seriesList.forEach(function(s) {
+        const card = document.createElement('button');
+        card.className = 'series-card';
 
-      chaps.forEach(function(ch, idx) {
-        const item = document.createElement('button');
-        item.className = 'chapter-item';
+        const coverWrap = document.createElement('div');
+        coverWrap.className = 'series-cover-wrap';
+        if (s.cover) {
+          const img = document.createElement('img');
+          img.className = 'series-cover'; img.src = s.cover; img.alt = '';
+          img.onerror = function() { img.replaceWith(makePh('series-cover-ph')); };
+          coverWrap.appendChild(img);
+        } else {
+          coverWrap.appendChild(makePh('series-cover-ph'));
+        }
 
-        const numEl = document.createElement('span');
-        numEl.className = 'chapter-num';
-        numEl.textContent = ch.num != null ? 'Ch. ' + ch.num : 'Ch. ' + (idx + 1);
+        const titleEl = document.createElement('div');
+        titleEl.className = 'series-card-title';
+        titleEl.textContent = s.title || 'Untitled';
 
-        const nameEl = document.createElement('span');
-        nameEl.className = 'chapter-name';
-        nameEl.textContent = ch.title || ('Chapter ' + (ch.num != null ? ch.num : idx + 1));
+        const latestCh = latestChapter(s);
+        const metaEl = document.createElement('div');
+        metaEl.className = 'series-card-meta';
+        metaEl.textContent = latestCh ? 'Ch. ' + latestCh.num : (s.chapters || []).length + ' ch';
 
-        const arrowEl = document.createElement('span');
-        arrowEl.className = 'chapter-arrow';
-        arrowEl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+        card.appendChild(coverWrap);
+        card.appendChild(titleEl);
+        card.appendChild(metaEl);
 
-        item.appendChild(numEl);
-        item.appendChild(nameEl);
-        item.appendChild(arrowEl);
-
-        item.addEventListener('click', function() {
-          loadOnlineChapter(series.title || 'Comic', ch);
-        });
-
-        list.appendChild(item);
+        const idx = (catalog.series || []).indexOf(s);
+        card.addEventListener('click', function() { openSeries(idx); });
+        grid.appendChild(card);
       });
-
-      content.innerHTML = '';
-      content.appendChild(list);
     }
 
-    // ── Load a chapter from URL image list ────────────────────────────────────────
+    function makePh(cls) {
+      const ph = document.createElement('div');
+      ph.className = cls;
+      ph.textContent = '📖';
+      return ph;
+    }
+
+    function latestChapter(s) {
+      const chs = s.chapters || [];
+      if (!chs.length) return null;
+      return chs.reduce(function(best, ch) {
+        if (!best) return ch;
+        const bNum = best.num != null ? best.num : 0;
+        const cNum = ch.num  != null ? ch.num  : 0;
+        return cNum > bNum ? ch : best;
+      }, null);
+    }
+
+    function latestDate(s) {
+      const chs = s.chapters || [];
+      const lc = latestChapter(s);
+      return (lc && lc.updatedAt) || s.updatedAt || null;
+    }
+
+    // ── Series detail screen ──────────────────────────────────────────────────────
+
+    function openSeries(idx) {
+      if (!catalog || idx < 0) return;
+      const s = catalog.series[idx];
+      currentSeriesIdx = idx;
+
+      // Header title
+      document.getElementById('series-header-title').textContent = s.title || 'Series';
+
+      // Hero: cover
+      const heroEl = document.getElementById('series-hero');
+      const existingCover = document.getElementById('series-hero-cover');
+      if (existingCover) existingCover.remove();
+      const existingPh = document.getElementById('series-hero-cover-ph');
+      if (existingPh) existingPh.remove();
+
+      if (s.cover) {
+        const img = document.createElement('img');
+        img.id = 'series-hero-cover';
+        img.src = s.cover; img.alt = '';
+        img.onerror = function() {
+          img.remove();
+          const ph = document.createElement('div');
+          ph.id = 'series-hero-cover-ph'; ph.textContent = '📖';
+          heroEl.prepend(ph);
+        };
+        heroEl.prepend(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.id = 'series-hero-cover-ph'; ph.textContent = '📖';
+        heroEl.prepend(ph);
+      }
+
+      // Hero: text
+      document.getElementById('series-hero-title').textContent = s.title || 'Untitled';
+      document.getElementById('series-hero-desc').textContent  = s.description || '';
+
+      // Tags/genres
+      const metaEl = document.getElementById('series-hero-meta');
+      metaEl.innerHTML = '';
+      if (s.status) {
+        const tag = document.createElement('span');
+        tag.className = 'series-tag'; tag.textContent = s.status;
+        metaEl.appendChild(tag);
+      }
+      (s.genres || []).forEach(function(g) {
+        const tag = document.createElement('span');
+        tag.className = 'series-tag'; tag.textContent = g;
+        metaEl.appendChild(tag);
+      });
+
+      // Chapter list (newest first)
+      const chList = document.getElementById('series-chapter-list');
+      chList.innerHTML = '';
+      const chapters_data = (s.chapters || []).slice().sort(function(a, b) {
+        return (b.num != null ? b.num : 0) - (a.num != null ? a.num : 0);
+      });
+
+      if (!chapters_data.length) {
+        chList.innerHTML = '<div class="no-results">No chapters available</div>';
+      } else {
+        chapters_data.forEach(function(ch) {
+          const item = document.createElement('button');
+          item.className = 'ch-item';
+
+          const numEl = document.createElement('span');
+          numEl.className = 'ch-num';
+          numEl.textContent = ch.num != null ? 'Ch. ' + ch.num : '—';
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'ch-name';
+          nameEl.textContent = ch.title || ('Chapter ' + (ch.num != null ? ch.num : ''));
+
+          const dateEl = document.createElement('span');
+          dateEl.className = 'ch-date';
+          dateEl.textContent = fmtDate(ch.updatedAt);
+
+          const arrow = document.createElement('span');
+          arrow.className = 'ch-arrow';
+          arrow.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+
+          item.appendChild(numEl);
+          item.appendChild(nameEl);
+          item.appendChild(dateEl);
+          item.appendChild(arrow);
+
+          item.addEventListener('click', function() { loadOnlineChapter(s.title || 'Comic', ch); });
+          chList.appendChild(item);
+        });
+      }
+
+      showScreen('series-screen');
+    }
+
+    // ── Load an online chapter into the reader ────────────────────────────────────
 
     async function loadOnlineChapter(seriesTitle, chData) {
       showScreen('loading-screen');
@@ -2446,140 +2772,127 @@
 
       let pageUrls = chData.pages;
 
-      // External chapter JSON (pages not inlined in catalog)
+      // Support external chapter JSON (pages not inlined in catalog)
       if (!pageUrls && chData.src) {
         try {
-          loadingText.textContent = 'Fetching chapter data…';
+          loadingText.textContent = 'Fetching chapter…';
           const r = await fetch(chData.src);
           if (!r.ok) throw new Error('HTTP ' + r.status);
           const json = await r.json();
           pageUrls = json.pages;
         } catch(err) {
-          showScreen('online-screen');
-          document.getElementById('online-content').innerHTML =
-            '<div class="online-empty"><div class="online-error-title">Failed to load chapter</div>' +
-            '<div>' + escHtml(err.message) + '</div></div>';
+          showScreen('series-screen');
           return;
         }
       }
 
-      if (!pageUrls || !pageUrls.length) {
-        showScreen('online-screen');
-        return;
-      }
+      if (!pageUrls || !pageUrls.length) { showScreen('series-screen'); return; }
 
-      // Reset shared state (mirrors the file-loading reset block)
+      // Reset shared state (mirrors file-loading reset)
       pages.forEach(function(p) { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
       pages = []; chapters = [];
       visiblePages.clear();
       readerPages.innerHTML = '';
       window.scrollTo(0, 0);
       maxChapterNum = 0; baseChapterOffset = 0;
-      const staleResume = document.getElementById('in-reader-resume');
-      if (staleResume) staleResume.remove();
+      const stale = document.getElementById('in-reader-resume');
+      if (stale) stale.remove();
       document.getElementById('size-notice').classList.add('hidden');
       document.getElementById('order-notice').classList.add('hidden');
 
-      // Build pages[] from direct image URLs (no zip entry needed)
       pageUrls.forEach(function(url) {
         pages.push({ entry: null, directUrl: url, url: null, loading: false, aspectLocked: false, gen: 0 });
       });
 
       const chNum  = chData.num != null ? chData.num : null;
-      const chName = chData.title || (chNum != null ? 'Chapter ' + chNum : 'Chapter 1');
+      const chName = chData.title || (chNum != null ? 'Chapter ' + chNum : 'Chapter');
       chapters.push({ name: chName, displayNum: chNum, start: 0, end: pages.length - 1, wrappers: [], dividerEl: null });
 
-      maxChapterNum    = chNum != null ? chNum : 1;
+      maxChapterNum     = chNum != null ? chNum : 1;
       baseChapterOffset = chNum != null ? chNum - 1 : 0;
-
       comicTitle.textContent = seriesTitle;
       lastLoadedFileNames    = [seriesTitle];
-      readerOrigin           = 'online-screen';
+      readerOrigin           = 'series';
 
       renderShell();
       setupObservers();
       showScreen('reader-screen');
       uiHidden = false;
-      updateUI();
-      resetIdle();
-      setupUI();
+      updateUI(); resetIdle(); setupUI();
       if (chapterMode && chapters.length > 0) jumpToChapter(0);
     }
 
-    // ── Online screen back button ─────────────────────────────────────────────────
+    // ── Search ────────────────────────────────────────────────────────────────────
 
-    document.getElementById('online-back-btn').addEventListener('click', function() {
-      const seriesList = (onlineCatalog && onlineCatalog.series) || [];
-      if (onlineView === 'chapters' && seriesList.length > 1) {
-        onlineView = 'series';
-        document.getElementById('online-header-title').textContent = onlineCatalog.name || 'Library';
-        renderSeriesList();
-      } else {
-        showScreen('upload-screen');
-        initLibraryList();
-        initRecentCatalogs();
-      }
+    document.getElementById('home-search').addEventListener('input', function(e) {
+      const q = e.target.value.trim().toLowerCase();
+      if (!catalog) return;
+      filteredSeries = q
+        ? (catalog.series || []).filter(function(s) {
+            return (s.title || '').toLowerCase().includes(q);
+          })
+        : (catalog.series || []).slice();
+      renderSeriesGrid(filteredSeries);
+      // Hide latest when searching
+      document.getElementById('latest-section').style.display = q ? 'none' : 'block';
     });
 
-    // ── Upload screen — Online Library button ─────────────────────────────────────
+    // ── Back button — series → home ───────────────────────────────────────────────
 
-    document.getElementById('online-open-btn').addEventListener('click', function() {
-      const section = document.getElementById('catalog-url-section');
-      section.classList.toggle('visible');
-      if (section.classList.contains('visible')) {
-        setTimeout(function() { document.getElementById('catalog-url-input').focus(); }, 50);
-      }
+    document.getElementById('series-back-btn').addEventListener('click', function() {
+      showScreen('home-screen');
     });
 
-    document.getElementById('catalog-load-btn').addEventListener('click', function() {
-      const url = document.getElementById('catalog-url-input').value.trim();
-      if (url) loadCatalog(url);
-    });
+    // ── Connectivity & startup mode ───────────────────────────────────────────────
 
-    document.getElementById('catalog-url-input').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') {
-        const url = e.target.value.trim();
-        if (url) loadCatalog(url);
-      }
-    });
-
-    // ── Reader close button — go back to origin screen ────────────────────────────
-
-    document.getElementById('close-btn').addEventListener('click', function() {
-      if (readerOrigin === 'online-screen' && onlineCatalog) {
-        // Restore the series or chapter view without a full reload
-        pages.forEach(function(p) { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
-        pages = []; chapters = [];
-        showScreen('online-screen');
-        if (onlineView === 'chapters' && onlineSeriesIdx >= 0) {
-          const s = onlineCatalog.series[onlineSeriesIdx];
-          document.getElementById('online-header-title').textContent = s.title || 'Chapters';
-          renderChapterList(s);
+    async function initMode() {
+      if (navigator.onLine) {
+        showScreen('home-screen');
+        const data = await fetchCatalog();
+        if (data) {
+          renderHome(data);
         } else {
-          document.getElementById('online-header-title').textContent = onlineCatalog.name || 'Library';
-          renderSeriesList();
+          // catalog.json missing or unreachable — show error state
+          document.getElementById('home-state').innerHTML =
+            '<div class="home-state-title">Library unavailable</div>' +
+            '<div style="font-size:0.82rem">Could not load catalog.json</div>' +
+            '<button id="home-retry-btn">Retry</button>';
+          document.getElementById('home-state').style.display = 'flex';
+          const retryBtn = document.getElementById('home-retry-btn');
+          if (retryBtn) retryBtn.addEventListener('click', initMode);
+          document.getElementById('latest-section').style.display = 'none';
+          document.getElementById('series-section').style.display = 'none';
         }
-        readerOrigin = 'online-screen';
       } else {
-        location.reload();
+        // No internet — show offline CBZ reader
+        showScreen('upload-screen');
+        document.getElementById('offline-reader-badge').classList.add('visible');
       }
-    });
-
-    // ── Connectivity indicator ────────────────────────────────────────────────────
-
-    const offlineIndicator = document.getElementById('offline-indicator');
-
-    function updateConnectivityUI() {
-      offlineIndicator.classList.toggle('visible', !navigator.onLine);
     }
 
-    window.addEventListener('online',  updateConnectivityUI);
-    window.addEventListener('offline', updateConnectivityUI);
-    updateConnectivityUI(); // set initial state
+    window.addEventListener('offline', function() {
+      // If currently browsing the online library, drop into offline reader
+      const visible = [homeScreen, seriesScreen].find(function(s) {
+        return s.style.display !== 'none';
+      });
+      if (visible) {
+        showScreen('upload-screen');
+        document.getElementById('offline-reader-badge').classList.add('visible');
+      }
+      document.getElementById('offline-badge').classList.add('visible');
+    });
 
-    // ── Init recent catalogs on startup ──────────────────────────────────────────
+    window.addEventListener('online', function() {
+      document.getElementById('offline-badge').classList.remove('visible');
+      document.getElementById('offline-reader-badge').classList.remove('visible');
+      // Only auto-navigate back to home if currently on the offline upload screen
+      if (uploadScreen.style.display !== 'none') {
+        initMode();
+      }
+    });
 
-    initRecentCatalogs();
+    // Boot
+    initMode();
   </script>
 </body>
 </html>

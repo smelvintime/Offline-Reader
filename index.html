@@ -1341,6 +1341,16 @@
         label += ' \xb7 Ch. ' + saved.chDisplay;
     */
 
+    // ── Proxy config ──────────────────────────────────────────────────────────
+    // Set this to your deployed Cloudflare Worker URL (no trailing slash).
+    // Leave empty to load images directly (will fail for hotlink-protected CDNs).
+    const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
+
+    function proxyImageUrl(url) {
+      if (!PROXY_BASE || !url) return url;
+      return PROXY_BASE + '?url=' + encodeURIComponent(url);
+    }
+
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
     function basename(path) { return path.replace(/^.*[\\/]/, ''); }
@@ -2571,7 +2581,7 @@
         if (s.cover) {
           const img = document.createElement('img');
           img.className = 'update-thumb';
-          img.src = s.cover; img.alt = '';
+          img.src = proxyImageUrl(s.cover); img.alt = '';
           img.onerror = function() { img.replaceWith(makePh('update-thumb-ph')); };
           row.appendChild(img);
         } else {
@@ -2618,7 +2628,7 @@
         coverWrap.className = 'series-cover-wrap';
         if (s.cover) {
           const img = document.createElement('img');
-          img.className = 'series-cover'; img.src = s.cover; img.alt = '';
+          img.className = 'series-cover'; img.src = proxyImageUrl(s.cover); img.alt = '';
           img.onerror = function() { img.replaceWith(makePh('series-cover-ph')); };
           coverWrap.appendChild(img);
         } else {
@@ -2688,7 +2698,7 @@
       if (s.cover) {
         const img = document.createElement('img');
         img.id = 'series-hero-cover';
-        img.src = s.cover; img.alt = '';
+        img.src = proxyImageUrl(s.cover); img.alt = '';
         img.onerror = function() {
           img.remove();
           const ph = document.createElement('div');
@@ -2771,6 +2781,21 @@
 
       let pageUrls = chData.pages;
 
+      // MangaDex: at-home image URLs expire — fetch fresh at read time
+      if (!pageUrls && chData.mdChapterId) {
+        try {
+          loadingText.textContent = 'Fetching chapter…';
+          const r = await fetch('https://api.mangadex.org/at-home/server/' + chData.mdChapterId);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const json = await r.json();
+          const base = json.baseUrl, ch = json.chapter;
+          pageUrls = (ch.data || []).map(f => `${base}/data/${ch.hash}/${f}`);
+        } catch(err) {
+          showScreen('series-screen');
+          return;
+        }
+      }
+
       // Support external chapter JSON (pages not inlined in catalog)
       if (!pageUrls && chData.src) {
         try {
@@ -2800,7 +2825,7 @@
       document.getElementById('order-notice').classList.add('hidden');
 
       pageUrls.forEach(function(url) {
-        pages.push({ entry: null, directUrl: url, url: null, loading: false, aspectLocked: false, gen: 0 });
+        pages.push({ entry: null, directUrl: proxyImageUrl(url), url: null, loading: false, aspectLocked: false, gen: 0 });
       });
 
       const chNum  = chData.num != null ? chData.num : null;

@@ -1,0 +1,27 @@
+version: 2.1
+
+orbs:
+  node: circleci/node@5
+
+jobs:
+  deploy:
+    docker:
+      - image: cimg/node:20.11
+    steps:
+      - checkout
+      - run:
+          name: Install Vercel CLI
+          command: npm install --global vercel@latest
+      - run:
+          name: Deploy to Vercel
+          command: |
+            vercel deploy --prod --yes \
+              --token "$VERCEL_TOKEN"
+
+workflows:
+  deploy-on-push:
+    jobs:
+      - deploy:
+          filters:
+            branches:
+              only: main

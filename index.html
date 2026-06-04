@@ -951,6 +951,46 @@
       margin-top: 0.5rem;
     }
     #offline-reader-badge.visible { display: flex; }
+
+    /* ── Mode toggle buttons ── */
+    #go-online-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      width: 100%;
+      max-width: 340px;
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.35);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: #a5b4fc;
+      cursor: pointer;
+      transition: background 0.18s, border-color 0.18s, transform 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      margin-top: 0.5rem;
+    }
+    #go-online-btn:active { background: rgba(99,102,241,0.22); transform: scale(0.97); }
+
+    #go-offline-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #go-offline-btn:active { background: rgba(255,255,255,0.1); }
   </style>
 </head>
 <body>
@@ -996,6 +1036,10 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
       Offline mode — connect to internet for the full library
     </div>
+    <button id="go-online-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Switch to Online Library
+    </button>
   </div>
 
   <!-- ═══ ONLINE HOME SCREEN ═══ -->
@@ -1021,6 +1065,10 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
           Offline
         </div>
+        <button id="go-offline-btn">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Offline Reader
+        </button>
       </div>
     </header>
     <div id="home-body">
@@ -1340,6 +1388,16 @@
     /* LEGACY_REMOVED — old initUploadHint body (contains \xb7 escape, cannot be edited inline):
         label += ' \xb7 Ch. ' + saved.chDisplay;
     */
+
+    // ── Proxy config ──────────────────────────────────────────────────────────
+    // Set this to your deployed Cloudflare Worker URL (no trailing slash).
+    // Leave empty to load images directly (will fail for hotlink-protected CDNs).
+    const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
+
+    function proxyImageUrl(url) {
+      if (!PROXY_BASE || !url) return url;
+      return PROXY_BASE + '?url=' + encodeURIComponent(url);
+    }
 
     // --- Helpers ---
     function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -2571,7 +2629,7 @@
         if (s.cover) {
           const img = document.createElement('img');
           img.className = 'update-thumb';
-          img.src = s.cover; img.alt = '';
+          img.src = proxyImageUrl(s.cover); img.alt = '';
           img.onerror = function() { img.replaceWith(makePh('update-thumb-ph')); };
           row.appendChild(img);
         } else {
@@ -2618,7 +2676,7 @@
         coverWrap.className = 'series-cover-wrap';
         if (s.cover) {
           const img = document.createElement('img');
-          img.className = 'series-cover'; img.src = s.cover; img.alt = '';
+          img.className = 'series-cover'; img.src = proxyImageUrl(s.cover); img.alt = '';
           img.onerror = function() { img.replaceWith(makePh('series-cover-ph')); };
           coverWrap.appendChild(img);
         } else {
@@ -2688,7 +2746,7 @@
       if (s.cover) {
         const img = document.createElement('img');
         img.id = 'series-hero-cover';
-        img.src = s.cover; img.alt = '';
+        img.src = proxyImageUrl(s.cover); img.alt = '';
         img.onerror = function() {
           img.remove();
           const ph = document.createElement('div');
@@ -2771,6 +2829,21 @@
 
       let pageUrls = chData.pages;
 
+      // MangaDex: at-home image URLs expire — fetch fresh at read time
+      if (!pageUrls && chData.mdChapterId) {
+        try {
+          loadingText.textContent = 'Fetching chapter…';
+          const r = await fetch('https://api.mangadex.org/at-home/server/' + chData.mdChapterId);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const json = await r.json();
+          const base = json.baseUrl, ch = json.chapter;
+          pageUrls = (ch.data || []).map(f => `${base}/data/${ch.hash}/${f}`);
+        } catch(err) {
+          showScreen('series-screen');
+          return;
+        }
+      }
+
       // Support external chapter JSON (pages not inlined in catalog)
       if (!pageUrls && chData.src) {
         try {
@@ -2800,7 +2873,7 @@
       document.getElementById('order-notice').classList.add('hidden');
 
       pageUrls.forEach(function(url) {
-        pages.push({ entry: null, directUrl: url, url: null, loading: false, aspectLocked: false, gen: 0 });
+        pages.push({ entry: null, directUrl: proxyImageUrl(url), url: null, loading: false, aspectLocked: false, gen: 0 });
       });
 
       const chNum  = chData.num != null ? chData.num : null;
@@ -2840,6 +2913,24 @@
 
     document.getElementById('series-back-btn').addEventListener('click', function() {
       showScreen('home-screen');
+    });
+
+    // ── Manual mode toggle ────────────────────────────────────────────────────────
+
+    document.getElementById('go-online-btn').addEventListener('click', async function() {
+      showScreen('home-screen');
+      const data = await fetchCatalog();
+      if (data) {
+        renderHome(data);
+      } else {
+        document.getElementById('home-state').innerHTML =
+          '<div style="color:var(--muted);font-size:0.9rem">Could not load library.<br>Check your connection.</div>';
+        document.getElementById('home-state').style.display = 'flex';
+      }
+    });
+
+    document.getElementById('go-offline-btn').addEventListener('click', function() {
+      showScreen('upload-screen');
     });
 
     // ── Connectivity & startup mode ───────────────────────────────────────────────

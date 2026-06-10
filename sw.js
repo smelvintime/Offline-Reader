@@ -25,6 +25,12 @@ self.addEventListener('activate', event => {
   );
 });
 
+self.addEventListener('message', event => {
+  if (event.data === 'GET_VERSION') {
+    event.source.postMessage({ type: 'VERSION', version: CACHE_NAME });
+  }
+});
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   event.respondWith(

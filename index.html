@@ -1283,7 +1283,8 @@
     function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
       const ch       = chapters[currentChIdx];
-      const chDisplay = ch.displayNum !== null ? ch.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
+      const nameNum   = ch.name && ch.name.match(/\d+(\.\d+)?/);
+      const chDisplay = nameNum ? parseFloat(nameNum[0]) : (currentChIdx + 1 + baseChapterOffset);
       const key      = seriesKey(lastLoadedFileNames[0]);
       const title    = comicTitle.textContent;
       let library    = loadLibrary();
@@ -2170,7 +2171,11 @@
       pageIndicator.innerHTML = buildProgressBar(chPct, 44, 'var(--text)'); /* 44px width matches home-screen bar; off-white in reader */
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
+        // Derive the displayed number from ch.name so the footer always matches
+        // the chapter selector (which also uses ch.name). Parsing from the name is
+        // the single source of truth — avoids any drift between the two paths.
+        const nameNumMatch = currentCh.name && currentCh.name.match(/\d+(\.\d+)?/);
+        const chLabel = nameNumMatch ? parseFloat(nameNumMatch[0]) : (currentChIdx + 1 + baseChapterOffset);
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
         const prevChBtn = document.getElementById('prev-ch');

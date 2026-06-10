@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cbz-reader-v4.07';
+const CACHE_NAME = 'cbz-reader-v4.08';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -23,6 +23,12 @@ self.addEventListener('activate', event => {
       ))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data === 'GET_VERSION') {
+    event.source.postMessage({ type: 'VERSION', version: CACHE_NAME });
+  }
 });
 
 self.addEventListener('fetch', event => {

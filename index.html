@@ -1415,11 +1415,8 @@
     */
 
     // ── Proxy config ──────────────────────────────────────────────────────────
-    const APP_VERSION = 'v4.07';
-
     // Set this to your deployed Cloudflare Worker URL (no trailing slash).
     // Leave empty to load images directly (will fail for hotlink-protected CDNs).
-    const APP_VERSION = 'v4.07';
 
     const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
 
@@ -3067,7 +3064,19 @@
       }
     });
 
-    document.getElementById('home-version').textContent = APP_VERSION;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(reg => {
+        const sw = reg.active;
+        if (!sw) return;
+        navigator.serviceWorker.addEventListener('message', function handler(e) {
+          if (e.data?.type === 'VERSION') {
+            document.getElementById('home-version').textContent = e.data.version.replace('cbz-reader-', '');
+            navigator.serviceWorker.removeEventListener('message', handler);
+          }
+        });
+        sw.postMessage('GET_VERSION');
+      });
+    }
 
     // Boot
     initMode();

@@ -1929,7 +1929,7 @@
         // If every chapter number is a non-negative integer and the set starts at 0,
         // the files are 0-indexed (e.g. Ch.000–Ch.099). Shift display by +1 so
         // Ch.000 shows as "1", Ch.092 shows as "93", etc.
-        chapterDisplayShift = (minNum === 0 && validNums.every(n => Number.isInteger(n))) ? 1 : 0;
+        chapterDisplayShift = minNum === 0 ? 1 : 0;
         maxChapterNum    = Math.max(...validNums) + chapterDisplayShift;
         baseChapterOffset = minNum - 1 + chapterDisplayShift;
         // If shifted, update ch.name so dividers and the chapter selector also show

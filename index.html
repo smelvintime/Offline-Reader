@@ -1214,6 +1214,7 @@
     let maxChapterNum = 0;
     let baseChapterOffset = 0;
     let chapterDisplayShift = 0; // +1 when chapter set is 0-indexed (min displayNum === 0)
+    let chapterLabelTotal = 0;   // highest number shown in the chapter list; footer "y"
 
     // pageObserver is module-level so it can be disconnected before recreation on reload.
     let pageObserver = null;
@@ -1283,8 +1284,7 @@
     function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
       const ch       = chapters[currentChIdx];
-      const nameNum   = ch.name && ch.name.match(/\d+(\.\d+)?/);
-      const chDisplay = nameNum ? parseFloat(nameNum[0]) : (currentChIdx + 1 + baseChapterOffset);
+      const chDisplay = chapterLabelNum(ch, currentChIdx);
       const title    = comicTitle.textContent;
       const rawTitle = title.trim();
       const key      = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || seriesKey(lastLoadedFileNames[0]);
@@ -1349,7 +1349,7 @@
     function findSavedChapter(saved) {
       if (!saved) return -1;
       if (saved.chDisplay != null) {
-        const byNum = chapters.findIndex(function(ch) { return ch.displayNum + chapterDisplayShift === saved.chDisplay; });
+        const byNum = chapters.findIndex(function(ch, i) { return chapterLabelNum(ch, i) === saved.chDisplay; });
         if (byNum !== -1) return byNum;
       }
       // Fallback: use raw index (only reliable when same zip set is reloaded)
@@ -1494,6 +1494,20 @@
         cleanName = `Chapter ${parseFloat(extracted)}`;
       }
       return { displayNum, cleanName };
+    }
+
+    // The number a human reads for this chapter in the selector list.
+    // Parses ch.name with the chapter-aware regex (extractChapterInfo), so a
+    // number in the series title or a range in a filename never wins over the
+    // actual chapter number. Falls back to the first number in the name, then
+    // to the array position. The shift is already baked into ch.name when it
+    // applies (names are rewritten at load), so no shift is added here.
+    function chapterLabelNum(ch, idx) {
+      const parsed = extractChapterInfo(ch.name || '').displayNum;
+      if (parsed !== null) return parsed;
+      const m = ch.name && ch.name.match(/\d+(\.\d+)?/);
+      if (m) return parseFloat(m[0]);
+      return idx + 1 + baseChapterOffset;
     }
 
     // --- Archive Processing ---
@@ -1737,6 +1751,7 @@
       maxChapterNum = 0;
       baseChapterOffset = 0;
       chapterDisplayShift = 0;
+      chapterLabelTotal = 0;
 
       // Tear down any stale resume UI from a previous load.
       const staleResume = document.getElementById('in-reader-resume');
@@ -1948,6 +1963,13 @@
         maxChapterNum = chapters.length;
         chapterDisplayShift = 0;
       }
+
+      // Footer total ("y") = highest number a user can see in the chapter list,
+      // so the footer can never disagree with the list regardless of file naming.
+      chapterLabelTotal = chapters.length;
+      chapters.forEach((ch, i) => {
+        chapterLabelTotal = Math.max(chapterLabelTotal, chapterLabelNum(ch, i));
+      });
 
       renderShell();
       setupObservers(); // must come before any render call that invokes pageObserver.observe
@@ -2173,12 +2195,11 @@
       pageIndicator.innerHTML = buildProgressBar(chPct, 44, 'var(--text)'); /* 44px width matches home-screen bar; off-white in reader */
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        // Derive the displayed number from ch.name so the footer always matches
-        // the chapter selector (which also uses ch.name). Parsing from the name is
-        // the single source of truth — avoids any drift between the two paths.
-        const nameNumMatch = currentCh.name && currentCh.name.match(/\d+(\.\d+)?/);
-        const chLabel = nameNumMatch ? parseFloat(nameNumMatch[0]) : (currentChIdx + 1 + baseChapterOffset);
-        const totalLabel = Math.max(maxChapterNum, chapters.length);
+        // Both numbers derive from ch.name — the same string the chapter
+        // selector displays — via chapterLabelNum, so the footer always matches
+        // the list exactly, in both chapter and scroll mode.
+        const chLabel = chapterLabelNum(currentCh, currentChIdx);
+        const totalLabel = chapterLabelTotal || Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
         const prevChBtn = document.getElementById('prev-ch');
         const nextChBtn = document.getElementById('next-ch');

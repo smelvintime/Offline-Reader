@@ -1202,6 +1202,7 @@
     let autoscrollEnabled = false;
     let maxChapterNum = 0;
     let baseChapterOffset = 0;
+    let chapterDisplayShift = 0; // +1 when chapter set is 0-indexed (min displayNum === 0)
 
     // pageObserver is module-level so it can be disconnected before recreation on reload.
     let pageObserver = null;
@@ -1271,7 +1272,7 @@
     function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
       const ch       = chapters[currentChIdx];
-      const chDisplay = ch.displayNum !== null ? ch.displayNum : (currentChIdx + 1 + baseChapterOffset);
+      const chDisplay = ch.displayNum !== null ? ch.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
       const key      = seriesKey(lastLoadedFileNames[0]);
       const title    = comicTitle.textContent;
       let library    = loadLibrary();
@@ -1335,7 +1336,7 @@
     function findSavedChapter(saved) {
       if (!saved) return -1;
       if (saved.chDisplay != null) {
-        const byNum = chapters.findIndex(function(ch) { return ch.displayNum === saved.chDisplay; });
+        const byNum = chapters.findIndex(function(ch) { return ch.displayNum + chapterDisplayShift === saved.chDisplay; });
         if (byNum !== -1) return byNum;
       }
       // Fallback: use raw index (only reliable when same zip set is reloaded)
@@ -1720,6 +1721,7 @@
       window.scrollTo(0, 0);
       maxChapterNum = 0;
       baseChapterOffset = 0;
+      chapterDisplayShift = 0;
 
       // Tear down any stale resume UI from a previous load.
       const staleResume = document.getElementById('in-reader-resume');
@@ -1911,10 +1913,25 @@
 
       const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
       if (validNums.length > 0) {
-        maxChapterNum    = Math.max(...validNums);
-        baseChapterOffset = Math.min(...validNums) - 1;
+        const minNum = Math.min(...validNums);
+        // If every chapter number is a non-negative integer and the set starts at 0,
+        // the files are 0-indexed (e.g. Ch.000–Ch.099). Shift display by +1 so
+        // Ch.000 shows as "1", Ch.092 shows as "93", etc.
+        chapterDisplayShift = (minNum === 0 && validNums.every(n => Number.isInteger(n))) ? 1 : 0;
+        maxChapterNum    = Math.max(...validNums) + chapterDisplayShift;
+        baseChapterOffset = minNum - 1 + chapterDisplayShift;
+        // If shifted, update ch.name so dividers and the chapter selector also show
+        // the corrected number (e.g. "Chapter 0" → "Chapter 1").
+        if (chapterDisplayShift !== 0) {
+          chapters.forEach(ch => {
+            if (ch.displayNum !== null) {
+              ch.name = 'Chapter ' + (ch.displayNum + chapterDisplayShift);
+            }
+          });
+        }
       } else {
         maxChapterNum = chapters.length;
+        chapterDisplayShift = 0;
       }
 
       renderShell();
@@ -2141,7 +2158,7 @@
       pageIndicator.innerHTML = buildProgressBar(chPct, 44, 'var(--text)'); /* 44px width matches home-screen bar; off-white in reader */
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum : (currentChIdx + 1 + baseChapterOffset);
+        const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
         const prevChBtn = document.getElementById('prev-ch');

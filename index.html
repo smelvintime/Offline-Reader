@@ -1271,7 +1271,7 @@
     function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
       const ch       = chapters[currentChIdx];
-      const chDisplay = ch.displayNum !== null ? ch.displayNum : (currentChIdx + 1);
+      const chDisplay = ch.displayNum !== null ? ch.displayNum : (currentChIdx + 1 + baseChapterOffset);
       const key      = seriesKey(lastLoadedFileNames[0]);
       const title    = comicTitle.textContent;
       let library    = loadLibrary();
@@ -1328,6 +1328,19 @@
       if (diffDays === 1) return 'Yesterday';
       if (diffDays < 7)  return diffDays + ' days ago';
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    // Find the chapter index matching a saved entry, preferring displayNum match
+    // over raw chIdx so resume works correctly when different zip sets are loaded.
+    function findSavedChapter(saved) {
+      if (!saved) return -1;
+      if (saved.chDisplay != null) {
+        const byNum = chapters.findIndex(function(ch) { return ch.displayNum === saved.chDisplay; });
+        if (byNum !== -1) return byNum;
+      }
+      // Fallback: use raw index (only reliable when same zip set is reloaded)
+      if (saved.chIdx != null && saved.chIdx < chapters.length) return saved.chIdx;
+      return -1;
     }
 
     // Dismisses the in-reader resume button and reveals the logo.
@@ -1513,7 +1526,7 @@
       const curKey = lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '';
       const _lib   = loadLibrary();
       const saved  = curKey ? _lib.find(function(e) { return e.key === curKey; }) : null;
-      const hasResume      = saved && saved.chIdx < chapters.length;
+      const hasResume      = saved && findSavedChapter(saved) !== -1;
       const chapterMissing = saved && !hasResume;
       if (hasResume) {
         const resumeEl = document.createElement('button');
@@ -1541,7 +1554,17 @@
         resumeEl.addEventListener('click', function(e) {
           e.stopPropagation();
           clearResumeUI();
-          jumpToChapter(saved.chIdx, saved.maxPageIdx);
+          // Find chapter by its display number so resuming works across different zip sets.
+          // Fall back to saved.chIdx only when displayNums are unavailable.
+          const resumeChIdx = findSavedChapter(saved);
+          if (resumeChIdx === -1) return;
+          const rCh = chapters[resumeChIdx];
+          // Compute absolute page index from pageInChapter (1-based) so the position is
+          // correct even when the new zip set has different cumulative page totals.
+          const targetPage = (saved.pageInChapter != null && saved.pageInChapter > 0)
+            ? Math.min(rCh.start + saved.pageInChapter - 1, rCh.end)
+            : null;
+          jumpToChapter(resumeChIdx, targetPage);
           resetIdle();
         });
         topDecor.appendChild(resumeEl);
@@ -2100,7 +2123,15 @@
 
     function updateIndicator() {
       const chIdx = chapters.findIndex(ch => currentPage >= ch.start && currentPage <= ch.end);
-      if (chIdx !== -1) currentChIdx = chIdx;
+      if (chIdx !== -1) {
+        currentChIdx = chIdx;
+        // When currentPage is the last page of chapter N and chapter N+1's first page
+        // is already scrolled into view, advance the indicator to avoid an off-by-one feel.
+        if (currentPage === chapters[chIdx].end && chIdx + 1 < chapters.length) {
+          const nextCh = chapters[chIdx + 1];
+          if (nextCh && visiblePages.has(nextCh.start)) currentChIdx = chIdx + 1;
+        }
+      }
       const ch = chapters[currentChIdx];
       const atEnd = ch && visiblePages.has(ch.end);
       const chPct = (ch && ch.end > ch.start)
@@ -2293,8 +2324,17 @@
         chapterJumpTimer = setTimeout(() => {
           renderChapter(currentChIdx);
           updateBottomDecor();
-          for (let i = currentPage; i <= Math.min(currentPage + 5, chapters[currentChIdx].end); i++) {
+          const ch = chapters[currentChIdx];
+          const startPage = Math.min(Math.max(currentPage, ch.start), ch.end);
+          for (let i = startPage; i <= Math.min(startPage + 5, ch.end); i++) {
             loadPage(i);
+          }
+          // Restore position within the chapter (not just scroll to top).
+          if (startPage > ch.start) {
+            const wrap = ch.wrappers[startPage - ch.start];
+            if (wrap) wrap.scrollIntoView();
+            currentPage = startPage;
+            updateIndicator();
           }
         }, 150);
       } else {
@@ -2306,8 +2346,10 @@
         renderAllChapters();
         updateBottomDecor();
         requestAnimationFrame(() => {
-          const firstWrap = chapters[currentChIdx].wrappers[0];
-          if (firstWrap) firstWrap.scrollIntoView();
+          const ch = chapters[currentChIdx];
+          const pageOffset = Math.min(Math.max(currentPage - ch.start, 0), ch.wrappers.length - 1);
+          const wrap = ch.wrappers[pageOffset] || ch.wrappers[0];
+          if (wrap) wrap.scrollIntoView();
         });
       }
       updateIndicator();

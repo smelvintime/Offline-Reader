@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cbz-reader-v4.04';
+const CACHE_NAME = 'cbz-reader-v4.05';
 const SHELL_ASSETS = [
   './',
   './index.html',

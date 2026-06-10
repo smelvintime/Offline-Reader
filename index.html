@@ -770,7 +770,7 @@
       margin-top: 0.15rem;
     }
 
-    /* ── Home version stamp ── */
+    /* ── Offline screen version stamp ── */
     #home-version {
       text-align: center;
       padding: 1.5rem 0 2rem;
@@ -1050,6 +1050,7 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Switch to Online Library
     </button>
+    <div id="home-version"></div>
   </div>
 
   <!-- ═══ ONLINE HOME SCREEN ═══ -->
@@ -1094,7 +1095,6 @@
         <div class="home-section-label">All Series</div>
         <div id="series-grid"></div>
       </div>
-      <div id="home-version"></div>
     </div>
   </div>
 
@@ -1419,6 +1419,8 @@
 
     // Set this to your deployed Cloudflare Worker URL (no trailing slash).
     // Leave empty to load images directly (will fail for hotlink-protected CDNs).
+    const APP_VERSION = 'v4.07';
+
     const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
 
     function proxyImageUrl(url) {
@@ -3065,8 +3067,7 @@
       }
     });
 
-    // Stamp version
-    document.getElementById('home-version').textContent = 'Offline Reader ' + APP_VERSION;
+    document.getElementById('home-version').textContent = APP_VERSION;
 
     // Boot
     initMode();

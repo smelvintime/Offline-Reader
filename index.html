@@ -1283,9 +1283,11 @@
     function saveToLibrary() {
       if (!chapters.length || !lastLoadedFileNames.length) return;
       const ch       = chapters[currentChIdx];
-      const chDisplay = ch.displayNum !== null ? ch.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
-      const key      = seriesKey(lastLoadedFileNames[0]);
+      const nameNum   = ch.name && ch.name.match(/\d+(\.\d+)?/);
+      const chDisplay = nameNum ? parseFloat(nameNum[0]) : (currentChIdx + 1 + baseChapterOffset);
       const title    = comicTitle.textContent;
+      const rawTitle = title.trim();
+      const key      = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || seriesKey(lastLoadedFileNames[0]);
       let library    = loadLibrary();
       const prev     = library.find(function(e) { return e.key === key; }) || {};
 
@@ -1293,7 +1295,7 @@
       // Use ch.end when the last page of the chapter is visible so the homepage
       // bar shows 100% rather than 99% (currentPage is min-visible, not max-visible).
       const effectivePage       = visiblePages.has(ch.end) ? ch.end : currentPage;
-      const isNewMax            = effectivePage > (prev.maxPageIdx != null ? prev.maxPageIdx : -1);
+      const isNewMax            = chDisplay > (prev.chDisplay != null ? prev.chDisplay : -1);
       const maxPageIdx          = isNewMax ? effectivePage               : prev.maxPageIdx;
       const maxChIdx            = isNewMax ? currentChIdx                : prev.chIdx;
       const maxChDisplay        = isNewMax ? chDisplay                   : prev.chDisplay;
@@ -1536,7 +1538,8 @@
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
       // Match loaded files to library by series key; show resume button if found.
-      const curKey = lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '';
+      const rawTitle = comicTitle.textContent.trim();
+      const curKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || (lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '');
       const _lib   = loadLibrary();
       const saved  = curKey ? _lib.find(function(e) { return e.key === curKey; }) : null;
       const hasResume      = saved && findSavedChapter(saved) !== -1;
@@ -2170,7 +2173,11 @@
       pageIndicator.innerHTML = buildProgressBar(chPct, 44, 'var(--text)'); /* 44px width matches home-screen bar; off-white in reader */
       if (chapters.length > 1) {
         const currentCh = chapters[currentChIdx];
-        const chLabel   = currentCh.displayNum !== null ? currentCh.displayNum + chapterDisplayShift : (currentChIdx + 1 + baseChapterOffset);
+        // Derive the displayed number from ch.name so the footer always matches
+        // the chapter selector (which also uses ch.name). Parsing from the name is
+        // the single source of truth — avoids any drift between the two paths.
+        const nameNumMatch = currentCh.name && currentCh.name.match(/\d+(\.\d+)?/);
+        const chLabel = nameNumMatch ? parseFloat(nameNumMatch[0]) : (currentChIdx + 1 + baseChapterOffset);
         const totalLabel = Math.max(maxChapterNum, chapters.length);
         chapterLabelBtn.textContent = `${chLabel} / ${totalLabel}`;
         const prevChBtn = document.getElementById('prev-ch');

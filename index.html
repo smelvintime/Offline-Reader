@@ -1285,8 +1285,9 @@
       const ch       = chapters[currentChIdx];
       const nameNum   = ch.name && ch.name.match(/\d+(\.\d+)?/);
       const chDisplay = nameNum ? parseFloat(nameNum[0]) : (currentChIdx + 1 + baseChapterOffset);
-      const key      = seriesKey(lastLoadedFileNames[0]);
       const title    = comicTitle.textContent;
+      const rawTitle = title.trim();
+      const key      = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || seriesKey(lastLoadedFileNames[0]);
       let library    = loadLibrary();
       const prev     = library.find(function(e) { return e.key === key; }) || {};
 
@@ -1294,7 +1295,7 @@
       // Use ch.end when the last page of the chapter is visible so the homepage
       // bar shows 100% rather than 99% (currentPage is min-visible, not max-visible).
       const effectivePage       = visiblePages.has(ch.end) ? ch.end : currentPage;
-      const isNewMax            = effectivePage > (prev.maxPageIdx != null ? prev.maxPageIdx : -1);
+      const isNewMax            = chDisplay > (prev.chDisplay != null ? prev.chDisplay : -1);
       const maxPageIdx          = isNewMax ? effectivePage               : prev.maxPageIdx;
       const maxChIdx            = isNewMax ? currentChIdx                : prev.chIdx;
       const maxChDisplay        = isNewMax ? chDisplay                   : prev.chDisplay;
@@ -1537,7 +1538,8 @@
       const topDecor = document.createElement('div');
       topDecor.className = 'reader-decor reader-top-decor';
       // Match loaded files to library by series key; show resume button if found.
-      const curKey = lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '';
+      const rawTitle = comicTitle.textContent.trim();
+      const curKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || (lastLoadedFileNames.length ? seriesKey(lastLoadedFileNames[0]) : '');
       const _lib   = loadLibrary();
       const saved  = curKey ? _lib.find(function(e) { return e.key === curKey; }) : null;
       const hasResume      = saved && findSavedChapter(saved) !== -1;

@@ -770,6 +770,16 @@
       margin-top: 0.15rem;
     }
 
+    /* ── Home version stamp ── */
+    #home-version {
+      text-align: center;
+      padding: 1.5rem 0 2rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      opacity: 0.5;
+      letter-spacing: 0.04em;
+    }
+
     /* ── Home loading/error state ── */
     #home-state {
       display: flex;
@@ -1084,6 +1094,7 @@
         <div class="home-section-label">All Series</div>
         <div id="series-grid"></div>
       </div>
+      <div id="home-version"></div>
     </div>
   </div>
 
@@ -1404,6 +1415,8 @@
     */
 
     // ── Proxy config ──────────────────────────────────────────────────────────
+    const APP_VERSION = 'v4.07';
+
     // Set this to your deployed Cloudflare Worker URL (no trailing slash).
     // Leave empty to load images directly (will fail for hotlink-protected CDNs).
     const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
@@ -3051,6 +3064,9 @@
         initMode();
       }
     });
+
+    // Stamp version
+    document.getElementById('home-version').textContent = 'Offline Reader ' + APP_VERSION;
 
     // Boot
     initMode();

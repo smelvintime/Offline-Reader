@@ -2365,10 +2365,22 @@
       autoscrollBar.classList.toggle('ui-hidden', uiHidden || !autoscrollEnabled);
     }
 
+    // SVG rects for each gap level: [top-rect-height, bottom-rect-y, bottom-rect-height]
+    // The visual gap between them grows to mirror the actual page gap setting.
+    const GAP_ICON = [
+      [8, 11, 8],  // level 0: nearly touching (gap = 1px in 20×20 SVG)
+      [6, 12, 6],  // level 1: small gap (gap = 4px)
+      [5, 14, 5],  // level 2: large gap (gap = 7px)
+    ];
+
     function applyGap() {
       document.documentElement.style.setProperty('--page-gap', GAP_LEVELS[gapLevel] + 'px');
       const btn = document.getElementById('gap-toggle');
       btn.style.color = gapLevel > 0 ? 'var(--accent)' : '';
+      const [th, by, bh] = GAP_ICON[gapLevel];
+      btn.querySelector('svg').innerHTML =
+        `<rect x="2" y="2" width="16" height="${th}" rx="1"/>` +
+        `<rect x="2" y="${by}" width="16" height="${bh}" rx="1"/>`;
       try { localStorage.setItem('or.gap', gapLevel); } catch (e) {}
     }
 

@@ -1229,7 +1229,7 @@
 // Page gap — cycles through Off / Small / Large to add breathing room between pages.
     const GAP_LEVELS = [0, 16, 40]; // px
     let gapLevel = parseInt(localStorage.getItem('or.gap') || '0');
-    if (gapLevel < 0 || gapLevel >= GAP_LEVELS.length) gapLevel = 0;
+    if (!Number.isInteger(gapLevel) || gapLevel < 0 || gapLevel >= GAP_LEVELS.length) gapLevel = 0;
 
     // --- Jump Mode State ---
     let scrollMode = 'smooth';
@@ -1301,7 +1301,10 @@
       const maxChDisplay        = isNewMax ? chDisplay                   : prev.chDisplay;
       const maxPageInChapter    = isNewMax ? effectivePage - ch.start + 1 : prev.pageInChapter;
       const maxChapterTotalPages = isNewMax ? ch.end - ch.start + 1     : prev.chapterTotalPages;
-      const completed           = maxPageIdx >= pages.length - 1;
+      // Only judge "completed" against the CURRENT file set's page count when the
+      // position advanced in this session; a stale maxPageIdx from a previous,
+      // larger zip set must not mark a smaller subset as completed.
+      const completed            = isNewMax ? effectivePage >= pages.length - 1 : !!prev.completed;
 
       const entry = {
         title, key,
@@ -1412,9 +1415,6 @@
       });
       listEl.classList.remove('hidden');
     }
-    /* LEGACY_REMOVED — old initUploadHint body (contains \xb7 escape, cannot be edited inline):
-        label += ' \xb7 Ch. ' + saved.chDisplay;
-    */
 
     // ── Proxy config ──────────────────────────────────────────────────────────
     // Set this to your deployed Cloudflare Worker URL (no trailing slash).
@@ -1575,12 +1575,8 @@
           barWrap.innerHTML = buildProgressBar(pct, 44); /* match home-screen bar width */
           resumeBody.appendChild(barWrap);
         }
-        if (false) { /* LEGACY: next line used old \xb7 escape — neutralised */
-        resumeBody.textContent = saved.title + ' \xb7 Ch. ' + saved.chDisplay + ' \xb7 p. ' + saved.pageInChapter;
-        } /* end legacy neutralise */
         resumeEl.appendChild(resumeLabel);
         resumeEl.appendChild(resumeBody);
-        // XSS note: textContent used instead of innerHTML. ${saved.chDisplay} &middot; p. ${saved.pageInChapter}</span>`;
         resumeEl.addEventListener('click', function(e) {
           e.stopPropagation();
           clearResumeUI();
@@ -1741,6 +1737,7 @@
 
       showScreen('loading-screen');
       lastLoadedFileNames = files.map(f => f.name).sort();
+      readerOrigin = 'upload'; // close button must reload, not return to a stale series screen
 
       // Revoke any URLs from a previous session and fully reset state.
       pages.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
@@ -2033,6 +2030,12 @@
               p.aspectLocked = true;
             }
           }
+        };
+        p.el.onerror = () => {
+          // Corrupt image inside the archive — release the URL and allow a retry
+          // on the next lookahead pass instead of leaving a permanent placeholder.
+          if (p.url) { URL.revokeObjectURL(p.url); p.url = null; }
+          p.loading = false;
         };
       } catch(e) { p.loading = false; }
     }
@@ -2676,10 +2679,6 @@
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    function escH(str) {
-      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
     function fmtDate(iso) {
       if (!iso) return '';
       const d = new Date(iso), diff = Math.floor((Date.now() - d) / 86400000);
@@ -2832,7 +2831,6 @@
     }
 
     function latestDate(s) {
-      const chs = s.chapters || [];
       const lc = latestChapter(s);
       return (lc && lc.updatedAt) || s.updatedAt || null;
     }
@@ -2978,6 +2976,7 @@
       readerPages.innerHTML = '';
       window.scrollTo(0, 0);
       maxChapterNum = 0; baseChapterOffset = 0;
+      chapterDisplayShift = 0; chapterLabelTotal = 0;
       const stale = document.getElementById('in-reader-resume');
       if (stale) stale.remove();
       document.getElementById('size-notice').classList.add('hidden');

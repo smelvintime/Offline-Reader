@@ -1,10 +1,16 @@
 {
-  "name": "manga-scraper",
-  "version": "1.0.0",
+  "name": "offline-reader-scraper",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
+  "description": "Builds catalog.json (schema v2) and chapters/**/*.json for the Offline Reader PWA.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "scrape": "node src/index.js"
+    "scrape": "node src/index.js",
+    "dry-run": "node src/index.js --dry-run",
+    "validate": "node src/validate.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

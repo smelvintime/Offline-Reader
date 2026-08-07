@@ -29,6 +29,22 @@ export function chapterId(index) {
   return 'c-' + String(index).padStart(4, '0');
 }
 
+/**
+ * Chapter id derived from the chapter's own number: 271 -> "c-0271",
+ * 271.5 -> "c-0271.5". Stable across rebuilds even when chapters are inserted,
+ * which index-based ids are not. Falls back to a hash-ish suffix when the
+ * source has no chapter number.
+ */
+export function chapterIdFromNum(num, fallback = '') {
+  if (num == null || !Number.isFinite(Number(num))) {
+    return 'c-x' + String(fallback).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+  }
+  const n = Number(num);
+  const int = Math.floor(n);
+  const frac = n - int;
+  return 'c-' + String(int).padStart(4, '0') + (frac ? String(frac).slice(1) : '');
+}
+
 /** Relative (app-root) path used in Chapter.src. Always forward slashes. */
 export function chapterSrc(seriesId, chId) {
   return `chapters/${idToDir(seriesId)}/${chId}.json`;

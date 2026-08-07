@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" width="300" height="450" role="img" aria-label="The Weight of Still Water">
+  <defs>
+    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c8cfd2"/>
+      <stop offset="55%" stop-color="#9fabb0"/>
+      <stop offset="100%" stop-color="#7e8d93"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5d6f76"/>
+      <stop offset="100%" stop-color="#2b3a41"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="300" height="450" fill="url(#sky2)"/>
+
+  <!-- far hills -->
+  <path d="M0 214 L48 178 L96 208 L142 168 L196 206 L246 176 L300 210 V246 H0 Z" fill="#7b878c"/>
+  <path d="M0 232 L54 206 L110 230 L166 202 L226 228 L300 204 V250 H0 Z" fill="#69777d"/>
+
+  <!-- waterline -->
+  <rect x="0" y="248" width="300" height="202" fill="url(#lake)"/>
+  <g stroke="#8ea0a7" stroke-width="1.5" opacity="0.5">
+    <path d="M18 286 h74"/><path d="M204 300 h72"/><path d="M40 330 h58"/>
+    <path d="M186 348 h84"/><path d="M28 372 h96"/><path d="M170 396 h76"/>
+  </g>
+
+  <!-- the church tower, standing clear of the water -->
+  <g>
+    <rect x="128" y="146" width="44" height="102" fill="#8b8578"/>
+    <path d="M128 146 h44 v-8 h-6 v-8 h-8 v8 h-16 v-8 h-8 v8 h-6 Z" fill="#736e63"/>
+    <rect x="142" y="176" width="16" height="26" rx="7" fill="#3d3a34"/>
+    <rect x="128" y="240" width="44" height="8" fill="#6f6a60"/>
+  </g>
+  <!-- its reflection, broken -->
+  <g opacity="0.35">
+    <rect x="128" y="250" width="44" height="86" fill="#b9c3c7"/>
+    <rect x="128" y="272" width="44" height="4" fill="#2b3a41"/>
+    <rect x="128" y="298" width="44" height="5" fill="#2b3a41"/>
+    <rect x="128" y="324" width="44" height="6" fill="#2b3a41"/>
+  </g>
+
+  <!-- a heron, because there is always one -->
+  <g stroke="#2b3a41" stroke-width="2.5" fill="none" stroke-linecap="round">
+    <path d="M238 268 v18"/>
+    <path d="M238 268 q-8 -10 -2 -16 q4 -4 8 -1"/>
+    <path d="M244 251 l9 3"/>
+  </g>
+
+  <g fill="#f1f3f2" font-family="Georgia, 'Times New Roman', serif" text-anchor="middle">
+    <text x="150" y="410" font-size="22">The Weight of</text>
+    <text x="150" y="434" font-size="22">Still Water</text>
+  </g>
+  <text x="150" y="44" fill="#4a575c" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="3" text-anchor="middle">SAMPLE SERIES</text>
+</svg>

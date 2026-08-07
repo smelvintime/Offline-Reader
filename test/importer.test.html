@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Importer tests — Offline Reader</title>
+  <link rel="stylesheet" href="../css/importer.css">
+  <style>
+    :root {
+      --bg: #0a0a0a; --surf: rgba(255,255,255,.08); --border: rgba(255,255,255,.1);
+      --accent: #6366f1; --text: #f0f0f0; --muted: #a0a0a0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    #harness { padding: 1rem; max-width: 46rem; margin: 0 auto; }
+    h1 { font-size: 1.05rem; margin-bottom: .75rem; }
+    #results { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+    .pass { color: #4ade80; }
+    .fail { color: #f0616d; }
+    /* Stand-in for the real screens so showScreen() has something to hide. */
+    #home-screen { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="harness">
+    <h1>Importer test harness</h1>
+    <div id="results">idle</div>
+  </div>
+  <div id="home-screen">home</div>
+
+  <script>
+    // ── Minimal stand-ins for what reader.js and catalogue.js provide ───────
+    // The importer only needs the screen registry and (optionally) Catalogue.
+    // Stubbing them keeps this page from dragging in the whole app.
+    (function () {
+      const screens = new Set([document.getElementById('home-screen')]);
+      const BLOCK_SCREENS = new Set(['reader-screen', 'novel-screen']);
+      window.registerScreen = function (el) { if (el) screens.add(el); return el; };
+      window.showScreen = function (id) {
+        screens.forEach(function (s) { if (s) s.style.display = 'none'; });
+        const t = document.getElementById(id);
+        if (!t) return;
+        screens.add(t);
+        t.style.display = BLOCK_SCREENS.has(id) ? 'block' : 'flex';
+        document.body.dataset.screen = id;
+      };
+      // Records hand-offs so tests can assert the importer routed correctly
+      // without pulling in the real catalogue.
+      window.__handoffs = [];
+      window.Catalogue = {
+        refresh: function () { return Promise.resolve(); },
+        openSeries: function (s) { window.__handoffs.push(s && s.id); },
+        goBack: function () { window.showScreen('home-screen'); },
+      };
+    })();
+  </script>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/store.js"></script>
+  <script src="../jszip.min.js"></script>
+  <script src="../js/importer.js"></script>
+
+  <script>
+  (function () {
+    'use strict';
+
+    const I = window.Importer;
+    const P = I._internals;
+    const realFetch = window.fetch;
+
+    // ── tiny assertion kit ────────────────────────────────────────────────
+    const results = [];
+    let currentTest = null;
+
+    function ok(cond, label) {
+      currentTest.checks.push({ ok: !!cond, label: label });
+      if (!cond) currentTest.failed = true;
+    }
+    function eq(actual, expected, label) {
+      const good = JSON.stringify(actual) === JSON.stringify(expected);
+      currentTest.checks.push({
+        ok: good, label: label,
+        detail: good ? null : ('expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual)),
+      });
+      if (!good) currentTest.failed = true;
+    }
+
+    async function test(name, fn) {
+      currentTest = { name: name, checks: [], failed: false, error: null };
+      results.push(currentTest);
+      try { await fn(); }
+      catch (e) {
+        currentTest.failed = true;
+        currentTest.error = (e && e.stack) || String(e);
+      }
+      currentTest = null;
+    }
+
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    // Waits for a DOM condition instead of guessing at timings.
+    async function waitFor(fn, label, timeout) {
+      const limit = timeout || 5000;
+      const started = Date.now();
+      while (Date.now() - started < limit) {
+        let v;
+        try { v = fn(); } catch (e) { v = null; }
+        if (v) return v;
+        await sleep(25);
+      }
+      throw new Error('timed out waiting for: ' + (label || 'condition'));
+    }
+
+    async function wipeLibrary() {
+      const rows = await Store.listUserSeries();
+      for (const s of rows) await Store.deleteUserSeries(s.id);
+      await Store.clearChapters();
+      window.__handoffs.length = 0;
+    }
+
+    // ── fixtures ──────────────────────────────────────────────────────────
+
+    // A 1x1 PNG. Small enough that the cover path runs without a real decoder.
+    const PNG_1PX_B64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    function b64ToUint8(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    // Builds a valid, minimal EPUB 2/3 hybrid in-page with JSZip.
+    // chapters: [{ file, xhtml }]
+    async function makeEpub(opts) {
+      const o = opts || {};
+      const zip = new JSZip();
+      zip.file('mimetype', 'application/epub+zip');
+      zip.file('META-INF/container.xml',
+        '<?xml version="1.0"?><container version="1.0" ' +
+        'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>' +
+        '<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>' +
+        '</rootfiles></container>');
+
+      const chapters = o.chapters || [];
+      const manifestItems = chapters.map(function (c, i) {
+        return '<item id="c' + i + '" href="' + c.file + '" media-type="application/xhtml+xml"/>';
+      }).join('');
+      const spineItems = chapters.map(function (c, i) {
+        return '<itemref idref="c' + i + '"/>';
+      }).join('');
+
+      zip.file('OEBPS/content.opf',
+        '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bid">' +
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+        '<dc:identifier id="bid">urn:uuid:test-book-1</dc:identifier>' +
+        '<dc:title>' + (o.title || 'The Test Chronicles') + '</dc:title>' +
+        '<dc:creator>' + (o.creator || 'A. Tester') + '</dc:creator>' +
+        '<dc:description>' + (o.description || 'A book that exists to be parsed.') + '</dc:description>' +
+        '<dc:language>en</dc:language>' +
+        '<meta name="cover" content="coverimg"/>' +
+        '</metadata><manifest>' +
+        '<item id="coverimg" href="images/cover.png" media-type="image/png"/>' +
+        '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' +
+        manifestItems +
+        '</manifest><spine>' + spineItems + '</spine></package>');
+
+      zip.file('OEBPS/images/cover.png', b64ToUint8(PNG_1PX_B64), { binary: true });
+
+      const navLinks = chapters.map(function (c) {
+        return '<li><a href="' + c.file + '">' + (c.tocTitle || c.file) + '</a></li>';
+      }).join('');
+      zip.file('OEBPS/nav.xhtml',
+        '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">' +
+        '<head><title>Contents</title></head><body>' +
+        '<nav epub:type="toc"><ol>' + navLinks + '</ol></nav></body></html>');
+
+      chapters.forEach(function (c) {
+        zip.file('OEBPS/' + c.file,
+          '<?xml version="1.0" encoding="UTF-8"?>' +
+          '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title>' +
+          '<style>body{color:red}</style></head><body>' + c.xhtml + '</body></html>');
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      return new File([blob], o.name || 'test-book.epub', { type: 'application/epub+zip' });
+    }
+
+    async function makeCbz(name, pageNames) {
+      const zip = new JSZip();
+      pageNames.forEach(function (p) {
+        zip.file(p, b64ToUint8(PNG_1PX_B64), { binary: true });
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      return new File([blob], name, { type: 'application/zip' });
+    }
+
+    function txtFile(name, text) {
+      return new File([text], name, { type: 'text/plain' });
+    }
+
+    // ── /resolve doubles ──────────────────────────────────────────────────
+
+    function stubResolve(handler) {
+      window.fetch = function (url) {
+        const target = String(url);
+        if (target.indexOf('/resolve') === -1) return realFetch.apply(window, arguments);
+        const r = handler(target);
+        return Promise.resolve({
+          ok: r.status >= 200 && r.status < 300,
+          status: r.status,
+          headers: { get: function (k) { return (r.headers || {})[k] || null; } },
+          json: function () { return Promise.resolve(r.body); },
+        });
+      };
+    }
+    function unstub() { window.fetch = realFetch; }
+
+    function seriesPayload(n, extra) {
+      const chapters = [];
+      for (let i = 1; i <= n; i++) {
+        chapters.push({
+          id: 'c-' + i, num: i, title: 'Chapter ' + i,
+          src: 'https://gw.example/chapter?url=https%3A%2F%2Fsite.example%2Fc' + i,
+        });
+      }
+      return Object.assign({
+        ok: true,
+        adapter: 'generic-novel',
+        series: {
+          title: 'Resolved Series', author: 'Web Author', type: 'lightnovel',
+          description: 'From the gateway.', cover: 'https://site.example/cover.jpg',
+          chapters: chapters,
+        },
+      }, extra || {});
+    }
+
+    // ── tests ─────────────────────────────────────────────────────────────
+
+    async function runAll() {
+      document.getElementById('results').textContent = 'running…';
+      results.length = 0;
+      window.OR_CONFIG.workerBase = 'https://gw.example';
+
+      await test('normalizeUrl strips fragment, tracking params, trailing slash', async function () {
+        const N = P.normalizeUrl;
+        eq(N('https://Site.Example/series/abc/'), 'https://site.example/series/abc', 'host lowercased, trailing slash gone');
+        eq(N('https://site.example/a?utm_source=tw&utm_medium=x&page=2#ch3'),
+           'https://site.example/a?page=2', 'utm_* dropped, real params kept, fragment gone');
+        eq(N('https://site.example/a?fbclid=zz&ref=news'), 'https://site.example/a', 'fbclid and ref dropped');
+        eq(N('  https://site.example/a  '), 'https://site.example/a', 'whitespace trimmed');
+        eq(N('https://site.example/a?b=2&a=1'), 'https://site.example/a?a=1&b=2', 'params sorted for stability');
+        let threw = false;
+        try { N('javascript:alert(1)'); } catch (e) { threw = e.code === 'bad_scheme' || e.code === 'bad_input'; }
+        ok(threw, 'javascript: URL is refused');
+        threw = false;
+        try { N('ftp://site.example/a'); } catch (e) { threw = e.code === 'bad_scheme'; }
+        ok(threw, 'ftp: URL is refused');
+      });
+
+      await test('id hashing is stable and derived from the normalized URL', async function () {
+        const a = await P.seriesIdForUrl('https://Site.Example/series/abc/?utm_source=x#top');
+        const b = await P.seriesIdForUrl('https://site.example/series/abc');
+        eq(a, b, 'two spellings of one URL hash the same');
+        ok(/^user:[0-9a-f]{16}$/.test(a), 'id shape is user:<16 hex> — got ' + a);
+        const c = await P.seriesIdForUrl('https://site.example/series/abd');
+        ok(a !== c, 'a different URL gets a different id');
+      });
+
+      await test('EPUB import lands series + chapters in Store with correct blocks', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          title: 'The Test Chronicles',
+          chapters: [
+            { file: 'c1.xhtml', tocTitle: 'The First Door',
+              xhtml: '<h1>Chapter One</h1><p>It was a bright cold day.</p>' +
+                     '<p>The clocks were striking <em>thirteen</em>.</p><hr/>' +
+                     '<blockquote>A quoted line.</blockquote>' +
+                     '<ul><li>one</li><li>two</li></ul>' +
+                     '<pre>  spaced\n  lines</pre>' },
+            { file: 'c2.xhtml', tocTitle: 'The Second Door',
+              xhtml: '<h2>Chapter Two</h2><div><span>Wrapped prose survives.</span></div>' +
+                     '<p>Second paragraph.</p>' },
+          ],
+        });
+
+        const series = await I.importFile(file);
+        ok(!!series && !!series.id, 'importFile returned a series');
+        eq(series.type, 'lightnovel', 'type inferred as lightnovel');
+        eq(series.title, 'The Test Chronicles', 'title from dc:title');
+        eq(series.author, 'A. Tester', 'author from dc:creator');
+        eq(series.source, 'user', 'source is "user"');
+        eq(series.chapters.length, 2, 'two spine documents became two chapters');
+        eq(series.chapters[0].title, 'The First Door', 'chapter title from the nav ToC');
+        ok(/^data:image\//.test(series.cover || ''), 'cover stored as a data URL');
+
+        const stored = await Store.getUserSeries(series.id);
+        ok(!!stored, 'series row is in Store');
+        eq(stored.chapters.length, 2, 'stored series has both chapters');
+        ok(stored.chapters[0].src == null && stored.chapters[0].text == null,
+           'chapters carry no payload — content is already cached');
+
+        const ids = await Store.listCachedChapterIds(series.id);
+        eq(ids.sort(), ['c-0001', 'c-0002'], 'both ChapterFiles cached');
+
+        const f1 = await Store.getChapter(series.id, 'c-0001');
+        eq(f1.kind, 'text', 'chapter kind is text');
+        const types = f1.blocks.map(function (b) { return b.t; });
+        eq(types, ['h2', 'p', 'p', 'hr', 'blockquote', 'ul', 'pre'], 'block types in document order');
+        eq(f1.blocks[0].c, 'Chapter One', 'h1 mapped to h2 with its text');
+        eq(f1.blocks[1].c, 'It was a bright cold day.', 'first paragraph text');
+        eq(f1.blocks[2].c, 'The clocks were striking thirteen.', 'inline markup flattened into the paragraph');
+        eq(f1.blocks[5].items, ['one', 'two'], 'list items extracted');
+        ok(f1.wordCount > 10, 'word count computed (' + f1.wordCount + ')');
+
+        const f2 = await Store.getChapter(series.id, 'c-0002');
+        eq(f2.blocks.map(function (b) { return b.c; }),
+           ['Chapter Two', 'Wrapped prose survives.', 'Second paragraph.'],
+           'span-wrapped prose keeps its paragraph');
+        // <style> is in the skip set, so its CSS must never reach a block.
+        const allText = JSON.stringify(f1.blocks) + JSON.stringify(f2.blocks);
+        ok(allText.indexOf('color:red') === -1, '<style> contents dropped');
+      });
+
+      await test('EPUB XHTML cannot smuggle script or javascript: URLs into blocks', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'hostile.epub',
+          title: 'Hostile Book',
+          chapters: [{
+            file: 'x1.xhtml', tocTitle: 'Payloads',
+            xhtml:
+              '<p>Safe prose.</p>' +
+              '<script>window.__pwned = true; document.title = "pwned";<\/script>' +
+              '<p onclick="window.__pwned2 = true">Handler paragraph.</p>' +
+              '<img src="javascript:window.__pwned3=1" alt="bad"/>' +
+              '<img src="data:text/html,<script>1<\/script>" alt="alsobad"/>' +
+              '<a href="javascript:void(0)">link text</a>' +
+              '<iframe src="https://evil.example/"></iframe>' +
+              '<p>Trailing prose.</p>',
+          }],
+        });
+
+        const series = await I.importFile(file);
+        const f = await Store.getChapter(series.id, 'c-0001');
+        const json = JSON.stringify(f.blocks);
+
+        ok(!window.__pwned && !window.__pwned2 && !window.__pwned3, 'no script from the EPUB ever executed');
+        eq(document.title, 'Importer tests — Offline Reader', 'document.title untouched');
+        ok(json.indexOf('__pwned') === -1, 'script body never became block content');
+        ok(json.toLowerCase().indexOf('javascript:') === -1, 'no javascript: URL survives');
+        ok(json.indexOf('data:text/html') === -1, 'non-image data: URL rejected');
+        ok(json.indexOf('evil.example') === -1, 'iframe dropped');
+        const texts = f.blocks.filter(function (b) { return b.t === 'p'; }).map(function (b) { return b.c; });
+        ok(texts.indexOf('Safe prose.') !== -1 && texts.indexOf('Trailing prose.') !== -1,
+           'surrounding prose still imported');
+        ok(texts.indexOf('Handler paragraph.') !== -1, 'element with an on* attribute keeps its text');
+        ok(f.blocks.every(function (b) { return b.t !== 'img'; }), 'no image block from hostile srcs');
+      });
+
+      await test('TXT splits on chapter headings', async function () {
+        await wipeLibrary();
+        const text = [
+          'A translator preface that has no heading.',
+          '',
+          'Chapter 1: The Beginning',
+          '',
+          'First body paragraph of chapter one.',
+          '',
+          'Second body paragraph.',
+          '',
+          'Chapter 2: The Middle',
+          '',
+          'Chapter two prose.',
+          '',
+          'Chapter 3: The End',
+          '',
+          'Chapter three prose.',
+        ].join('\n');
+
+        const strategies = P.buildTxtStrategies(text);
+        eq(strategies[0].id, 'headings', 'heading split is the preferred strategy');
+        eq(strategies[0].parts.length, 3, 'three headings → three parts');
+
+        const series = await I.importFile(txtFile('my-novel.txt', text));
+        eq(series.chapters.length, 3, 'three chapters saved');
+        eq(series.type, 'lightnovel', 'TXT is a text series');
+        eq(series.chapters[0].title, 'Chapter 1: The Beginning', 'chapter title is the heading line');
+        eq(series.chapters[2].title, 'Chapter 3: The End', 'last chapter title');
+
+        const f1 = await Store.getChapter(series.id, 'c-0001');
+        eq(f1.blocks[0], { t: 'h2', c: 'Chapter 1: The Beginning' }, 'heading kept as an h2 block');
+        ok(JSON.stringify(f1.blocks).indexOf('translator preface') !== -1,
+           'front matter is folded into chapter one rather than dropped');
+        eq(f1.blocks[f1.blocks.length - 1].c, 'Second body paragraph.', 'last paragraph of chapter one');
+
+        const f3 = await Store.getChapter(series.id, 'c-0003');
+        eq(f3.blocks.map(function (b) { return b.c; }), ['Chapter 3: The End', 'Chapter three prose.'],
+           'third chapter body');
+      });
+
+      await test('TXT falls back to blank-line runs, and CJK headings are recognised', async function () {
+        const noHeadings = 'Part one prose.\n\n\n\nPart two prose.\n\n\n\nPart three prose.';
+        const s1 = P.buildTxtStrategies(noHeadings);
+        eq(s1[0].id, 'blanks', 'blank-run split chosen when no headings exist');
+        eq(s1[0].parts.length, 3, 'three blank-separated parts');
+
+        const cjk = '第一章 始まり\n\n本文です。\n\n第二章 続き\n\nもっと本文。';
+        const s2 = P.buildTxtStrategies(cjk);
+        eq(s2[0].id, 'headings', 'CJK headings detected');
+        eq(s2[0].parts.length, 2, 'two CJK chapters');
+
+        const single = P.buildTxtStrategies('Just one paragraph with no structure at all.');
+        eq(single[0].id, 'single', 'a structureless file stays one chapter');
+      });
+
+      await test('CBZ imports as an image series and keeps the archive', async function () {
+        await wipeLibrary();
+        const file = await makeCbz('Some Comic v01.cbz', ['001.png', '002.png', '010.png', '003.png']);
+        const series = await I.importFile(file);
+
+        eq(series.type, 'manga', 'archives register as an image series');
+        eq(series.source, 'user', 'source is "user"');
+        eq(series.chapters.length, 1, 'flat archive is one chapter');
+        eq(series.importKind, 'cbz', 'import kind recorded');
+
+        const blob = await Store.getBlob(series.archiveKey);
+        ok(!!blob && blob.size > 0, 'archive blob kept so it reopens without another file pick');
+
+        const f = await Store.getChapter(series.id, 'c-0001');
+        eq(f.kind, 'image', 'chapter kind is image');
+        eq(f.entries, ['001.png', '002.png', '003.png', '010.png'], 'pages sorted naturally, not lexically');
+        ok(Array.isArray(f.pages) && f.pages.length === 4, 'pages rehydrated to 4 object URLs');
+        ok(f.pages.every(function (u) { return u.indexOf('blob:') === 0; }), 'rehydrated pages are blob: URLs');
+      });
+
+      await test('URL import saves a series keyed by the normalized URL', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(4) }; });
+
+        const phases = [];
+        const series = await I.importUrl('https://site.example/series/one/?utm_source=x', {
+          onProgress: function (p) { phases.push(p.phase); },
+        });
+
+        const expectedId = await P.seriesIdForUrl('https://site.example/series/one');
+        eq(series.id, expectedId, 'id is user: + hash of the normalized URL');
+        eq(series.sourceUrl, 'https://site.example/series/one', 'sourceUrl stored normalized');
+        eq(series.source, 'user', 'source is "user"');
+        eq(series.type, 'lightnovel', 'type taken from the gateway');
+        eq(series.chapters.length, 4, 'four chapters');
+        ok(series.chapters[0].src.indexOf('/chapter?url=') !== -1, 'chapters carry src for lazy resolution');
+        ok(phases.indexOf('resolving') !== -1 && phases.indexOf('parsing') !== -1 && phases.indexOf('found') !== -1,
+           'progress reported resolving → parsing → found (' + phases.join(' → ') + ')');
+
+        const stored = await Store.getUserSeries(expectedId);
+        ok(!!stored, 'series persisted under the hashed id');
+        unstub();
+      });
+
+      await test('a hostile gateway response cannot park odd schemes in the library', async function () {
+        await wipeLibrary();
+        stubResolve(function () {
+          return { status: 200, body: { ok: true, adapter: 'evil', series: {
+            title: 'Trojan', type: 'manga', cover: 'javascript:alert(1)',
+            chapters: [
+              { id: 'c-1', num: 1, title: 'A', src: 'javascript:alert(2)' },
+              { id: 'c-2', num: 2, title: 'B', pages: ['javascript:alert(3)', 'https://cdn.example/ok.jpg'] },
+              { id: 'c-3', num: 3, title: 'C', src: 'https://gw.example/chapter?url=x' },
+            ],
+          } } };
+        });
+
+        const s = await I.importUrl('https://site.example/series/trojan');
+        const json = JSON.stringify(s);
+        ok(json.toLowerCase().indexOf('javascript:') === -1, 'no javascript: URL anywhere in the saved series');
+        eq(s.cover, '', 'a javascript: cover is dropped');
+        ok(s.chapters[0].src == null, 'a javascript: chapter src is dropped');
+        eq(s.chapters[1].pages, ['https://cdn.example/ok.jpg'], 'only the http page URL survives');
+        eq(s.chapters[2].src, 'https://gw.example/chapter?url=x', 'a legitimate src is kept intact');
+        unstub();
+      });
+
+      await test('the same URL imported twice yields one library entry', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(3) }; });
+
+        const a = await I.importUrl('https://site.example/series/dup');
+        // Second time around: different spelling, tracking junk, trailing slash.
+        const b = await I.importUrl('https://SITE.example/series/dup/?utm_campaign=nag&fbclid=abc#chapter-2');
+
+        eq(a.id, b.id, 'both imports produced the same id');
+        const rows = await Store.listUserSeries();
+        eq(rows.length, 1, 'exactly one row in the library');
+        eq(rows[0].addedAt, a.addedAt, 're-import kept the original addedAt (it resumed, not replaced)');
+        unstub();
+      });
+
+      await test('gateway error codes each surface a specific message', async function () {
+        await wipeLibrary();
+        I.openDialog();
+        const status = document.getElementById('imp-status');
+
+        const cases = [
+          { code: 'no_adapter',   status: 422, needle: 'do not know how to read that site', retry: false },
+          { code: 'rate_limited', status: 429, needle: 'Too many lookups',                  retry: true, headers: { 'Retry-After': '42' } },
+          { code: 'parse_failed', status: 422, needle: 'could not find a chapter list',     retry: true },
+          { code: 'blocked_host', status: 403, needle: 'not allowed',                       retry: false },
+          { code: 'too_large',    status: 413, needle: 'far bigger',                        retry: false },
+          { code: 'upstream_error', status: 502, needle: 'did not answer properly',         retry: true },
+          { code: 'bad_url',      status: 400, needle: 'rejected that address',             retry: false },
+        ];
+
+        for (const c of cases) {
+          stubResolve(function () {
+            return { status: c.status, headers: c.headers,
+                     body: { ok: false, error: c.code, message: 'raw worker text' } };
+          });
+          document.getElementById('imp-url').value = 'https://site.example/series/' + c.code;
+          document.getElementById('imp-go').click();
+
+          await waitFor(function () {
+            return status.classList.contains('imp-status--error') &&
+                   status.textContent.indexOf(c.needle) !== -1;
+          }, c.code + ' message');
+
+          ok(status.textContent.indexOf(c.needle) !== -1, c.code + ' → specific message shown');
+          const hasRetry = !!document.getElementById('imp-retry');
+          eq(hasRetry, c.retry, c.code + ' → retry button ' + (c.retry ? 'offered' : 'withheld'));
+          if (c.code === 'rate_limited') {
+            ok(status.textContent.indexOf('42 second') !== -1, 'Retry-After surfaced in the detail line');
+          }
+          const rows = await Store.listUserSeries();
+          eq(rows.length, 0, c.code + ' → nothing saved');
+        }
+        unstub();
+      });
+
+      await test('low confidence warns but still lets the user proceed', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(5, { confidence: 'low' }) }; });
+
+        I.openDialog();
+        document.getElementById('imp-url').value = 'https://site.example/series/guessy';
+        document.getElementById('imp-go').click();
+
+        await waitFor(function () {
+          return !document.getElementById('imp-view-confirm').hidden;
+        }, 'confirm view');
+
+        const banner = document.getElementById('imp-confidence');
+        ok(!banner.hidden, 'low-confidence banner is visible');
+        ok(banner.textContent.indexOf('guess') !== -1, 'banner explains that we guessed');
+        ok(document.getElementById('imp-chapter-list').children.length > 0, 'chapter preview rendered');
+        ok(!document.getElementById('imp-save').disabled, 'saving is still allowed');
+
+        // Correct the heuristics the way a real user would, then save.
+        document.getElementById('imp-edit-title').value = 'Corrected Title';
+        Array.prototype.slice.call(document.querySelectorAll('#imp-edit-type .imp-seg'))
+          .filter(function (b) { return b.dataset.type === 'manhwa'; })[0].click();
+        document.getElementById('imp-save').click();
+
+        await waitFor(function () { return window.__handoffs.length > 0; }, 'hand-off to Catalogue');
+
+        const rows = await Store.listUserSeries();
+        eq(rows.length, 1, 'one series saved');
+        eq(rows[0].title, 'Corrected Title', 'the edited title was used');
+        eq(rows[0].type, 'manhwa', 'the manual type override was used');
+        eq(window.__handoffs[0], rows[0].id, 'Catalogue.openSeries called with the saved series');
+        unstub();
+      });
+
+      await test('a successful lookup shows the confirm step with real values', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(12) }; });
+        I.openDialog();
+        document.getElementById('imp-url').value = 'https://site.example/series/happy';
+        document.getElementById('imp-go').click();
+        await waitFor(function () { return !document.getElementById('imp-view-confirm').hidden; }, 'confirm view');
+
+        eq(document.getElementById('imp-edit-title').value, 'Resolved Series', 'title prefilled');
+        eq(document.getElementById('imp-edit-author').value, 'Web Author', 'author prefilled');
+        ok(document.getElementById('imp-chapter-label').textContent.indexOf('12 total') !== -1,
+           'chapter count shown');
+        ok(document.getElementById('imp-confidence').hidden, 'no confidence warning when confidence is normal');
+        // 6 previews + the "+ 6 more" row
+        eq(document.getElementById('imp-chapter-list').children.length, 7, 'first chapters previewed');
+        unstub();
+      });
+
+      await test('with no gateway the link box is hidden and files still work', async function () {
+        await wipeLibrary();
+        const saved = window.OR_CONFIG.workerBase;
+        window.OR_CONFIG.workerBase = '';
+        I.openDialog();
+
+        ok(document.getElementById('imp-link-card').hidden, 'the link card is not rendered');
+        const off = document.getElementById('imp-gateway-off');
+        ok(!off.hidden, 'the explainer is shown instead');
+        ok(off.textContent.indexOf('worker/README.md') !== -1, 'it points at worker/README.md');
+        ok(document.getElementById('imp-drop') && !document.getElementById('imp-drop').hidden,
+           'file import is still available');
+
+        let code = null;
+        try { await I.importUrl('https://site.example/x'); } catch (e) { code = e.code; }
+        eq(code, 'gateway_disabled', 'importUrl refuses cleanly with gateway_disabled');
+
+        const series = await I.importFile(txtFile('gateway-off.txt', 'Chapter 1\n\nA.\n\nChapter 2\n\nB.'));
+        eq(series.chapters.length, 2, 'TXT import works with no gateway at all');
+        window.OR_CONFIG.workerBase = saved;
+      });
+
+      await test('manage view lists series, sizes and export/import round-trips', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(2) }; });
+        await I.importUrl('https://site.example/series/managed');
+        unstub();
+        await I.importFile(txtFile('managed-novel.txt', 'Chapter 1\n\nAlpha.\n\nChapter 2\n\nBeta.'));
+
+        I.openDialog({ view: 'manage' });
+        await waitFor(function () {
+          return document.querySelectorAll('#imp-manage-list .imp-manage-row').length === 2;
+        }, 'two manage rows');
+        await waitFor(function () {
+          const sizes = document.querySelectorAll('#imp-manage-list .imp-manage-size');
+          return sizes.length === 2 && sizes[0].textContent !== '…' && sizes[1].textContent !== '…';
+        }, 'sizes measured');
+
+        const sizes = Array.prototype.map.call(
+          document.querySelectorAll('#imp-manage-list .imp-manage-size'),
+          function (n) { return n.textContent; });
+        ok(sizes.every(function (s) { return /\d/.test(s); }), 'each row shows a real size (' + sizes.join(', ') + ')');
+        ok(document.getElementById('imp-usage').textContent.indexOf('2 imported series') !== -1,
+           'summary counts the imported series');
+
+        const dump = await I.exportLibrary({ includeChapters: true });
+        eq(dump.series.length, 2, 'export carries both series');
+        ok(dump.chapters.length >= 2, 'export carries cached chapters (' + dump.chapters.length + ')');
+
+        await wipeLibrary();
+        eq((await Store.listUserSeries()).length, 0, 'library wiped');
+
+        const res = await I.importLibrary(JSON.stringify(dump));
+        eq(res.series, 2, 'import restored both series');
+        const restored = await Store.listUserSeries();
+        eq(restored.length, 2, 'two series back in the library');
+        const restoredChapter = await Store.getChapter(restored[0].id, restored[0].chapters[0].id);
+        ok(!!restoredChapter, 'chapter content restored too');
+
+        let badCode = null;
+        try { await I.importLibrary('{"format":"something-else"}'); } catch (e) { badCode = e.code; }
+        eq(badCode, 'bad_export', 'a foreign JSON file is refused with a clear code');
+      });
+
+      await test('refreshSeries merges only genuinely new chapters', async function () {
+        await wipeLibrary();
+        stubResolve(function () { return { status: 200, body: seriesPayload(3) }; });
+        const s = await I.importUrl('https://site.example/series/growing');
+        eq(s.chapters.length, 3, 'starts with three chapters');
+
+        stubResolve(function () { return { status: 200, body: seriesPayload(5) }; });
+        const r1 = await I.refreshSeries(s.id);
+        eq(r1.added, 2, 'two new chapters found');
+        eq(r1.series.chapters.length, 5, 'series now has five');
+
+        const r2 = await I.refreshSeries(s.id);
+        eq(r2.added, 0, 're-checking adds nothing');
+        eq((await Store.listUserSeries()).length, 1, 'still one library entry');
+        unstub();
+      });
+
+      // ── report ──────────────────────────────────────────────────────────
+      const lines = [];
+      let passed = 0, failed = 0, checks = 0;
+      for (const t of results) {
+        const bad = t.checks.filter(function (c) { return !c.ok; });
+        checks += t.checks.length;
+        if (t.failed) { failed++; lines.push('FAIL  ' + t.name); }
+        else { passed++; lines.push('ok    ' + t.name + '  (' + t.checks.length + ' checks)'); }
+        for (const c of bad) lines.push('        ✗ ' + c.label + (c.detail ? '\n            ' + c.detail : ''));
+        if (t.error) lines.push('        ! ' + t.error.split('\n').slice(0, 4).join('\n          '));
+      }
+      lines.push('');
+      lines.push(failed ? (failed + ' failed, ' + passed + ' passed') : ('all ' + passed + ' tests passed (' + checks + ' checks)'));
+
+      const out = document.getElementById('results');
+      out.textContent = lines.join('\n');
+      out.className = failed ? 'fail' : 'pass';
+      return { passed: passed, failed: failed, checks: checks, report: lines.join('\n') };
+    }
+
+    window.T = {
+      runAll: runAll,
+      wipeLibrary: wipeLibrary,
+      stubResolve: stubResolve,
+      unstub: unstub,
+      seriesPayload: seriesPayload,
+      makeEpub: makeEpub,
+      makeCbz: makeCbz,
+      txtFile: txtFile,
+      waitFor: waitFor,
+      sleep: sleep,
+    };
+    window.__ready = true;
+  })();
+  </script>
+</body>
+</html>

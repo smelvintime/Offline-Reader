@@ -86,7 +86,7 @@ export function blocksFromNode(container, baseUrl, opts = {}) {
 
     if (node.type === 'text') {
       // Loose text directly inside the container.
-      const t = getText(node, { collapse: false });
+      const t = getText(node, { breaks: true });
       if (t && t.trim()) emitParagraphs(t);
       return;
     }
@@ -106,7 +106,7 @@ export function blocksFromNode(container, baseUrl, opts = {}) {
     }
 
     if (tag === 'blockquote') {
-      pushText(out, 'blockquote', getText(node, { collapse: false }));
+      pushText(out, 'blockquote', getText(node, { breaks: true }));
       return;
     }
 
@@ -150,15 +150,14 @@ export function blocksFromNode(container, baseUrl, opts = {}) {
 
     if (tag === 'table') {
       // Tables are not part of the block vocabulary; flatten rows to paragraphs.
-      const text = getText(node, { collapse: false });
-      emitParagraphs(text);
+      emitParagraphs(getText(node, { breaks: true }));
       return;
     }
 
     if (tag === 'p') {
       // A <p> can still contain an inline <img> (illustration + caption).
       const imgs = keepImages ? node.children.filter((c) => isElement(c) && c.tag === 'img') : [];
-      const text = getText(node, { collapse: false });
+      const text = getText(node, { breaks: true });
       if (text.trim()) emitParagraphs(text);
       for (const im of imgs) visit(im);
       return;
@@ -175,7 +174,7 @@ export function blocksFromNode(container, baseUrl, opts = {}) {
     if (hasBlockChild) {
       for (const c of node.children) visit(c);
     } else {
-      const text = getText(node, { collapse: false });
+      const text = getText(node, { breaks: true });
       if (text.trim()) emitParagraphs(text);
       if (keepImages) {
         for (const c of node.children) if (isElement(c) && c.tag === 'img') visit(c);
@@ -249,7 +248,7 @@ export function sanitizeBlocks(blocks) {
       continue;
     }
     let c = typeof b.c === 'string' ? b.c : b.c == null ? '' : String(b.c);
-    c = c.replace(/ /g, '').trim();
+    c = c.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\ufeff]/g, '').trim();
     if (!c) continue;
     if (c.length > BLOCK_LIMITS.maxCharsPerBlock) c = c.slice(0, BLOCK_LIMITS.maxCharsPerBlock);
     totalChars += c.length;

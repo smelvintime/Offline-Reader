@@ -1,0 +1,1062 @@
+/* Offline Reader — catalogue skin. Owned by js/catalogue.js.
+ *
+ * Covers the two screens the catalogue paints (#home-screen, #series-screen)
+ * plus the one element it parks on <body> (.cat-toast).
+ *
+ * Conventions, matched to css/novel.css:
+ *   • one namespaced class prefix — `cat-` — for everything this module invents;
+ *   • every colour, radius and duration is a custom property, so a theme swap is
+ *     a token edit rather than a search-and-replace;
+ *   • tokens are declared once and consumed everywhere, never re-hard-coded.
+ *
+ * Where novel.css scopes its tokens under #novel-screen (a reader in sepia must
+ * not drag the rest of the app along), the catalogue cannot: .cat-toast is
+ * appended to <body>, outside both screens. The `--cat-` prefix is the scope
+ * instead, and every token defers to the app-wide token in styles.css so the two
+ * sheets cannot drift apart.
+ *
+ * This sheet is loaded AFTER styles.css and deliberately re-declares a handful
+ * of selectors that live there (.series-card, .ch-item, #series-hero-cover …).
+ * catalogue.js reuses those class names for markup with a new internal shape —
+ * a chapter row is now two nested buttons, a card now sits inside a wrapper —
+ * so the base rules need adjusting rather than replacing.
+ */
+
+/* ── Tokens ───────────────────────────────────────────────────────────────── */
+
+:root {
+  --cat-bg:          var(--bg, #0a0a0a);
+  --cat-text:        var(--text, #f0f0f0);
+  --cat-muted:       var(--muted, #a0a0a0);
+  --cat-surf:        var(--surf, rgba(255, 255, 255, 0.08));
+  --cat-surf-1:      rgba(255, 255, 255, 0.04);
+  --cat-surf-2:      rgba(255, 255, 255, 0.12);
+  --cat-border:      var(--border, rgba(255, 255, 255, 0.1));
+  --cat-border-soft: rgba(255, 255, 255, 0.06);
+  --cat-accent:      var(--accent, #6366f1);
+  --cat-accent-ink:  #a5b4fc;
+  --cat-accent-soft: rgba(99, 102, 241, 0.14);
+  --cat-accent-line: rgba(99, 102, 241, 0.42);
+  --cat-novel:       #fbbf24;
+  --cat-novel-soft:  rgba(217, 119, 6, 0.14);
+  --cat-novel-line:  rgba(217, 119, 6, 0.38);
+  --cat-ok:          #34d399;
+
+  /* Rounded ~10px cards is the house style — see the "less pill-shaped" notes
+     in styles.css. Nothing here goes past 14px except the scrim-free sheets. */
+  --cat-r:      10px;
+  --cat-r-sm:   8px;
+  --cat-r-lg:   14px;
+
+  /* 44px is the floor for a finger. The @media (min-width: 48rem) block near the
+     bottom of this file relaxes it once we can assume a pointer. */
+  --cat-tap:    44px;
+
+  --cat-gap:      clamp(0.7rem, 1.4vw, 1.25rem);
+  --cat-card-min: 8.5rem;           /* series-grid track floor, steps up below */
+  --cat-pad-x:    1rem;
+  --cat-shell:    860px;            /* widened on large viewports, see below */
+
+  --cat-dur:    150ms;
+  --cat-ease:   cubic-bezier(0.4, 0, 0.2, 1);
+  --cat-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+
+#home-screen,
+#series-screen {
+  -webkit-tap-highlight-color: transparent;
+}
+
+#home-screen  { padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px)); }
+#home-header-inner,
+#home-body,
+#series-body { max-width: var(--cat-shell); }
+#series-body { padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px)); }
+
+/* Buttons built by el() inherit nothing from the UA button font stack. */
+#home-screen button,
+#series-screen button,
+#home-screen select,
+#series-screen select,
+#home-screen input,
+#series-screen input {
+  font-family: inherit;
+}
+
+/* Visible focus on every interactive element in both screens — outline only, so
+   the ring never changes an element's own shape or spacing. */
+#home-screen :focus-visible,
+#series-screen :focus-visible {
+  outline: 2px solid var(--cat-accent);
+  outline-offset: 2px;
+}
+#home-screen :focus:not(:focus-visible),
+#series-screen :focus:not(:focus-visible) { outline: none; }
+
+/* Rails and the tab strip scroll horizontally; a chunky scrollbar under a row of
+   covers is noise, so hide the track and lean on the overflow shadow instead. */
+.cat-tabs,
+.cat-rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.cat-tabs::-webkit-scrollbar,
+.cat-rail::-webkit-scrollbar { width: 0; height: 0; }
+
+/* ═══ HOME ════════════════════════════════════════════════════════════════ */
+
+/* ── Search & header (markup lives in index.html; the tap targets are ours) ─ */
+
+#home-search { min-height: var(--cat-tap); }
+#go-offline-btn { min-height: var(--cat-tap); }
+#series-back-btn {
+  min-width: var(--cat-tap);
+  min-height: var(--cat-tap);
+  justify-content: center;
+}
+
+/* ── Type tabs ────────────────────────────────────────────────────────────── */
+
+.cat-tabs {
+  display: flex;
+  gap: 0.35rem;
+  /* Bleed past #home-body's padding so the strip scrolls edge to edge. */
+  margin: 0 calc(var(--cat-pad-x) * -1) 1.25rem;
+  padding: 0.15rem var(--cat-pad-x) 0.3rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+}
+
+.cat-tab {
+  flex: 0 0 auto;
+  min-height: var(--cat-tap);
+  padding: 0.5rem 0.9rem;
+  background: var(--cat-surf-1);
+  border: 1px solid transparent;
+  border-radius: var(--cat-r);
+  color: var(--cat-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background var(--cat-dur), color var(--cat-dur), border-color var(--cat-dur);
+}
+.cat-tab:active { background: var(--cat-surf-2); }
+.cat-tab.active {
+  background: var(--cat-accent-soft);
+  border-color: var(--cat-accent-line);
+  color: var(--cat-accent-ink);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+}
+
+/* ── Sections & the continue-reading rail ─────────────────────────────────── */
+
+.cat-section { margin-bottom: 1.75rem; }
+
+.cat-rail {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0 calc(var(--cat-pad-x) * -1);
+  padding: 0.15rem var(--cat-pad-x) 0.5rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+}
+
+.cat-cont {
+  flex: 0 0 auto;
+  width: clamp(13rem, 66vw, 16.5rem);
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem 0.5rem 0.5rem;
+  background: var(--cat-surf-1);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r-lg);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background var(--cat-dur), border-color var(--cat-dur), transform 100ms var(--cat-ease);
+}
+.cat-cont:active { background: var(--cat-surf); transform: scale(0.98); }
+
+.cat-cont-cover {
+  width: 44px;
+  aspect-ratio: 2 / 3;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #111;
+}
+.cat-cont-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cat-cont-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  color: var(--cat-accent);
+}
+.cat-cont-ph svg { width: 18px; height: 18px; }
+
+.cat-cont-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.cat-cont-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--cat-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cat-cont-ch {
+  font-size: 0.7rem;
+  color: var(--cat-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cat-bar {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.cat-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--cat-accent);
+  transition: width 0.3s var(--cat-ease);
+}
+
+/* ── Latest updates ───────────────────────────────────────────────────────── */
+
+/* catalogue.js builds this row as a <button>, where styles.css assumed a <div>.
+   Without an explicit background the UA paints ButtonFace — a light grey slab
+   under light-grey-on-dark text, i.e. an invisible title. */
+.update-row {
+  min-height: var(--cat-tap);
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;      /* buttons centre their text; rows are left-aligned */
+}
+.update-row:not(:last-child) { border-bottom: 1px solid var(--cat-border-soft); }
+.update-thumb,
+.update-thumb-ph { width: 42px; height: 63px; aspect-ratio: 2 / 3; }
+.update-thumb-ph svg { width: 16px; height: 16px; }
+.update-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  color: var(--cat-muted);
+  font-size: 0.72rem;
+}
+.update-date { font-variant-numeric: tabular-nums; }
+
+.cat-dot { color: var(--cat-muted); opacity: 0.45; }
+
+/* Kind badge — the one-glance "is this prose or pictures?" tell. Prose is amber,
+   images are indigo; they are never the same colour anywhere in the app. */
+.cat-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-shrink: 0;
+  padding: 0.15rem 0.42rem;
+  border-radius: 6px;
+  background: var(--cat-accent-soft);
+  border: 1px solid var(--cat-accent-line);
+  color: var(--cat-accent-ink);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.cat-kind svg { width: 11px; height: 11px; flex-shrink: 0; }
+.cat-kind--novel {
+  background: var(--cat-novel-soft);
+  border-color: var(--cat-novel-line);
+  color: var(--cat-novel);
+}
+
+/* ── Grid toolbar (count · add · layout switch) ───────────────────────────── */
+
+.cat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.cat-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cat-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cat-spacer { flex: 1 1 auto; min-width: 0; }
+
+.cat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: var(--cat-tap);
+  padding: 0.5rem 0.8rem;
+  background: var(--cat-surf);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r);
+  color: var(--cat-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--cat-dur), border-color var(--cat-dur), transform 100ms var(--cat-ease);
+}
+.cat-btn svg { flex-shrink: 0; }
+.cat-btn:active { background: var(--cat-surf-2); transform: scale(0.97); }
+.cat-btn:disabled { opacity: 0.4; pointer-events: none; }
+.cat-btn--accent {
+  background: var(--cat-accent);
+  border-color: transparent;
+  color: #fff;
+}
+.cat-btn--accent:active { background: #4f46e5; }
+
+.cat-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  flex-shrink: 0;
+  background: var(--cat-surf-1);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r);
+}
+.cat-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--cat-tap);
+  min-height: var(--cat-tap);
+  padding: 0 0.5rem;
+  background: none;
+  border: none;
+  border-radius: var(--cat-r-sm);
+  color: var(--cat-muted);
+  cursor: pointer;
+  transition: background var(--cat-dur), color var(--cat-dur);
+}
+.cat-seg:active { background: var(--cat-surf); }
+.cat-seg.active { background: var(--cat-surf-2); color: var(--cat-text); }
+
+/* ── Series grid / list ───────────────────────────────────────────────────── */
+
+/* One fluid track definition covers 360px → 1280px+. The card floor is a plain
+   rem, deliberately NOT a vw clamp: the shell is capped, so past ~1200px a vw
+   floor keeps growing while the container does not, and the grid starts *losing*
+   columns as the window widens. The floor steps up in the two media queries at
+   the bottom of this file, which are the same ones the shell widens in. */
+#series-grid { margin-bottom: 2rem; }
+/* An empty grid still owns its bottom margin, which stacks with the empty
+   state's padding into a hole the size of a card. */
+#series-grid:empty { margin-bottom: 0.5rem; }
+#series-grid.cat-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cat-card-min), 1fr));
+  gap: var(--cat-gap);
+  align-items: start;
+}
+#series-grid.cat-layout-list {
+  display: grid;
+  grid-template-columns: 1fr;      /* single column at 360px */
+  gap: 0.5rem;
+}
+
+.cat-card-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.series-card.cat-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+  transition: transform var(--cat-dur) var(--cat-ease), opacity var(--cat-dur);
+}
+.series-card.cat-card:active { transform: scale(0.97); }
+
+.cat-card-body { min-width: 0; }
+.cat-card-author {
+  font-size: 0.66rem;
+  color: var(--cat-muted);
+  margin-top: 0.12rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Image series keep the poster frame styles.css already defines; the modifier
+   only adds the seam that separates a cover from the page background. */
+.cat-card--image .series-cover-wrap { box-shadow: inset 0 0 0 1px var(--cat-border); }
+.cat-card--novel .series-card-meta { color: rgba(251, 191, 36, 0.72); }
+
+/* Novel cards get a bound-book edge instead of a poster frame: square left
+   corners, a printed-block gutter, and a drop shadow that reads as thickness. */
+.cat-spine {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  margin-bottom: 0.45rem;
+  border-radius: 3px var(--cat-r) var(--cat-r) 3px;
+  overflow: hidden;
+  background: #14141f;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), inset 0 0 0 1px var(--cat-border);
+}
+.cat-spine-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cat-spine-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.18) 0 1px,
+    rgba(0, 0, 0, 0.55) 1px 4px,
+    rgba(255, 255, 255, 0.1) 4px 5px,
+    rgba(0, 0, 0, 0.42) 5px 9px,
+    rgba(255, 255, 255, 0.05) 9px 10px
+  );
+}
+.cat-spine-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  padding: 0.65rem 0.55rem 0.7rem 0.95rem;
+  background: linear-gradient(155deg, #2b2442 0%, #1a1a2b 55%, #101018 100%);
+}
+.cat-spine-title {
+  font-family: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #e6e2f7;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cat-spine-author {
+  font-size: 0.6rem;
+  color: rgba(230, 226, 247, 0.58);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cover placeholders — one shape for images, one for prose. */
+.series-cover-ph,
+.update-thumb-ph,
+.cat-cont-ph,
+#series-hero-cover-ph { overflow: hidden; }
+.series-cover-ph svg,
+#series-hero-cover-ph svg { opacity: 0.55; }
+
+.cat-ph-novel {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 0.45rem 0.4rem 0.5rem 0.7rem;
+  background: linear-gradient(155deg, #2b2442 0%, #1a1a2b 55%, #101018 100%);
+  font-size: inherit;
+}
+.cat-ph-novel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 5px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.5));
+}
+.cat-ph-spine-title {
+  font-family: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ddd8f2;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.update-thumb-ph.cat-ph-novel { padding: 0.3rem 0.25rem 0.35rem 0.5rem; }
+.update-thumb-ph.cat-ph-novel .cat-ph-spine-title { font-size: 0.5rem; -webkit-line-clamp: 3; }
+.cat-cont-ph.cat-ph-novel { padding: 0.3rem 0.25rem 0.35rem 0.5rem; }
+.cat-cont-ph.cat-ph-novel .cat-ph-spine-title { font-size: 0.5rem; -webkit-line-clamp: 3; }
+#series-hero-cover-ph.cat-ph-novel .cat-ph-spine-title { font-size: 0.86rem; -webkit-line-clamp: 6; }
+
+/* List layout — the same card, laid on its side. */
+#series-grid.cat-layout-list .series-card.cat-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0.65rem;
+  min-height: 68px;
+  background: var(--cat-surf-1);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r);
+}
+#series-grid.cat-layout-list .series-card.cat-card:active { transform: none; background: var(--cat-surf); }
+#series-grid.cat-layout-list .series-cover-wrap,
+#series-grid.cat-layout-list .cat-spine {
+  width: 40px;
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+#series-grid.cat-layout-list .cat-card-body { flex: 1; min-width: 0; }
+#series-grid.cat-layout-list .series-card-title {
+  -webkit-line-clamp: 1;
+  font-size: 0.86rem;
+}
+#series-grid.cat-layout-list .cat-spine-edge { width: 5px; }
+#series-grid.cat-layout-list .cat-spine-ph { padding: 0.25rem 0.2rem 0.3rem 0.45rem; }
+#series-grid.cat-layout-list .cat-spine-title { font-size: 0.45rem; -webkit-line-clamp: 3; }
+#series-grid.cat-layout-list .cat-spine-author { display: none; }
+#series-grid.cat-layout-list .cat-del { top: 50%; transform: translateY(-50%); }
+/* Reserve the delete button's column so a long title never runs under it. In a
+   grid the button floats over the cover, so only the list layout needs this. */
+#series-grid.cat-layout-list .cat-card-wrap:has(> .cat-del) .series-card.cat-card {
+  padding-right: calc(var(--cat-tap) + 0.9rem);
+}
+
+/* My Library's remove affordance. It is a sibling of the card, not a child —
+   catalogue.js keeps it out of the <button> so the markup stays valid. */
+.cat-del {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 2;
+  width: var(--cat-tap);
+  height: var(--cat-tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.72);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r-sm);
+  color: var(--cat-muted);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background var(--cat-dur), color var(--cat-dur);
+}
+.cat-del:active { background: rgba(220, 38, 38, 0.28); color: #fca5a5; }
+
+/* ── Empty / error states ─────────────────────────────────────────────────── */
+
+.cat-empty {
+  /* display:flex is set inline by renderEmpty(); everything else is ours. */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: clamp(2rem, 8vw, 3.5rem) 1.25rem;
+  margin-bottom: 2rem;
+  text-align: center;
+  background: var(--cat-surf-1);
+  border: 1px dashed var(--cat-border);
+  border-radius: var(--cat-r-lg);
+}
+.cat-empty-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--cat-text);
+}
+.cat-empty-body {
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--cat-muted);
+  max-width: 34rem;
+}
+.cat-empty .cat-btn { margin-top: 0.5rem; }
+
+/* Boot spinner — catalogue.js only ever hides this, but it is the first thing a
+   cold start shows, so it has to sit on the same grid as everything else. */
+#home-state { padding: 2rem 1rem; }
+
+/* ═══ SERIES DETAIL ═══════════════════════════════════════════════════════ */
+
+#series-hero {
+  gap: clamp(0.85rem, 3vw, 1.4rem);
+  margin-bottom: 1.1rem;
+}
+/* Capped at 152px: a taller cover than the (line-clamped) info column beside it
+   leaves a dead band under the genre chips on wide viewports. */
+#series-hero-cover,
+#series-hero-cover-ph {
+  width: clamp(96px, 27vw, 152px);
+  height: auto;
+}
+#series-hero-cover-ph { font-size: 1.6rem; }
+
+/* Prose gets the bound-book edge here too, so the detail screen agrees with the
+   card the user tapped to get here. */
+.cat-hero--novel #series-hero-cover,
+.cat-hero--novel #series-hero-cover-ph {
+  border-radius: 3px var(--cat-r) var(--cat-r) 3px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5), inset 0 0 0 1px var(--cat-border);
+}
+
+#series-hero-title { text-wrap: balance; }
+/* A 1400px-wide line of body copy is unreadable; cap the measure, not the box. */
+#series-hero-desc { max-width: 78ch; }
+
+.cat-series-sub {
+  /* display is flipped between flex and none by renderHero(). */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--cat-muted);
+}
+
+#series-hero-desc { transition: none; }
+#series-hero-desc.cat-desc-open {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+/* renderHero() writes `display: inline` / `display: none` on this button, so it
+   is styled as an inline text control. The ::after pad restores a 44px hit area
+   without changing the box the text sits in. */
+.cat-more {
+  position: relative;
+  margin-top: 0.3rem;
+  padding: 0.15rem 0;
+  background: none;
+  border: none;
+  color: var(--cat-accent-ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.cat-more::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  left: -0.6rem;
+  right: -0.6rem;
+  top: 50%;
+  height: var(--cat-tap);
+  transform: translateY(-50%);
+}
+.cat-more:active { color: var(--cat-accent); }
+
+/* Clears the more/less button's hit pad, which reaches below its text box. */
+#series-hero-meta { align-items: center; margin-top: 0.9rem; }
+
+/* The one interactive chip in a row of static ones. It keeps the chip's size —
+   a 44px-tall genre row would be absurd — and grows only its hit area, and it
+   sits above the more/less pad so neither steals the other's taps. */
+.cat-tag-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--cat-dur);
+}
+.cat-tag-link::after {
+  content: '';
+  position: absolute;
+  left: -0.35rem;
+  right: -0.35rem;
+  top: 50%;
+  height: var(--cat-tap);
+  transform: translateY(-50%);
+}
+.cat-tag-link:active { background: rgba(99, 102, 241, 0.24); }
+
+/* ── Stats strip ──────────────────────────────────────────────────────────── */
+
+.cat-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.cat-stats:empty { display: none; }
+.cat-stat {
+  flex: 1 1 5rem;
+  min-width: 4.25rem;
+  padding: 0.55rem 0.6rem;
+  background: var(--cat-surf-1);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r);
+  text-align: center;
+}
+.cat-stat-value {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--cat-text);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.cat-stat-label {
+  margin-top: 0.15rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cat-muted);
+}
+
+/* ── Action row ───────────────────────────────────────────────────────────── */
+
+.cat-actions {
+  /* display is flipped between flex and none by populateRangeSelects(). */
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.cat-primary {
+  flex: 1 1 12rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.7rem 1.1rem;
+  background: var(--cat-accent);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--cat-dur), transform 100ms var(--cat-ease);
+}
+.cat-primary svg { flex-shrink: 0; }
+.cat-primary:active { background: #4f46e5; transform: scale(0.98); }
+.cat-primary:disabled {
+  background: var(--cat-surf);
+  border-color: var(--cat-border);
+  color: var(--cat-muted);
+  cursor: default;
+  transform: none;
+}
+.cat-actions .cat-btn { min-height: 48px; }
+
+/* ── Range download panel ─────────────────────────────────────────────────── */
+
+.cat-range {
+  /* display is flipped between flex and none by the Download range button. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  margin-bottom: 1rem;
+  background: var(--cat-surf-1);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r-lg);
+}
+.cat-range-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cat-muted);
+}
+.cat-select {
+  min-height: var(--cat-tap);
+  max-width: 9rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--cat-surf);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r-sm);
+  color: var(--cat-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cat-select option { background: #16161a; color: var(--cat-text); }
+.cat-range-status {
+  flex: 1 0 100%;
+  font-size: 0.74rem;
+  color: var(--cat-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cat-range-status:empty { display: none; }
+
+/* ── Chapter toolbar ──────────────────────────────────────────────────────── */
+
+.cat-toolbar--chapters {
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  flex-wrap: nowrap;
+}
+.cat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--cat-tap);
+  padding: 0.55rem 0.8rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-r);
+  color: var(--cat-text);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color var(--cat-dur), background var(--cat-dur);
+}
+.cat-input::placeholder { color: var(--cat-muted); }
+.cat-input:focus {
+  border-color: var(--cat-accent);
+  background: rgba(99, 102, 241, 0.08);
+}
+.cat-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--cat-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-mask: linear-gradient(#000 0 0) center/2px 9px no-repeat,
+                linear-gradient(#000 0 0) center/9px 2px no-repeat;
+  transform: rotate(45deg);
+}
+
+/* ── Chapter rows ─────────────────────────────────────────────────────────── */
+
+/* The row is now a container for two buttons, so its padding moves inward —
+   otherwise the tap target stops short of the row's visible edge. */
+.cat-ch-row {
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--cat-surf-1);
+  transition: background var(--cat-dur), border-color var(--cat-dur);
+}
+.cat-ch-row:active { background: var(--cat-surf); }
+
+.cat-ch-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  padding: 0.7rem 0.55rem 0.7rem 0.9rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cat-ch-row .ch-num { min-width: 3rem; }
+/* Two lines beats an ellipsis after nine characters: at 360px the fixed columns
+   (number, metrics, chevron, download) leave the title barely 100px. */
+.cat-ch-main .ch-name {
+  font-weight: 600;
+  white-space: normal;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cat-ch-tail {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+.cat-ch-tail .ch-date { font-size: inherit; }
+.cat-ch-tail:empty { display: none; }
+
+/* Read / unread / you-are-here. Unread is the loudest, read recedes, and the
+   current chapter is the only row that carries the accent. */
+.cat-ch--unread .ch-name { color: var(--cat-text); }
+.cat-ch--read { background: transparent; }
+.cat-ch--read .ch-name { color: var(--cat-muted); font-weight: 500; }
+.cat-ch--read .ch-num { color: var(--cat-muted); opacity: 0.7; }
+.cat-ch--read .ch-date { opacity: 0.7; }
+.cat-ch--reading {
+  background: var(--cat-accent-soft);
+  border-color: var(--cat-accent-line);
+}
+.cat-ch--reading .ch-name { color: var(--cat-text); font-weight: 700; }
+.cat-ch--reading:active { background: rgba(99, 102, 241, 0.22); }
+
+.cat-ch-here {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--cat-accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+}
+
+.cat-ch-dl {
+  flex-shrink: 0;
+  width: var(--cat-tap);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--cat-border);
+  color: var(--cat-muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--cat-dur), background var(--cat-dur);
+}
+.cat-ch-dl:active { background: var(--cat-surf-2); }
+.cat-ch-dl.cached { color: var(--cat-ok); }
+.cat-ch-dl.busy { color: var(--cat-accent-ink); animation: cat-pulse 1.1s ease-in-out infinite; }
+.cat-ch-dl:disabled { pointer-events: none; }
+
+@keyframes cat-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+
+/* Lives on <body>, outside both screens, so it survives a screen swap mid-toast
+   (a failed chapter resolve bounces the user back to the series screen and the
+   message has to follow them there). */
+.cat-toast {
+  position: fixed;
+  z-index: 400;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 10px);
+  max-width: min(92vw, 30rem);
+  padding: 0.7rem 1rem;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid var(--cat-border);
+  border-radius: 12px;
+  box-shadow: var(--cat-shadow);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  color: var(--cat-text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s var(--cat-ease), transform 0.22s var(--cat-ease);
+}
+.cat-toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+/* ═══ Pointer & viewport adaptations ══════════════════════════════════════ */
+
+@media (hover: hover) and (pointer: fine) {
+  .cat-tab:hover:not(.active)   { background: var(--cat-surf); color: var(--cat-text); }
+  .cat-btn:hover               { background: var(--cat-surf-2); }
+  .cat-btn--accent:hover       { background: #5457e8; }
+  .cat-seg:hover:not(.active)  { background: var(--cat-surf); color: var(--cat-text); }
+  .cat-cont:hover              { background: var(--cat-surf); border-color: var(--cat-surf-2); }
+  .cat-primary:hover:not(:disabled) { background: #5457e8; }
+  .cat-del:hover               { background: rgba(220, 38, 38, 0.32); color: #fca5a5; }
+  .cat-ch-row:hover            { background: var(--cat-surf); }
+  .cat-ch--reading:hover       { background: rgba(99, 102, 241, 0.2); }
+  .cat-ch-dl:hover             { background: var(--cat-surf-2); color: var(--cat-text); }
+  .cat-ch-dl.cached:hover      { color: var(--cat-ok); }
+  .cat-tag-link:hover          { background: rgba(99, 102, 241, 0.24); }
+  .update-row:hover            { background: rgba(255, 255, 255, 0.045); }
+  .series-card.cat-card:hover  { transform: translateY(-2px); }
+  #series-grid.cat-layout-list .series-card.cat-card:hover { transform: none; background: var(--cat-surf); }
+  .cat-more:hover              { color: #fff; }
+}
+
+/* Past this width a pointer is likely and the 44px floor can relax a little;
+   it is the only tap-target breakpoint in the file. */
+@media (min-width: 48rem) {
+  :root { --cat-tap: 38px; --cat-card-min: 9.5rem; }
+  .cat-tab { min-height: 40px; }
+  .cat-ch-dl { width: 46px; }
+  .cat-del { width: 36px; height: 36px; }
+  #series-grid.cat-layout-list { grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
+}
+
+/* Room to breathe on a desktop-sized window: a wider shell, and a wider card
+   floor to go with it, so covers grow rather than the column count exploding. */
+@media (min-width: 68rem) {
+  :root { --cat-shell: 1180px; --cat-pad-x: 1.5rem; --cat-card-min: 11rem; }
+  #home-body   { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
+  #series-body { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
+  #home-header { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
+
+  #series-hero { gap: 1.75rem; }
+
+  /* Controls stop growing once they are comfortably usable — a 1400px-wide
+     primary button reads as a mistake. The chapter toolbar keeps the same
+     measure as the rows below it so the two edges line up. */
+  .cat-stat { flex: 0 1 8rem; }
+  .cat-primary { flex: 0 1 22rem; }
+  .cat-toolbar--chapters,
+  #series-chapter-list,
+  #series-body .home-section-label { max-width: 62rem; }
+  .cat-range { max-width: 44rem; }
+  .cat-empty { max-width: 44rem; margin-inline: auto; }
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #home-screen *, #home-screen *::before, #home-screen *::after,
+  #series-screen *, #series-screen *::before, #series-screen *::after,
+  .cat-toast {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .series-card.cat-card:hover,
+  .cat-btn:active,
+  .cat-primary:active,
+  .cat-cont:active,
+  .series-card.cat-card:active { transform: none !important; }
+}

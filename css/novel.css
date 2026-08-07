@@ -549,3 +549,41 @@
     animation-duration: 1ms !important;
   }
 }
+
+/* ── Appended by js/novel-reader.js ───────────────────────────────────────── */
+
+/* The tap zones are real <button>s so they are reachable by keyboard and
+   announced by screen readers — which means the UA's button chrome has to go.
+   touch-action:none lets a horizontal drag reach pointermove instead of being
+   swallowed by the browser's own gesture handling; paged mode does not scroll,
+   so nothing is lost by claiming the gesture. */
+#novel-screen .nv-zone {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#novel-screen[data-mode='paged'] .nv-zones { touch-action: none; }
+
+/* Column-break control. Pagination is the browser's job (we never hand-split a
+   block), so the only lever we have over where a page ends is these hints: an
+   illustration or a code listing sliced down a column boundary is unreadable,
+   and a heading stranded at the foot of a page is worse than a short page. */
+#novel-screen[data-mode='paged'] .nv-figure,
+#novel-screen[data-mode='paged'] .nv-note,
+#novel-screen[data-mode='paged'] .nv-doc pre { break-inside: avoid; }
+#novel-screen[data-mode='paged'] .nv-doc h2,
+#novel-screen[data-mode='paged'] .nv-doc h3,
+#novel-screen[data-mode='paged'] .nv-doc h4,
+#novel-screen[data-mode='paged'] .nv-chapter-title { break-after: avoid; }
+
+/* An image taller than the column box cannot be paginated at all — it would be
+   clipped with no way to see the rest. Cap it to the column, which JS keeps in
+   --nv-colh, and fall back to the stylesheet's 70vh before the first measure. */
+#novel-screen[data-mode='paged'] .nv-figure img {
+  max-height: min(70vh, var(--nv-colh, 70vh));
+}

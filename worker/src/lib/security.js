@@ -455,7 +455,14 @@ export async function safeFetch(raw, opts = {}) {
       /* ignore */
     }
     // Re-validate every hop — this is the redirect-to-169.254.169.254 defence.
-    current = (await assertSafeTarget(next, opts)).url.href;
+    const hop = await assertSafeTarget(next, opts);
+    // …and re-apply the caller's host gate, if it has one. SSRF rules alone do
+    // not bound *which* public host we end up at, so an allowlisted host that
+    // serves a 302 would otherwise turn /image into an open proxy.
+    if (typeof opts.allowHost === 'function' && !(await opts.allowHost(hop.host))) {
+      throw gwError('blocked_host', `Redirect to "${hop.host}" is not allowed for this endpoint`, 403);
+    }
+    current = hop.url.href;
     hops.push(current);
   }
   /* c8 ignore next */

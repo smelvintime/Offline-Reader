@@ -1,0 +1,2642 @@
+{
+  "_readme": [
+    "Hand-written sample series. Original prose written for this repository —",
+    "nothing here is scraped and nothing here is copyrighted. It never touches",
+    "the network, so the reader always has something to open.",
+    "Allowed block types: p h2 h3 h4 hr blockquote pre ul ol img note."
+  ],
+  "title": "Elevator to Floor Zero",
+  "altTitles": [],
+  "author": "Pell Marrowick",
+  "artist": null,
+  "status": "ongoing",
+  "genres": [
+    "Urban Fantasy",
+    "Thriller",
+    "Mystery"
+  ],
+  "tags": [
+    "fixture",
+    "original",
+    "sample"
+  ],
+  "language": "en",
+  "cover": "floor-zero.cover.svg",
+  "description": "Forty short chapters, most of them under four hundred words, every one of them ending somewhere you would rather it didn't. Ravi Oduya does nights in the Merridew Tower: thirty-one floors, two basements, and a freight elevator with a keyhole under the B2 button. He is very good at keeping a maintenance log. That turns out to matter more than anything else about him. Original sample content written for this repository — the serialized web-novel rhythm, for testing fast chapter-to-chapter navigation.",
+  "chapters": [
+    {
+      "title": "1. Night Shift",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "1. Night Shift"
+        },
+        {
+          "t": "p",
+          "c": "Here is the whole job."
+        },
+        {
+          "t": "p",
+          "c": "You walk the floors at eleven, one, three and five. You check thirty-one landings, two basements, four risers and the roof. You log what you find. If the log says something is broken, day shift fixes it. If the log says nothing, day shift assumes nothing happened, and day shift is wrong about that roughly twice a week."
+        },
+        {
+          "t": "p",
+          "c": "I have done it for fourteen months. I am twenty-four. I took it because it pays a little over what a warehouse pays and because nobody talks to me, which at the time I thought was the best part of it."
+        },
+        {
+          "t": "p",
+          "c": "The Merridew Tower is not haunted. I want that on the record early, because of what comes later. It is a 1974 office building with an aluminium curtain wall, a chiller that howls in August, and a smell in the north stair that nobody has ever identified. Thirty-one floors. Two basements. Six tenants, of whom four are law firms, which tells you everything."
+        },
+        {
+          "t": "p",
+          "c": "There are two elevators for people and one freight car at the back."
+        },
+        {
+          "t": "p",
+          "c": "The freight car is the oldest thing in the building. Original 1974 cab, replaced motor, replaced governor, original panel: a brass plate with round buttons worn concave by fifty years of thumbs."
+        },
+        {
+          "t": "p",
+          "c": "The buttons go 31 down to 1, then B1, then B2. Written out, the plate looks like this, and I have drawn it in the log book four times now for four different people who did not believe me:"
+        },
+        {
+          "t": "pre",
+          "c": "31 30 29 28\n27 26 25 24\n ...\n 4  3  2  1\nB1\nB2\n[keyhole]"
+        },
+        {
+          "t": "p",
+          "c": "Under B2, at the bottom of the plate, there is a keyhole."
+        },
+        {
+          "t": "p",
+          "c": "I asked about the keyhole in my first week. My supervisor, Mrs. Dalisay, said it was for the fire service and that the key was lost in the nineties, and she said it in the flat, finished voice that people use when a conversation is over."
+        },
+        {
+          "t": "p",
+          "c": "I believed her for fourteen months."
+        },
+        {
+          "t": "p",
+          "c": "Then, on a Tuesday in March, at 3:14 in the morning, on a floor walk I had done four hundred times, I found a key taped to the underside of the fire extinguisher bracket on B2."
+        },
+        {
+          "t": "p",
+          "c": "It was small. It was brass. It had a paper tag."
+        },
+        {
+          "t": "p",
+          "c": "The tag said, in handwriting I did not recognise: SORRY."
+        }
+      ]
+    },
+    {
+      "title": "2. The Button That Isn't",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "2. The Button That Isn't"
+        },
+        {
+          "t": "p",
+          "c": "I did not use the key."
+        },
+        {
+          "t": "p",
+          "c": "I want that understood, because everything after this makes me look like an idiot, and I would like at least one chapter where I am not."
+        },
+        {
+          "t": "p",
+          "c": "I photographed the key in place. I photographed the bracket. I wrote it in the log:"
+        },
+        {
+          "t": "blockquote",
+          "c": "03:14 B2 — small brass key taped under extinguisher bracket, paper tag reads SORRY. Left in place, photographed. Recommend day shift investigate."
+        },
+        {
+          "t": "p",
+          "c": "Then I finished the walk, went home, slept badly, and came back at ten the next night."
+        },
+        {
+          "t": "p",
+          "c": "The log entry was gone."
+        },
+        {
+          "t": "p",
+          "c": "Not crossed out. Not amended. The page had my 01:00 entry and my 05:00 entry and between them, where three lines of my handwriting had been, there was nothing — not a gap, not a scrape, just the next line where the previous line ended. The way a page looks when you never wrote on it."
+        },
+        {
+          "t": "p",
+          "c": "I checked my phone. The photographs were there. Two of them, timestamped 03:14, showing a brass key with a paper tag against grey painted steel."
+        },
+        {
+          "t": "p",
+          "c": "I went down to B2 and put my hand under the bracket and the key was gone."
+        },
+        {
+          "t": "p",
+          "c": "That should have been the end of it. Key gone, entry gone, I write it up in the morning and let somebody with a salary worry about it."
+        },
+        {
+          "t": "p",
+          "c": "Here is the thing about doing nights alone in a building for fourteen months. You develop a relationship with it. Not a friendship. More like the relationship you have with a difficult coworker: you know its noises, you know what it does when the weather changes, you know which of its complaints are real."
+        },
+        {
+          "t": "p",
+          "c": "And I knew, standing on B2 at ten past eleven with my hand under an extinguisher bracket, exactly the way you know when someone has been in your apartment, that the building had taken something back."
+        },
+        {
+          "t": "p",
+          "c": "I went to the freight car. I got in. I looked at the brass panel."
+        },
+        {
+          "t": "p",
+          "c": "There was a new button under B2."
+        },
+        {
+          "t": "p",
+          "c": "It was round, and worn concave, and it had no number on it at all."
+        }
+      ]
+    },
+    {
+      "title": "3. Rule One",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "3. Rule One"
+        },
+        {
+          "t": "p",
+          "c": "I did not press it that night either."
+        },
+        {
+          "t": "p",
+          "c": "What I did was go up to the eleventh floor, to the facilities office, where there is a grey steel cabinet nobody opens, and I opened it."
+        },
+        {
+          "t": "p",
+          "c": "Inside: forty years of maintenance logs."
+        },
+        {
+          "t": "p",
+          "c": "Bound books, one per year, in order, going back to 1974. The oldest ones are green. Sometime in the eighties they go to blue. In 2011 somebody switched to the black ones we use now."
+        },
+        {
+          "t": "p",
+          "c": "I took down the current year. I turned to March. I found my missing entry."
+        },
+        {
+          "t": "p",
+          "c": "It was there."
+        },
+        {
+          "t": "p",
+          "c": "Not in my handwriting. In careful block capitals, in the margin, running vertically up the page, the way you write when you have run out of room and refuse to start a new line:"
+        },
+        {
+          "t": "blockquote",
+          "c": "ENTRY REMOVED FROM THE WORKING LOG BY ARRANGEMENT. RECORDED HERE INSTEAD. THE ARRANGEMENT REQUIRES A RECORD. IT DOES NOT REQUIRE THE RECORD TO BE CONVENIENT."
+        },
+        {
+          "t": "p",
+          "c": "Underneath, in the same hand:"
+        },
+        {
+          "t": "blockquote",
+          "c": "RULE ONE: WRITE EVERYTHING DOWN. IT CANNOT TAKE WHAT IS WRITTEN DOWN. — W.A."
+        },
+        {
+          "t": "p",
+          "c": "I stood in that room for a long time with a book in my hands."
+        },
+        {
+          "t": "p",
+          "c": "Then I did the only sensible thing available, which was to go back four years, and then eight, and then fifteen, looking for the same handwriting."
+        },
+        {
+          "t": "p",
+          "c": "I found it in every single volume."
+        },
+        {
+          "t": "p",
+          "c": "Different pens. Same block capitals. Same initials. 2019, 2014, 2008, 2001, 1996. Marginal notes in a building's maintenance log, going back at least thirty years, written by a person who had apparently never aged out of the job."
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "The oldest one I found that night was in the 1994 book, and it was four words long, and it was not addressed to the building."
+        },
+        {
+          "t": "p",
+          "c": "It said:"
+        },
+        {
+          "t": "blockquote",
+          "c": "IF YOU FOUND THE KEY, DON'T."
+        }
+      ]
+    },
+    {
+      "title": "4. B2 and Below",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "4. B2 and Below"
+        },
+        {
+          "t": "p",
+          "c": "Obviously I pressed the button."
+        },
+        {
+          "t": "p",
+          "c": "Come on. You knew. I knew. I had known since the tag said SORRY."
+        },
+        {
+          "t": "p",
+          "c": "For the record, I did it properly. I told my brother I was going to be late. I put a wedge in the freight car door track so it could not close all the way. I took my phone, a torch, a radio, and the black log book under my arm, because rule one was the only rule I had."
+        },
+        {
+          "t": "p",
+          "c": "I got in at 1:20 in the morning. I pressed the unnumbered button."
+        },
+        {
+          "t": "p",
+          "c": "The wedge popped out of the track like a watermelon seed."
+        },
+        {
+          "t": "p",
+          "c": "The doors closed."
+        },
+        {
+          "t": "p",
+          "c": "The car went down."
+        },
+        {
+          "t": "p",
+          "c": "Now: the Merridew has two basements. B1 is loading and storage. B2 is plant — chillers, pumps, the sprinkler riser. Below B2 is dirt, and under the dirt is the water table, and under that is the actual planet."
+        },
+        {
+          "t": "p",
+          "c": "The freight car ran for eleven seconds."
+        },
+        {
+          "t": "p",
+          "c": "I have timed that car a hundred times. Floor to floor is four seconds. Eleven seconds is more than two floors and less than three, and it is exactly the amount of time in which a person can decide four separate times that this was a mistake."
+        },
+        {
+          "t": "p",
+          "c": "The doors opened."
+        },
+        {
+          "t": "p",
+          "c": "I was looking at the lobby."
+        },
+        {
+          "t": "p",
+          "c": "Not a lobby. The lobby. The Merridew's ground-floor lobby: terrazzo floor, the ficus that dies every eighteen months, the security desk, the brass letters over the elevators reading MERRIDEW TOWER 1974."
+        },
+        {
+          "t": "p",
+          "c": "Except the ficus was alive and enormous."
+        },
+        {
+          "t": "p",
+          "c": "Except the desk had no monitors on it."
+        },
+        {
+          "t": "p",
+          "c": "Except through the front doors, where the street should have been, there was nothing at all. Not darkness. Nothing, in the way a screen is nothing when it is off."
+        },
+        {
+          "t": "p",
+          "c": "And the log book, under my arm, had gone warm."
+        }
+      ]
+    },
+    {
+      "title": "5. The Empty Lobby",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "5. The Empty Lobby"
+        },
+        {
+          "t": "p",
+          "c": "I stepped out."
+        },
+        {
+          "t": "p",
+          "c": "I want to tell you I hesitated. I hesitated for less time than it takes to describe, and then I stepped out, because the alternative was riding back up not knowing, and I have never in my life been able to do that."
+        },
+        {
+          "t": "p",
+          "c": "The air was fine. Room temperature. Slight smell of floor polish."
+        },
+        {
+          "t": "p",
+          "c": "I walked to the security desk. There was a visitor log on it: the old paper kind, a spiral book with columns for NAME, VISITING, IN, OUT."
+        },
+        {
+          "t": "p",
+          "c": "Every line was filled in."
+        },
+        {
+          "t": "p",
+          "c": "Hundreds of names, going back pages, in dozens of different hands, and every single one had a time in the IN column."
+        },
+        {
+          "t": "p",
+          "c": "Not one of them had a time in the OUT column."
+        },
+        {
+          "t": "p",
+          "c": "I found my own name on the fourth page from the front."
+        },
+        {
+          "t": "p",
+          "c": "RAVI ODUYA. VISITING: —. IN: 01:20."
+        },
+        {
+          "t": "p",
+          "c": "My handwriting. My actual handwriting, the stupid loop I put on the R, and I had not touched that book, and I had been out of the elevator for ninety seconds."
+        },
+        {
+          "t": "p",
+          "c": "I did the thing you would do. I took out my pen, and I wrote a time in the OUT column beside my name, and it was 01:22, and I pressed hard."
+        },
+        {
+          "t": "p",
+          "c": "The lights went out on the whole floor."
+        },
+        {
+          "t": "p",
+          "c": "Every light. Instantly. And in the black, from over by the elevators, a voice that was not loud and was not close said, very clearly, with what I swear was interest:"
+        },
+        {
+          "t": "p",
+          "c": "\"Oh. You can write?\""
+        }
+      ]
+    },
+    {
+      "title": "6. What the Building Keeps",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "6. What the Building Keeps"
+        },
+        {
+          "t": "p",
+          "c": "I ran."
+        },
+        {
+          "t": "p",
+          "c": "Not gracefully. I went across a dark terrazzo floor with my arms out like a man in a comedy, hit the corner of the desk with my hip hard enough to bruise for a week, found the elevator by the light of my phone, got in, and hit every button on the panel at once."
+        },
+        {
+          "t": "p",
+          "c": "The doors closed. The car went up."
+        },
+        {
+          "t": "p",
+          "c": "Eleven seconds."
+        },
+        {
+          "t": "p",
+          "c": "The doors opened on B2 of the actual Merridew Tower, with the chiller howling and the fluorescent tube by the pump room doing the flicker it has done since November."
+        },
+        {
+          "t": "p",
+          "c": "I sat down on the floor of the freight car and shook for a while."
+        },
+        {
+          "t": "p",
+          "c": "Then I opened the log book."
+        },
+        {
+          "t": "p",
+          "c": "Rule one. Write everything down."
+        },
+        {
+          "t": "p",
+          "c": "I wrote for forty minutes. Everything: the key, the tag, the button, the eleven seconds, the ficus, the visitor book, my own name in my own hand, the time I wrote in the OUT column, the lights, the voice."
+        },
+        {
+          "t": "p",
+          "c": "When I finished, my hands had stopped shaking and something else had happened, which is that I had noticed a detail I had not noticed while it was happening."
+        },
+        {
+          "t": "p",
+          "c": "The visitor book had columns for IN and OUT."
+        },
+        {
+          "t": "p",
+          "c": "Which means people are expected to leave."
+        },
+        {
+          "t": "p",
+          "c": "Which means the entire hundreds-of-names, nobody-signed-out thing is not the building being a trap. It is the building keeping score. There is a difference and the difference is enormous, and the difference is the reason I am still here."
+        },
+        {
+          "t": "p",
+          "c": "I turned to the back of my log book to write that down where I would see it."
+        },
+        {
+          "t": "p",
+          "c": "There was already something written on the last page."
+        },
+        {
+          "t": "p",
+          "c": "It was in block capitals, in a pen that was not mine, and it was dated that night."
+        },
+        {
+          "t": "blockquote",
+          "c": "GOOD. YOU SIGNED OUT. THAT MAKES YOU THE FIRST IN ELEVEN YEARS. COME BACK TOMORROW AND BRING THE 1994 BOOK. — W.A."
+        }
+      ]
+    },
+    {
+      "title": "7. The Log",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "7. The Log"
+        },
+        {
+          "t": "p",
+          "c": "I have thought about that a lot since: that the thing which saved me was a habit I had for boring reasons."
+        },
+        {
+          "t": "p",
+          "c": "I write good logs. I write good logs because my first month here a lift engineer told me that a maintenance log is the only thing in a building that is legally assumed to be true, and if you write it down and date it, you are protected, and if you don't, you're just a guy who says he checked."
+        },
+        {
+          "t": "p",
+          "c": "So I write everything. Times. Serial numbers. Which tube in which fitting. Weather. I am, by a distance, the most boring employee this building has ever had."
+        },
+        {
+          "t": "p",
+          "c": "Turns out that is a qualification."
+        },
+        {
+          "t": "p",
+          "c": "The next night I went to the grey cabinet and took out the 1994 volume, and I read the whole thing, all four hundred pages, on the freight car floor between walks."
+        },
+        {
+          "t": "p",
+          "c": "It is mostly a maintenance log. Boilers. A leak on 19. A long and increasingly personal war with a pigeon."
+        },
+        {
+          "t": "p",
+          "c": "And in the margins, in block capitals, in a hand that gets steadier over the year:"
+        },
+        {
+          "t": "blockquote",
+          "c": "MARCH. NEW NIGHT TECH. HE FOUND THE KEY IN WEEK TWO. TOO FAST."
+        },
+        {
+          "t": "blockquote",
+          "c": "APRIL. TOLD HIM RULE ONE. HE THINKS IT IS A JOKE."
+        },
+        {
+          "t": "blockquote",
+          "c": "JUNE. HE HAS STOPPED WRITING THINGS DOWN. HE SAYS HE REMEMBERS."
+        },
+        {
+          "t": "blockquote",
+          "c": "AUGUST. HE WENT DOWN ON THE 14TH. HE HAS NOT COME UP."
+        },
+        {
+          "t": "blockquote",
+          "c": "SEPTEMBER. I SIGNED HIM OUT MYSELF. IT WOULD NOT ACCEPT IT. IT SAYS ONLY THE PERSON CAN SIGN."
+        },
+        {
+          "t": "blockquote",
+          "c": "OCTOBER. I AM GOING DOWN AFTER HIM. IF YOU ARE READING THIS, I DID NOT COME UP EITHER, AND YOU SHOULD PUT THIS BOOK BACK."
+        },
+        {
+          "t": "p",
+          "c": "I did not put the book back."
+        },
+        {
+          "t": "p",
+          "c": "I turned to the last written page of 1994, and under the pigeon war and the boiler and all of it, there was one final line, in the same capitals, but written with the pen pressed so hard it went through three pages:"
+        },
+        {
+          "t": "blockquote",
+          "c": "MY NAME IS WEN AGUILAR AND I AM ON FLOOR MINUS THREE."
+        }
+      ]
+    },
+    {
+      "title": "8. Someone Wrote My Name",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "8. Someone Wrote My Name"
+        },
+        {
+          "t": "p",
+          "c": "Two things about that."
+        },
+        {
+          "t": "p",
+          "c": "One: the 1994 log ends in October 1994. Wen Aguilar's handwriting appears in every volume after it, up to and including this year."
+        },
+        {
+          "t": "p",
+          "c": "Two: the front page of every volume has a staff list, and I checked all of them, and Wen Aguilar appears on exactly one — 1994, night technician, start date January, no end date."
+        },
+        {
+          "t": "p",
+          "c": "So either a woman who left this building thirty-one years ago has been coming back to write in the margins of our maintenance logs."
+        },
+        {
+          "t": "p",
+          "c": "Or she never left, and she has been writing in them the whole time, from wherever she is."
+        },
+        {
+          "t": "p",
+          "c": "I looked at that for about an hour."
+        },
+        {
+          "t": "p",
+          "c": "Then I got out this year's book and turned to the current page and wrote a question in it, in the margin, in the same place her notes always appear. I felt ridiculous doing it. It was three in the morning and I was writing a note to a building."
+        },
+        {
+          "t": "blockquote",
+          "c": "How do I get to minus three?"
+        },
+        {
+          "t": "p",
+          "c": "I closed the book. I did my 03:00 walk. Thirty-one landings. Nothing wrong except the north stair smell, which is worse in the spring, and the door closer on 22, which has been dying since Christmas."
+        },
+        {
+          "t": "p",
+          "c": "I came back to the office at 03:40 and opened the book."
+        },
+        {
+          "t": "p",
+          "c": "Under my question, in block capitals, in wet ink:"
+        },
+        {
+          "t": "blockquote",
+          "c": "YOU DON'T. THE CAR ONLY GOES TO MINUS ONE."
+        },
+        {
+          "t": "blockquote",
+          "c": "IF YOU WANT TO GO DEEPER YOU HAVE TO BE INVITED, AND IT INVITES YOU BY TAKING SOMETHING SMALL FROM YOU AND SEEING WHETHER YOU NOTICE."
+        },
+        {
+          "t": "blockquote",
+          "c": "IT TOOK SOMETHING FROM YOU LAST NIGHT."
+        },
+        {
+          "t": "blockquote",
+          "c": "IF YOU CANNOT WORK OUT WHAT IT WAS BY THE END OF YOUR SHIFT, DO NOT COME BACK TO THIS BUILDING. — W.A."
+        }
+      ]
+    },
+    {
+      "title": "9. Something Small",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "9. Something Small"
+        },
+        {
+          "t": "p",
+          "c": "Four hours. Thirty-one floors. One question: what is missing?"
+        },
+        {
+          "t": "p",
+          "c": "I inventoried myself first. Wallet, keys, phone, radio, torch, badge, the log book. All present. Nothing gone from my pockets, nothing gone from my locker, nothing gone from my van."
+        },
+        {
+          "t": "p",
+          "c": "Then I did the harder thing, which was to inventory my head."
+        },
+        {
+          "t": "p",
+          "c": "I called up my brother's number: got it. My address: got it. My mother's birthday, the PIN for the loading dock, the name of the girl I sat next to in year nine, the whole of the sprinkler riser layout floor by floor. All there."
+        },
+        {
+          "t": "p",
+          "c": "At 05:20 I was standing on 14 in the dark, running through the multiplication tables like a maniac, and I still had not found it."
+        },
+        {
+          "t": "p",
+          "c": "At 05:40 I went to make coffee in the facilities office, and I opened the cupboard, and I stood there."
+        },
+        {
+          "t": "p",
+          "c": "I take my coffee a specific way. I have taken it that way since I was nineteen. I could see the mug and the kettle and the jar, and I knew, with total certainty, that there was a way I did it, and I could not remember what the way was."
+        },
+        {
+          "t": "p",
+          "c": "It is such a small thing. It is such an unbelievably small thing."
+        },
+        {
+          "t": "p",
+          "c": "I sat down on the office floor at twenty to six in the morning and I cried, which I am putting in because rule one is write everything down, and because I want whoever comes after me to know that this is the point where it stops being an adventure."
+        },
+        {
+          "t": "p",
+          "c": "Then I opened the book and wrote:"
+        },
+        {
+          "t": "blockquote",
+          "c": "It took how I have my coffee."
+        },
+        {
+          "t": "p",
+          "c": "And underneath, immediately, in wet ink, in block capitals:"
+        },
+        {
+          "t": "blockquote",
+          "c": "GOOD. THAT WAS FAST. MOST PEOPLE TAKE A WEEK AND BY THEN IT HAS TAKEN FOUR MORE."
+        },
+        {
+          "t": "blockquote",
+          "c": "NOW LISTEN. TONIGHT, GET IN THE CAR. PRESS THE BUTTON. WHEN THE DOORS OPEN ON THE LOBBY, DO NOT GET OUT."
+        },
+        {
+          "t": "blockquote",
+          "c": "PRESS IT AGAIN."
+        }
+      ]
+    },
+    {
+      "title": "10. Wen",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "10. Wen"
+        },
+        {
+          "t": "p",
+          "c": "I pressed it again."
+        },
+        {
+          "t": "p",
+          "c": "The doors closed on the empty lobby with its enormous ficus and its book of names, and the car went down for another eleven seconds, and my ears popped, which they have never done in that building in fourteen months."
+        },
+        {
+          "t": "p",
+          "c": "Minus two was a corridor of offices with the lights off and every door open."
+        },
+        {
+          "t": "p",
+          "c": "I did not get out. I pressed it again."
+        },
+        {
+          "t": "p",
+          "c": "Minus three was a landing, and a fire door, and a woman sitting on an upturned mop bucket next to the fire door reading a paperback by the light of a head torch."
+        },
+        {
+          "t": "p",
+          "c": "She looked up."
+        },
+        {
+          "t": "p",
+          "c": "She was maybe fifty-five. Merridew Tower facilities polo shirt, the old design, navy with the yellow logo they stopped using in the nineties. Grey in her hair. Reading glasses pushed up on her head, a second pair on her nose."
+        },
+        {
+          "t": "p",
+          "c": "\"Oduya,\" she said. \"Nice log.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You're Wen Aguilar.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I am.\" She marked her place in the paperback and stood up, and her knees cracked, and it was such an ordinary sound in such an impossible place that I nearly sat down. \"Right. Three rules before you say anything else, because you're about to ask me eleven questions and the first ten are the wrong ones.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Okay.\""
+        },
+        {
+          "t": "p",
+          "c": "\"One. Don't tell me anything you haven't written down first. Two. Whatever you do, don't tell me what it took from you tonight, and don't ask what it took from me. Three.\" She held up the paperback, and I saw that it was not a paperback. It was a Merridew maintenance log, 1994, blue, the twin of the one in my bag."
+        },
+        {
+          "t": "p",
+          "c": "\"Three,\" she said. \"Whatever it tells you about me, check the book.\""
+        }
+      ]
+    },
+    {
+      "title": "11. Eleven Years",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "11. Eleven Years"
+        },
+        {
+          "t": "p",
+          "c": "We sat on the landing of minus three with our backs against a fire door that did not lead anywhere, and she gave me the short version."
+        },
+        {
+          "t": "p",
+          "c": "\"It's a lease,\" Wen said. \"The building's on land that was leased in 1874 by somebody who did not read what he was signing. Ninety-nine years, renewable, and the renewal terms require a caretaker on the premises at all times.\""
+        },
+        {
+          "t": "p",
+          "c": "\"A caretaker.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Someone who keeps the record. That's the whole job. It doesn't want your soul, it isn't going to eat you, it is not a monster, and if you call it a demon it gets extremely petty about it.\" She turned a page in her book. \"It's a landlord. Landlords are worse.\""
+        },
+        {
+          "t": "p",
+          "c": "\"So what happened in 1994?\""
+        },
+        {
+          "t": "p",
+          "c": "\"In 1994 the caretaker was a man called Marcus Ilo, and he was sloppy, and it started collecting against him.\" She said it evenly. \"Small things at first. It took the way he tied his shoes. Then it took his mother's face. He couldn't tell anybody, because he hadn't written anything down, so there was no record he was owed anything back.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And you went after him.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I went after him.\" She closed the book. \"I got to minus nine and found him, and he'd signed. Full lease. And you cannot un-sign, but you can substitute, which is a word I did not know until I was standing in front of the thing at three in the morning at the age of twenty-four.\""
+        },
+        {
+          "t": "p",
+          "c": "I did the arithmetic and my stomach went cold."
+        },
+        {
+          "t": "p",
+          "c": "\"You swapped yourself for him.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I swapped myself for him,\" said Wen Aguilar, \"and it was the correct call, and I'd do it again, and I've had thirty-one years to think about it.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Thirty-one. Your note said eleven.\""
+        },
+        {
+          "t": "p",
+          "c": "She looked at me for a long moment."
+        },
+        {
+          "t": "p",
+          "c": "\"My note said the first in eleven years,\" she said. \"That wasn't about me. There have been other people down here, Ravi. Ten of them since Marcus. And you're the first one in eleven years who signed out.\""
+        }
+      ]
+    },
+    {
+      "title": "12. The Price List",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "12. The Price List"
+        },
+        {
+          "t": "p",
+          "c": "She had a price list."
+        },
+        {
+          "t": "p",
+          "c": "Actual pages, torn from a log, in her block capitals, developed over thirty-one years, and she made me copy the whole thing into my own book before she would say another word about it."
+        },
+        {
+          "t": "blockquote",
+          "c": "WHAT IT TAKES, IN ORDER, AND WHAT IT MEANS:"
+        },
+        {
+          "t": "ul",
+          "items": [
+            "Habits. How you take your coffee. Which way you fold a towel. Free. It takes these to test whether you notice.",
+            "Preferences. Songs you liked. Foods. This is the first real charge and it means it has opened an account on you.",
+            "Skills. Small ones first. Your handwriting will change. You will lose a language before you lose a knot.",
+            "Names. Not people — names. You will remember your sister perfectly and be unable to say what she is called.",
+            "Faces. This is where people stop coming back up.",
+            "Everything else."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "\"That's the ladder,\" she said. \"It goes down it in order and it never skips. It's a landlord: it takes rent in the cheapest currency you'll tolerate, and it only escalates when you don't object.\""
+        },
+        {
+          "t": "p",
+          "c": "\"How do you object?\""
+        },
+        {
+          "t": "p",
+          "c": "\"You write it down and you sign out. That's it. That's the entire defence. A written record with a signature is the only thing it recognises, because a written record with a signature is the only thing it's made of.\" She tapped my book. \"It cannot take what is written down. Not because it's kind. Because a lease is a document, and a document that contradicts itself is void, and it is extremely, extremely afraid of being void.\""
+        },
+        {
+          "t": "p",
+          "c": "I wrote all of that down. Then I asked the obvious question."
+        },
+        {
+          "t": "p",
+          "c": "\"Wen. Have you written down everything it's taken from you?\""
+        },
+        {
+          "t": "p",
+          "c": "She did not answer for a while."
+        },
+        {
+          "t": "p",
+          "c": "\"No,\" she said. \"Not for the first four years. I was twenty-four and I thought I'd remember.\""
+        }
+      ]
+    },
+    {
+      "title": "13. What I Owe",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "13. What I Owe"
+        },
+        {
+          "t": "p",
+          "c": "Here is what I had lost after two trips down, as best I could establish, by sitting in a stairwell for two hours going through my own head like a man going through a burgled flat:"
+        },
+        {
+          "t": "ul",
+          "items": [
+            "How I take my coffee.",
+            "The name of the street I grew up on. Not the street. The name.",
+            "Whatever it was I used to hum. I know I hummed. There was a thing I hummed."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "Three items, and only the first one had I noticed at the time."
+        },
+        {
+          "t": "p",
+          "c": "Wen made me write them in the front of the log, not the back, on a page she made me title in capitals: OUTSTANDING."
+        },
+        {
+          "t": "p",
+          "c": "\"Front of the book,\" she said. \"Always the front. The back is for messages, the margins are for warnings, the front is for debt. You want it to see the debt page every single time it opens the book.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It opens the book?\""
+        },
+        {
+          "t": "p",
+          "c": "\"It reads everything you write. That's the deal. That's why rule one works.\" She stood up and stretched. \"Now the hard part.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What's the hard part?\""
+        },
+        {
+          "t": "p",
+          "c": "\"You're going to go back up and do a normal shift,\" said Wen. \"Four walks. Log everything. Don't come down. Don't do anything clever. And in three days, on the twenty-first, you're going to come down here at exactly 03:14 with both books and I'm going to show you the inventory.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Why the twenty-first?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because the lease renews every fifty-one years,\" she said, \"and the last renewal was on the twenty-first of March, 1974, and I have been waiting thirty-one years to have somebody up top who can still sign their own name.\""
+        }
+      ]
+    },
+    {
+      "title": "14. Normal Shift",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "14. Normal Shift"
+        },
+        {
+          "t": "p",
+          "c": "I did a normal shift. Three of them, actually."
+        },
+        {
+          "t": "p",
+          "c": "It was the worst week of my life and nothing happened in it at all."
+        },
+        {
+          "t": "p",
+          "c": "Tuesday: door closer on 22, still dying. Leak under the sink on 9. Fire panel showed a fault on zone 6 which cleared itself, which panels do, which is why they are all liars."
+        },
+        {
+          "t": "p",
+          "c": "Wednesday: north stair smell. I finally found it, incidentally: a dead pigeon in the plenum above the 17th landing, which explained the spring and which is, in an entirely non-supernatural building, the worst part of my job."
+        },
+        {
+          "t": "p",
+          "c": "Thursday: nothing. Genuinely nothing. Thirty-one landings, four times, and the only thing in my log is a note that the lobby ficus is dying again."
+        },
+        {
+          "t": "p",
+          "c": "And through all of it, I could feel the building being polite to me."
+        },
+        {
+          "t": "p",
+          "c": "That is the only way I can say it. Fourteen months of noises and complaints, and that week it was quiet. The chiller did not howl. The 22 door closer did not slam. On Thursday at 04:00 the freight car came down to B2 and opened its doors before I pressed anything, and sat there, waiting, with the light on."
+        },
+        {
+          "t": "p",
+          "c": "I wrote that in the log: 04:02 — freight car self-called to B2, doors held open 40s, no call registered on the controller. I checked the controller. There was no call registered."
+        },
+        {
+          "t": "p",
+          "c": "Then I wrote, underneath, because I could not help it:"
+        },
+        {
+          "t": "blockquote",
+          "c": "I'm not coming. Friday."
+        },
+        {
+          "t": "p",
+          "c": "And in the morning, when I opened the book to sign off, somebody had written under that. Not Wen's block capitals. Something else. Small, neat, old-fashioned, the handwriting of a clerk:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Of course. Friday. We are so looking forward to it."
+        },
+        {
+          "t": "blockquote",
+          "c": "Do bring the 1994 volume. We have been missing it."
+        }
+      ]
+    },
+    {
+      "title": "15. Mrs. Dalisay Knows",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "15. Mrs. Dalisay Knows"
+        },
+        {
+          "t": "p",
+          "c": "I ambushed my supervisor in the car park on Friday morning, on four hours of sleep, holding a coffee I no longer had a way of taking."
+        },
+        {
+          "t": "p",
+          "c": "\"Mrs. Dalisay. The keyhole in the freight car.\""
+        },
+        {
+          "t": "p",
+          "c": "She had her keys in her hand. She did not put them in the door."
+        },
+        {
+          "t": "p",
+          "c": "\"Fire service,\" she said. \"Key was lost in the—\""
+        },
+        {
+          "t": "p",
+          "c": "\"There's a woman down there.\""
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Dalisay is sixty-one. She has run facilities at the Merridew since 2003. She wears a cardigan in August because the lobby is always freezing, and she has never in two years raised her voice at anybody, and she looked at me across the roof of a Toyota and said, in a completely different voice from her working one:"
+        },
+        {
+          "t": "p",
+          "c": "\"Is she still in the blue polo?\""
+        },
+        {
+          "t": "p",
+          "c": "I could not speak for a second."
+        },
+        {
+          "t": "p",
+          "c": "\"Yes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That's Wen.\" Mrs. Dalisay closed her eyes briefly. \"My first supervisor. She trained me for six weeks in 2003 and then one day the staff list didn't have her on it and I was the only person in the building who thought that was strange.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You knew.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know that I write my logs properly, that I never work nights, and that I have kept this job for twenty-two years by not going into that elevator.\" She unlocked her car. \"Ravi. I have had four night techs. Two quit, one transferred, one is on the staff list for 2019 and I cannot remember his face.\""
+        },
+        {
+          "t": "p",
+          "c": "\"His name?\""
+        },
+        {
+          "t": "p",
+          "c": "\"His name,\" said Mrs. Dalisay, \"is what's left. I have his name. I write it in my diary every single morning so that I keep having it. Do you understand what I am telling you?\""
+        }
+      ]
+    },
+    {
+      "title": "16. 03:14",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "16. 03:14"
+        },
+        {
+          "t": "p",
+          "c": "I got in the car at 03:11 on the twenty-first of March with both log books, a torch, and a printed copy of every photograph I had taken since the beginning, because Wen had said the word document four times and I had started to think about what that meant."
+        },
+        {
+          "t": "p",
+          "c": "I pressed the unnumbered button four times."
+        },
+        {
+          "t": "p",
+          "c": "Minus one: the empty lobby. Minus two: the dark corridor. Minus three: the landing."
+        },
+        {
+          "t": "p",
+          "c": "Wen was not there."
+        },
+        {
+          "t": "p",
+          "c": "The mop bucket was there, upturned. Her head torch was on the floor beside it, still on, pointing at the wall, batteries almost gone."
+        },
+        {
+          "t": "p",
+          "c": "On the fire door, in wet ink, in block capitals, at the height of a person's shoulder:"
+        },
+        {
+          "t": "blockquote",
+          "c": "IT MOVED ME. THIS IS ALLOWED — I CHECKED. IT IS NOT ALLOWED TO STOP YOU FOLLOWING."
+        },
+        {
+          "t": "blockquote",
+          "c": "I AM AT MINUS NINE."
+        },
+        {
+          "t": "blockquote",
+          "c": "BRING THE BOOKS. DO NOT PRESS THE BUTTON MORE THAN ONCE PER FLOOR AND WRITE THE FLOOR DOWN EACH TIME, IN INK, BEFORE YOU PRESS."
+        },
+        {
+          "t": "blockquote",
+          "c": "IF THE NUMBERS EVER GO OUT OF ORDER, GET OUT AT THE NEXT DOOR AND WALK."
+        },
+        {
+          "t": "p",
+          "c": "I picked up her head torch and turned it off, because the batteries were nearly gone and because I have never in my life been able to leave a light on in an empty room."
+        },
+        {
+          "t": "p",
+          "c": "Then I got back in the freight car and wrote MINUS FOUR in the log, in ink, and pressed the button once."
+        },
+        {
+          "t": "p",
+          "c": "The doors opened."
+        },
+        {
+          "t": "p",
+          "c": "I looked at the sign on the wall opposite, which was the standard Merridew floor sign, aluminium, riveted, exactly like the thirty-one upstairs."
+        },
+        {
+          "t": "p",
+          "c": "It said MINUS SIX."
+        }
+      ]
+    },
+    {
+      "title": "17. Out of Order",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "17. Out of Order"
+        },
+        {
+          "t": "p",
+          "c": "Wen's instruction was written on a fire door in block capitals and I had copied it into the log before I got in the car, which is the only reason I obeyed it, because a thing you have written out in your own hand at 03:11 is much harder to talk yourself out of at 03:19."
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "If the numbers ever go out of order, get out at the next door and walk."
+        },
+        {
+          "t": "p",
+          "c": "The next door was right there. The doors were open. I was standing in the car with a book in my hand looking at a floor sign that had skipped two numbers, and every single part of me wanted to press the button again and see what happened."
+        },
+        {
+          "t": "p",
+          "c": "I want you to understand how much I wanted to press it."
+        },
+        {
+          "t": "p",
+          "c": "I got out."
+        },
+        {
+          "t": "p",
+          "c": "Minus six was a plant room. Our plant room, actually — B2's plant room, the one I walk four times a night, chiller, pumps, sprinkler riser, the fluorescent tube by the pump room door doing its November flicker. Identical. Complete. Except that on the equipment schedule board, where somebody in 1974 had written the asset numbers in grease pencil, all the numbers were wrong in the same direction: every one exactly one hundred lower than upstairs."
+        },
+        {
+          "t": "p",
+          "c": "I wrote that down. I found the stair."
+        },
+        {
+          "t": "p",
+          "c": "Every building has a stair. That is the thing about this place I have come to rely on: whatever it is, it obeys its own drawings. There is always a stair, it is always in the north-east corner, and the door always opens outward with a push bar, because that is what the code required in 1974."
+        },
+        {
+          "t": "p",
+          "c": "I went down the stair. Minus seven. Minus eight."
+        },
+        {
+          "t": "p",
+          "c": "I could hear something from below and it took me a whole flight to work out what it was, because it was so ordinary that my brain filed it as background before it filed it as impossible."
+        },
+        {
+          "t": "p",
+          "c": "It was a photocopier."
+        },
+        {
+          "t": "p",
+          "c": "Somewhere below me, on minus nine, at 03:40 in the morning, under a building with no floors, something was making copies."
+        }
+      ]
+    },
+    {
+      "title": "18. The Inventory",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "18. The Inventory"
+        },
+        {
+          "t": "p",
+          "c": "Minus nine was not a floor. Minus nine was a warehouse, and it went further than my torch went in every direction, and it was full of shelving, and the shelving was full of boxes, and every box had a label."
+        },
+        {
+          "t": "p",
+          "c": "The labels were names."
+        },
+        {
+          "t": "p",
+          "c": "ILO, MARCUS J. — 1994. Four boxes."
+        },
+        {
+          "t": "p",
+          "c": "DUFRESNE, A. — 1976. Nine boxes."
+        },
+        {
+          "t": "p",
+          "c": "TAM, PEREGRINE — 2011. Two boxes, and one of them was open, and I did not look in it, and I am glad."
+        },
+        {
+          "t": "p",
+          "c": "The photocopier was somewhere off to the left, chunking away, unattended, spitting sheets into a tray."
+        },
+        {
+          "t": "p",
+          "c": "And forty feet in, on the end of a rack, at chest height, there was a single box with a label so new that the ink had not gone matte."
+        },
+        {
+          "t": "p",
+          "c": "ODUYA, RAVI — 2026."
+        },
+        {
+          "t": "p",
+          "c": "It had three things in it."
+        },
+        {
+          "t": "p",
+          "c": "A small paper packet, the kind pharmacies use, with something granular in it that smelled — and I got this immediately, and it went through me like a nail — exactly like my coffee. The way I take it. Took it."
+        },
+        {
+          "t": "p",
+          "c": "A street sign. A real one, aluminium, bolt holes and all, and I read the name on it and I still could not attach it to my own childhood, but I could feel the shape where it fit."
+        },
+        {
+          "t": "p",
+          "c": "And a cassette tape, unlabelled."
+        },
+        {
+          "t": "p",
+          "c": "I put all three in my bag."
+        },
+        {
+          "t": "p",
+          "c": "I want to say that I stood there and thought carefully about whether taking things from an inventory was a good idea."
+        },
+        {
+          "t": "p",
+          "c": "What actually happened is that the photocopier stopped."
+        }
+      ]
+    },
+    {
+      "title": "19. What It Sounds Like",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "19. What It Sounds Like"
+        },
+        {
+          "t": "p",
+          "c": "In the silence after the photocopier stopped, a voice said:"
+        },
+        {
+          "t": "p",
+          "c": "\"Those are ours.\""
+        },
+        {
+          "t": "p",
+          "c": "It was the clerk's handwriting made audible, if that means anything: small, neat, old-fashioned, unhurried, coming from about ten feet behind me at the height of a person's head, and there was nothing behind me, because I turned round with the torch and there was a rack of boxes and dust and nothing else."
+        },
+        {
+          "t": "p",
+          "c": "\"They're mine,\" I said."
+        },
+        {
+          "t": "p",
+          "c": "\"They were yours. They were surrendered.\" A pause. \"Not by contract. By inattention. Which is a legitimate mode of surrender in every jurisdiction we have ever operated in, and we have operated in eleven.\""
+        },
+        {
+          "t": "p",
+          "c": "Here is a thing I have learned about being frightened. There is a layer under the panic where you are still, technically, a person with a job, and if you can get down to that layer you can operate. It is not courage. It is closer to filling in a form while a fire alarm goes off."
+        },
+        {
+          "t": "p",
+          "c": "I got down to that layer."
+        },
+        {
+          "t": "p",
+          "c": "I got my book out. I got my pen out. My hands were doing something I had no control over, but you can write with shaking hands; it just looks bad."
+        },
+        {
+          "t": "p",
+          "c": "\"03:52,\" I said out loud, writing it. \"Minus nine. Entity claims three items surrendered by inattention. I dispute it. All three are logged in the front of this book under OUTSTANDING, dated the sixteenth, five days before this conversation.\""
+        },
+        {
+          "t": "p",
+          "c": "The silence went on for a long, long time."
+        },
+        {
+          "t": "p",
+          "c": "Then the voice said, in a completely different tone — and I swear to you it was the tone of a man at a counter discovering that the customer has, unusually, brought the receipt:"
+        },
+        {
+          "t": "p",
+          "c": "\"...Show me the front of the book.\""
+        }
+      ]
+    },
+    {
+      "title": "20. Receipts",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "20. Receipts"
+        },
+        {
+          "t": "p",
+          "c": "I showed it the front of the book."
+        },
+        {
+          "t": "p",
+          "c": "I held it up in the beam of my own torch in a warehouse under a building, and I turned the pages slowly, and I read them out loud, because I did not know whether it could see and I was not going to make an assumption that cost me a face."
+        },
+        {
+          "t": "p",
+          "c": "OUTSTANDING. Item one: how I take my coffee. Noted the 16th. Item two: the name of my street. Noted the 16th. Item three: the thing I used to hum. Noted the 16th, amended the 17th to add that it was four notes and went down at the end."
+        },
+        {
+          "t": "p",
+          "c": "\"That amendment is dated after the surrender,\" said the voice."
+        },
+        {
+          "t": "p",
+          "c": "\"It's dated after the discovery. There's no rule that says I have to notice on the same day. Show me where it says that.\""
+        },
+        {
+          "t": "p",
+          "c": "\"...We would have to consult the schedule.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then consult it,\" I said. \"I'll wait. I'm on shift until six.\""
+        },
+        {
+          "t": "p",
+          "c": "Something happened in the dark that I can only describe as a room full of paper being extremely annoyed."
+        },
+        {
+          "t": "p",
+          "c": "Then, from about forty feet away, at the end of the rack, a light came on: a single fluorescent tube, flickering the way ours does in November, over a desk that had not been there thirty seconds earlier."
+        },
+        {
+          "t": "p",
+          "c": "There was a chair at the desk. There was a woman sitting in the chair with her hands flat on the table in front of her, and she was in a navy polo shirt with a yellow logo, and she looked up at me and her face was absolutely furious."
+        },
+        {
+          "t": "p",
+          "c": "\"Oduya,\" said Wen Aguilar, \"what did I say about arguing with it before you've read clause fourteen?\""
+        }
+      ]
+    },
+    {
+      "title": "21. Clause Fourteen",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "21. Clause Fourteen"
+        },
+        {
+          "t": "p",
+          "c": "She would not let me speak until I had read it."
+        },
+        {
+          "t": "p",
+          "c": "The lease is not a scroll and it is not written in blood. It is a photocopy. It is eleven pages of dense typed clauses on A4, produced by a machine somewhere off to the left, and Wen had a copy on the desk with thirty-one years of annotations in the margins in four colours of biro."
+        },
+        {
+          "t": "p",
+          "c": "Clause fourteen is one sentence long."
+        },
+        {
+          "t": "blockquote",
+          "c": "Where the Caretaker disputes an item in writing, the item shall be held in inventory pending determination, and shall not be applied against the Caretaker's account until the dispute is determined."
+        },
+        {
+          "t": "p",
+          "c": "\"Pending determination,\" Wen said. \"That's the whole gap. You dispute it, it goes in a box, and it sits in a box until somebody determines the dispute. Do you know who determines the dispute?\""
+        },
+        {
+          "t": "p",
+          "c": "\"It does.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It does. And it has never once, in a hundred and fifty-one years, actually determined one, because determining requires a hearing, and a hearing requires two parties present and signing, and there has never been a second party who could sign.\" She turned the page round. \"Every box out there with a name on it is a dispute nobody filed. Marcus never filed. I filed for four years and then it moved me somewhere I couldn't reach a book.\""
+        },
+        {
+          "t": "p",
+          "c": "\"So the boxes—\""
+        },
+        {
+          "t": "p",
+          "c": "\"The boxes are held, Ravi. Not consumed. Held.\" Wen's hands were flat on the table and I saw for the first time that they were shaking. \"Everything anybody ever lost in this building is forty feet from where you're standing, in cardboard, because I made it file the paperwork and then I made sure nobody was ever able to attend the hearing.\""
+        },
+        {
+          "t": "p",
+          "c": "I looked out at the shelving going off into the dark. Hundreds of racks. Thousands of boxes."
+        },
+        {
+          "t": "p",
+          "c": "\"How long have you been running out the clock?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Thirty-one years,\" said Wen Aguilar. \"And it renews at dawn.\""
+        }
+      ]
+    },
+    {
+      "title": "22. What Renewal Means",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "22. What Renewal Means"
+        },
+        {
+          "t": "p",
+          "c": "\"Explain renewal.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Ninety-nine year lease signed in 1874. Renewable at fifty-one year intervals, which is a stupid number, which is how you know a lawyer wrote it.\" Wen was moving now, pulling files. \"1925. 1974. And today.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What happens at renewal?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The account settles. Every held dispute is determined by default in favour of the landlord unless heard. Every box out there is opened. And the caretaker's term ends and a new caretaker takes it on.\""
+        },
+        {
+          "t": "p",
+          "c": "\"So you're—\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'm out at dawn either way. That's not the part that matters.\" She dumped a bundle of paper in front of me. \"This is the part that matters.\""
+        },
+        {
+          "t": "p",
+          "c": "It was the 1974 renewal. Signed. And the signature at the bottom, in a hand I had seen four hundred times on requisition forms and holiday rosters, was not from 1974."
+        },
+        {
+          "t": "p",
+          "c": "It was Mrs. Dalisay's."
+        },
+        {
+          "t": "p",
+          "c": "\"That's not possible. She started in 2003.\""
+        },
+        {
+          "t": "p",
+          "c": "\"She signed as witness in 2003, retroactively, because the 1974 renewal was defective and it spent twenty-nine years looking for somebody to fix it.\" Wen's mouth was a line. \"She thinks she has kept out of it by never getting in the elevator. She has been a party to this since her second week and she does not know it, and at dawn she is going to be the outgoing party to a lease renewal, and the outgoing party's account settles too.\""
+        },
+        {
+          "t": "p",
+          "c": "I thought about a woman in a cardigan writing a name in her diary every morning so she would keep having it."
+        },
+        {
+          "t": "p",
+          "c": "\"What's in her box?\" I said."
+        },
+        {
+          "t": "p",
+          "c": "Wen looked at me."
+        },
+        {
+          "t": "p",
+          "c": "\"Go and read it,\" she said. \"It's the tall one at the end. And Ravi — walk. Don't run. It watches how fast you go towards things.\""
+        }
+      ]
+    },
+    {
+      "title": "23. D, M.",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "23. D, M."
+        },
+        {
+          "t": "p",
+          "c": "Nine racks down. Tall box. Four inches of dust on the shelf beside it and none on the box, because it was still being added to."
+        },
+        {
+          "t": "p",
+          "c": "DALISAY, M. — 2003."
+        },
+        {
+          "t": "p",
+          "c": "Six boxes, actually. Six."
+        },
+        {
+          "t": "p",
+          "c": "And they were not sealed, because a held dispute is not sealed, and one of them was labelled in the clerk's small neat hand:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Item: the face of the night technician, 2019. Disputed in writing by M. Dalisay, 14 August 2019. Held."
+        },
+        {
+          "t": "p",
+          "c": "She had filed. Of course she had filed. She writes her logs properly; she told me so in a car park."
+        },
+        {
+          "t": "p",
+          "c": "Twenty-two years of a woman who never once got in the elevator, quietly disputing in ink every single thing that building took off her, and putting the disputes in a maintenance log where nobody would ever read them."
+        },
+        {
+          "t": "p",
+          "c": "I sat down on the floor of an impossible warehouse and laughed until I nearly threw up."
+        },
+        {
+          "t": "p",
+          "c": "Because here is what that means."
+        },
+        {
+          "t": "p",
+          "c": "Wen filed for four years. Mrs. Dalisay has filed for twenty-two. I have filed for eleven days."
+        },
+        {
+          "t": "p",
+          "c": "Clause fourteen says a held dispute needs a hearing, and a hearing needs two parties present and signing."
+        },
+        {
+          "t": "p",
+          "c": "There were three of us."
+        },
+        {
+          "t": "p",
+          "c": "There had never been three of us before."
+        },
+        {
+          "t": "p",
+          "c": "I got out my book and I wrote, in the biggest letters I have ever written in a log:"
+        },
+        {
+          "t": "blockquote",
+          "c": "04:31. I demand a hearing under clause fourteen. Parties: R. Oduya (caretaker-elect), W. Aguilar (caretaker), M. Dalisay (witness to the 1974 renewal). All three present and able to sign."
+        },
+        {
+          "t": "p",
+          "c": "And every single light in that warehouse came on at once."
+        }
+      ]
+    },
+    {
+      "title": "24. Every Light",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "24. Every Light"
+        },
+        {
+          "t": "p",
+          "c": "I have never seen the inside of that place lit and I never want to again."
+        },
+        {
+          "t": "p",
+          "c": "It went on for miles. Not metaphorically — I could see the racks running away to a vanishing point in four directions, and the ceiling was a ceiling, aluminium and rivets, 1974 standard, at nine feet, all the way to the horizon."
+        },
+        {
+          "t": "p",
+          "c": "Somewhere in the middle distance a rack toppled, and then did not finish toppling, and stood there at an angle it had no business standing at, and I understood that the place was extremely upset and had no idea what to do with the feeling."
+        },
+        {
+          "t": "p",
+          "c": "Wen was standing on the desk. She had climbed on the desk. At fifty-five."
+        },
+        {
+          "t": "p",
+          "c": "\"WHAT DID YOU DO?\""
+        },
+        {
+          "t": "p",
+          "c": "\"I demanded a hearing!\""
+        },
+        {
+          "t": "p",
+          "c": "\"YOU CAN'T, DALISAY ISN'T HERE—\""
+        },
+        {
+          "t": "p",
+          "c": "\"She's in the building!\" I was shouting because everything was very loud suddenly, a sound like every photocopier in the world. \"She parks at five, Wen, she's always at her desk by five past, that's twenty minutes—\""
+        },
+        {
+          "t": "p",
+          "c": "\"IT WILL NOT WAIT TWENTY MINUTES.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It has to! A hearing requires all parties and it can't determine a dispute without one, that's the whole—\""
+        },
+        {
+          "t": "p",
+          "c": "The lights went out."
+        },
+        {
+          "t": "p",
+          "c": "All of them, at once, and in the black the clerk's voice said, from directly in front of my face, close enough that I should have felt breath and didn't:"
+        },
+        {
+          "t": "p",
+          "c": "\"Correct. We must wait. We must wait for Ms. Dalisay to be present.\""
+        },
+        {
+          "t": "p",
+          "c": "A pause."
+        },
+        {
+          "t": "p",
+          "c": "\"How fortunate,\" it said, \"that we have twenty minutes, and that Ms. Dalisay is currently in a car.\""
+        }
+      ]
+    },
+    {
+      "title": "25. Twenty Minutes",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "25. Twenty Minutes"
+        },
+        {
+          "t": "p",
+          "c": "I got Wen off the desk and we ran for the stair."
+        },
+        {
+          "t": "p",
+          "c": "Rule: it obeys its own drawings. North-east corner, push bar, opens outward. It was there. It is always there. That building has never once lied about a stair and I have thought a great deal about why."
+        },
+        {
+          "t": "p",
+          "c": "Eight flights up in the dark with a torch in my teeth. Minus eight. Minus seven. My legs were gone by minus six and Wen — fifty-five years old, thirty-one years on a mop bucket — went past me on the landing without a word."
+        },
+        {
+          "t": "p",
+          "c": "\"Phone!\" she shouted."
+        },
+        {
+          "t": "p",
+          "c": "\"No signal!\""
+        },
+        {
+          "t": "p",
+          "c": "\"Not down here. Try at minus three, there's bleed.\""
+        },
+        {
+          "t": "p",
+          "c": "There was bleed. Two bars, at minus three, on the landing where I met her, standing on an upturned mop bucket holding my phone at the ceiling like an idiot."
+        },
+        {
+          "t": "p",
+          "c": "I called Mrs. Dalisay."
+        },
+        {
+          "t": "p",
+          "c": "It rang four times."
+        },
+        {
+          "t": "p",
+          "c": "\"Ravi? It's a quarter to five in the—\""
+        },
+        {
+          "t": "p",
+          "c": "\"Stop the car.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Stop the car. Wherever you are. Pull over now and stop and don't drive into the car park.\" I was gulping air. \"Please. Please, I'll explain everything, just stop the car.\""
+        },
+        {
+          "t": "p",
+          "c": "There was a pause, and a click, and the sound of an indicator, and the sound of a car stopping."
+        },
+        {
+          "t": "p",
+          "c": "\"I've stopped,\" said Mrs. Dalisay. \"I'm on Hendry Street. Ravi, what is happening?\""
+        },
+        {
+          "t": "p",
+          "c": "And behind me, from the stair, in the small neat unhurried voice of a clerk who has all the time in the world:"
+        },
+        {
+          "t": "p",
+          "c": "\"Hendry Street. Thank you. That is very helpful.\""
+        }
+      ]
+    },
+    {
+      "title": "26. Hendry Street",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "26. Hendry Street"
+        },
+        {
+          "t": "p",
+          "c": "I want to be clear that nothing happened to Mrs. Dalisay on Hendry Street."
+        },
+        {
+          "t": "p",
+          "c": "Nothing happened because Wen took the phone out of my hand and said four words into it, and they were not dramatic words, and they saved everything."
+        },
+        {
+          "t": "p",
+          "c": "\"Margaret. Write it down.\""
+        },
+        {
+          "t": "p",
+          "c": "Silence on the line."
+        },
+        {
+          "t": "p",
+          "c": "\"Wen?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Write down where you are, the time, and that you are not entering the premises. Then sign it and photograph it. Right now, in the car, on anything. Then don't move.\""
+        },
+        {
+          "t": "p",
+          "c": "We heard the glovebox open. We heard a pen."
+        },
+        {
+          "t": "p",
+          "c": "We heard, very faintly, a woman of sixty-one who had not spoken to her first supervisor in twenty-two years saying, in a wobbling voice, \"You look after yourself down there, do you hear me,\" and then the sound of a phone camera."
+        },
+        {
+          "t": "p",
+          "c": "The stair went quiet."
+        },
+        {
+          "t": "p",
+          "c": "Not silent. Quiet, the way the building had gone quiet at me all week, the polite quiet of something that has hit a clause it dislikes."
+        },
+        {
+          "t": "p",
+          "c": "\"Ms. Dalisay is not present,\" said the clerk, eventually, and it sounded, for the first time, like a machine reading a result it had not wanted. \"The hearing is adjourned.\""
+        },
+        {
+          "t": "p",
+          "c": "\"For how long?\" I said."
+        },
+        {
+          "t": "p",
+          "c": "\"Until all parties can be present.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And the renewal?\""
+        },
+        {
+          "t": "p",
+          "c": "A pause of exactly the length a man takes when he is about to say something he has been told to say."
+        },
+        {
+          "t": "p",
+          "c": "\"The renewal proceeds at dawn,\" said the clerk. \"With or without a hearing. The hearing determines the boxes. The renewal determines the caretaker.\""
+        },
+        {
+          "t": "p",
+          "c": "Wen looked at me."
+        },
+        {
+          "t": "p",
+          "c": "\"That,\" she said, \"is the first time in thirty-one years it has told me something I didn't already know.\""
+        }
+      ]
+    },
+    {
+      "title": "27. Two Problems",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "27. Two Problems"
+        },
+        {
+          "t": "p",
+          "c": "We sat on the landing of minus three with the sky doing whatever the sky does above eleven floors of impossible basement, and worked it out."
+        },
+        {
+          "t": "p",
+          "c": "There were two problems and they pulled in opposite directions."
+        },
+        {
+          "t": "ol",
+          "items": [
+            "The boxes need a hearing. A hearing needs all three of us present and signing. Mrs. Dalisay must come into the building.",
+            "The renewal happens at dawn regardless, and at renewal the outgoing caretaker's account settles, and any party present to the renewal is a party to it. If Mrs. Dalisay comes into the building before dawn, she is present at the renewal, and it takes her."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "\"So she comes after dawn,\" I said."
+        },
+        {
+          "t": "p",
+          "c": "\"After dawn the boxes are determined by default. There's nothing left to hear.\" Wen rubbed her eyes. \"That's the trap, and it's a good one, and it took a hundred and fifty-one years to build.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then we stop the renewal.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You can't stop a renewal. It's automatic. It's the one thing in the whole document that doesn't need anybody's signature.\""
+        },
+        {
+          "t": "p",
+          "c": "I read clause by clause with a torch and a woman who had them memorised, and at 05:20, on page nine, I found the thing."
+        },
+        {
+          "t": "p",
+          "c": "\"Wen. Renewal requires a caretaker in occupation on the premises at the moment of renewal.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Yes. That's me. That's the whole reason it keeps one.\""
+        },
+        {
+          "t": "p",
+          "c": "\"But you're the outgoing caretaker. It says the incoming caretaker takes occupation at the moment of renewal, and the outgoing account settles.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Yes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"So at the exact moment of renewal,\" I said slowly, \"there has to be somebody in occupation, and it has to be somebody who isn't you.\""
+        },
+        {
+          "t": "p",
+          "c": "Wen went very still."
+        },
+        {
+          "t": "p",
+          "c": "\"There's nobody else down here.\""
+        },
+        {
+          "t": "p",
+          "c": "\"There's me,\" I said."
+        }
+      ]
+    },
+    {
+      "title": "28. What I'm Actually Proposing",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "28. What I'm Actually Proposing"
+        },
+        {
+          "t": "p",
+          "c": "She said no for eleven minutes."
+        },
+        {
+          "t": "p",
+          "c": "I have the transcript, more or less, because I wrote it down while she was saying it, which annoyed her so much that she started dictating."
+        },
+        {
+          "t": "blockquote",
+          "c": "W.A.: You are twenty-four years old."
+        },
+        {
+          "t": "blockquote",
+          "c": "W.A.: I was twenty-four years old."
+        },
+        {
+          "t": "blockquote",
+          "c": "W.A.: That is not an argument, that is a coincidence, write it down properly."
+        },
+        {
+          "t": "blockquote",
+          "c": "W.A.: Marcus was thirty-one and sloppy and I swapped for him and I have had thirty-one years on a mop bucket and it was the correct call and I would do it again and I am NOT going to sit here and watch a boy make it in reverse."
+        },
+        {
+          "t": "p",
+          "c": "\"It's not in reverse,\" I said. \"That's the point. Wen, you're not listening.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I have been listening for thirty-one—\""
+        },
+        {
+          "t": "p",
+          "c": "\"You swapped. Substitution. One caretaker out, one caretaker in, and the account settles against the one going out, which is why it cost you everything.\" I turned the lease round. \"I'm not proposing a substitution. I'm proposing we both be in occupation at renewal.\""
+        },
+        {
+          "t": "p",
+          "c": "She stopped."
+        },
+        {
+          "t": "p",
+          "c": "\"That's not a thing.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Show me where it says it isn't.\" I put my finger on the clause. \"It says a caretaker. It doesn't say one. It says the incoming caretaker takes occupation. It doesn't say the outgoing one leaves the premises — it says their account settles. Those are two different sentences, Wen, they're not even in the same paragraph.\""
+        },
+        {
+          "t": "p",
+          "c": "Wen Aguilar looked at the page for a long time."
+        },
+        {
+          "t": "p",
+          "c": "Then she said, in a voice I had not heard from her:"
+        },
+        {
+          "t": "p",
+          "c": "\"If you're wrong, it takes both of us and there's nobody left who can file.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Dawn's in forty minutes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know.\""
+        },
+        {
+          "t": "p",
+          "c": "She stood up."
+        },
+        {
+          "t": "p",
+          "c": "\"Then let's go and read the last two pages,\" she said, \"very, very carefully.\""
+        }
+      ]
+    },
+    {
+      "title": "29. The Last Two Pages",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "29. The Last Two Pages"
+        },
+        {
+          "t": "p",
+          "c": "Page ten is definitions."
+        },
+        {
+          "t": "p",
+          "c": "Page eleven is the execution block: a signature line for the landlord, which has never been signed by anything, and a signature line for the caretaker, which has been signed eleven times, and each signature is smaller and shakier than the one above it, and the last one is Wen's, from October 1994, and it is a firm confident twenty-four-year-old's signature and it made me want to put my fist through something."
+        },
+        {
+          "t": "p",
+          "c": "Page ten is where they buried it."
+        },
+        {
+          "t": "blockquote",
+          "c": "\"Occupation\" means the presence within the premises of a Caretaker who maintains the Record."
+        },
+        {
+          "t": "blockquote",
+          "c": "\"The Record\" means the current maintenance log of the premises."
+        },
+        {
+          "t": "blockquote",
+          "c": "\"Current\" means the volume in use at the material time."
+        },
+        {
+          "t": "p",
+          "c": "I read it three times."
+        },
+        {
+          "t": "p",
+          "c": "\"Wen. What's the current maintenance log?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The black one. This year's. It's in your bag.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Right. And what's this?\" I held up the blue one. 1994."
+        },
+        {
+          "t": "p",
+          "c": "\"That's mine. That's not current, it's—\""
+        },
+        {
+          "t": "p",
+          "c": "She stopped."
+        },
+        {
+          "t": "p",
+          "c": "We looked at each other in the light of a dying head torch on the landing of a floor that does not exist."
+        },
+        {
+          "t": "p",
+          "c": "\"It says the volume in use at the material time,\" I said. \"Not the volume issued for the current year. In use.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That is the most lawyer thing I have ever—\""
+        },
+        {
+          "t": "p",
+          "c": "\"Wen. Have you been writing in the 1994 book for thirty-one years?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Every single day,\" said Wen Aguilar."
+        },
+        {
+          "t": "p",
+          "c": "\"Then it's in use,\" I said. \"Then there are two current maintenance logs in this building, and two people maintaining them, and the definition doesn't say a caretaker maintains the Record, it says a Caretaker who maintains the Record, and there is no article anywhere in this document that says there can only be one of us.\""
+        },
+        {
+          "t": "p",
+          "c": "Somewhere below us, in a warehouse full of boxes, a photocopier started up."
+        }
+      ]
+    },
+    {
+      "title": "30. Dawn",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "30. Dawn"
+        },
+        {
+          "t": "p",
+          "c": "We went down."
+        },
+        {
+          "t": "p",
+          "c": "Not to minus nine. To minus eleven, because that is where the lease is executed, and we knew that because page eleven says so, at the bottom, in a footer nobody reads:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Executed at the premises, Floor Zero, in the presence of the Landlord."
+        },
+        {
+          "t": "p",
+          "c": "Minus eleven is not Floor Zero. Wen was very clear about this. Minus eleven is the last floor with a stair, and below minus eleven there is one more descent, and the freight car does it, and that is the only way down."
+        },
+        {
+          "t": "p",
+          "c": "We stood in front of the freight car doors at minus eleven at nine minutes to six in the morning with two log books, a lease, eleven photographs, a woman on Hendry Street holding a signed and dated photograph in her car, and a plan that rested entirely on the difference between the words \"a\" and \"the\"."
+        },
+        {
+          "t": "p",
+          "c": "\"Ravi,\" said Wen. \"One thing before we get in.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Yeah?\""
+        },
+        {
+          "t": "p",
+          "c": "\"If it goes wrong, and it takes both of us, and one day some poor kid finds a key taped under a bracket.\" She looked at me. \"Don't write SORRY on the tag. That's what I did and it made him careless, because he thought whoever left it was on his side and would help. Write something useful.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Like what?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Like: READ CLAUSE FOURTEEN FIRST.\""
+        },
+        {
+          "t": "p",
+          "c": "The freight car doors opened by themselves."
+        },
+        {
+          "t": "p",
+          "c": "Inside, the brass panel had changed. Every button was gone: 31 through 1, B1, B2, all of them, blank brass with the ghosts of numbers."
+        },
+        {
+          "t": "p",
+          "c": "There was one button, at the bottom, worn concave by fifty years of thumbs, and under it a small neat engraved plate that had definitely not been there on Tuesday."
+        },
+        {
+          "t": "p",
+          "c": "It said: 0."
+        }
+      ]
+    },
+    {
+      "title": "31. Floor Zero",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "31. Floor Zero"
+        },
+        {
+          "t": "p",
+          "c": "Eleven seconds."
+        },
+        {
+          "t": "p",
+          "c": "The doors opened on an office."
+        },
+        {
+          "t": "p",
+          "c": "That is what nobody tells you and that is what I was least ready for. Not a cavern, not a furnace, not a courtroom. A 1974 office: acoustic tile ceiling, beige carpet tiles, four desks pushed together in the middle, a wall of filing cabinets going back further than the wall should go, and one window with the blind down."
+        },
+        {
+          "t": "p",
+          "c": "There was a counter by the door, the kind you get at a licensing office, with a bell on it."
+        },
+        {
+          "t": "p",
+          "c": "Behind the counter there was a chair, and in the chair there was a shape that my eyes kept declining to finish. Not horrifying. Unfinished, like a form somebody had started filling in and abandoned. When I looked at it directly it was a man in a grey suit. When I looked slightly to the left of it, it was a stack of paper the height of a man."
+        },
+        {
+          "t": "p",
+          "c": "\"Good morning,\" said the clerk. \"Ms. Aguilar. And Mr. Oduya, who reads.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Good morning,\" I said, because my mother raised me."
+        },
+        {
+          "t": "p",
+          "c": "\"You have six minutes.\" It gestured at the window with the blind down, and behind the blind, at the edges, there was the first grey of the actual sky, which was impossible eleven floors underground and which I did not have the time to be upset about. \"Shall we proceed to renewal?\""
+        },
+        {
+          "t": "p",
+          "c": "\"We're going to need to discuss occupation first,\" I said."
+        },
+        {
+          "t": "p",
+          "c": "\"Occupation is not in dispute. Ms. Aguilar is the caretaker in occupation, her account settles at renewal, and you, Mr. Oduya, are welcome to take up the position as the incoming caretaker, on the usual terms, which you have read.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I've read them.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then you know the usual terms are extremely favourable compared to the alternative.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What's the alternative?\""
+        },
+        {
+          "t": "p",
+          "c": "The clerk folded its hands, and its hands were a stapled bundle of forms."
+        },
+        {
+          "t": "p",
+          "c": "\"The alternative,\" it said pleasantly, \"is that there is no caretaker in occupation at renewal, in which case the lease fails, and the premises revert, and everything in the premises reverts with them. There are four hundred and eleven people in this building on a weekday, Mr. Oduya. Today is a weekday.\""
+        }
+      ]
+    },
+    {
+      "title": "32. The Bell on the Counter",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "32. The Bell on the Counter"
+        },
+        {
+          "t": "p",
+          "c": "Here is where I nearly lost it."
+        },
+        {
+          "t": "p",
+          "c": "Because it was right. That is the thing about the whole affair that I have never got clear of. Every threat that building ever made me was accurate, and every rule it followed it followed exactly, and if I had walked away at any point in eleven days it would have let me, and a man would have started work at nine and taken the freight car and never come back and nobody would have known."
+        },
+        {
+          "t": "p",
+          "c": "It is not a monster. It is worse. It is a correctly functioning system that nobody has read."
+        },
+        {
+          "t": "p",
+          "c": "\"Five minutes,\" said the clerk."
+        },
+        {
+          "t": "p",
+          "c": "\"I dispute the characterisation of occupation,\" I said."
+        },
+        {
+          "t": "p",
+          "c": "\"Noted. Disputes are held pending determination, and there is no time to determine them before renewal, so the dispute will be held and the renewal will proceed, and the dispute will then be determined by default, because the material time will have passed.\" It sounded almost sympathetic. \"Clause fourteen is a very good clause, Mr. Oduya. Ms. Aguilar has used it beautifully for thirty-one years. But it is a delaying clause. It has never been anything else. You cannot win with it; you can only be slow with it.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know,\" I said. \"I'm not using clause fourteen.\""
+        },
+        {
+          "t": "p",
+          "c": "I put both log books on the counter."
+        },
+        {
+          "t": "p",
+          "c": "Black one. Blue one."
+        },
+        {
+          "t": "p",
+          "c": "\"I'm using page ten,\" I said, \"and I'd like you to define, for the record, in front of a witness, what the current maintenance log of these premises is.\""
+        },
+        {
+          "t": "p",
+          "c": "For the first time, the shape behind the counter stopped moving entirely."
+        },
+        {
+          "t": "p",
+          "c": "Then it said, and its voice had gone flat and careful in a way that made every hair on my arms stand up:"
+        },
+        {
+          "t": "p",
+          "c": "\"There is one Record.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then which one is it?\" I said. \"Because we've both been writing in ours this morning.\""
+        }
+      ]
+    },
+    {
+      "title": "33. Two Books",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "33. Two Books"
+        },
+        {
+          "t": "p",
+          "c": "Four minutes."
+        },
+        {
+          "t": "p",
+          "c": "\"The Record,\" said the clerk, \"is the volume in use at the material time.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Both are in use. Here's this morning's entry in the black one, timed 03:14, my hand. Here's this morning's entry in the blue one, timed 03:20, her hand. Both dated today. Both maintained. Both on the premises.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The blue volume is a superseded volume.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Show me where the lease says superseded volumes stop being current.\" I put my finger on page ten. \"It says the volume in use. It doesn't say the volume issued. You wrote this in 1874 and there was one book and it never occurred to you that there could be two, because it has never once occurred to you that there could be two of anything, which is why you have spent a hundred and fifty-one years with one caretaker and one clerk and one book, alone, in a basement, doing paperwork.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Three minutes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Answer the question.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The Record,\" said the clerk, and something in its voice cracked like a photocopier taking a staple, \"is the volume in use at the material time, and if two volumes are in use at the material time then both are the Record, and a Caretaker who maintains the Record is a Caretaker in occupation, and—\""
+        },
+        {
+          "t": "p",
+          "c": "It stopped."
+        },
+        {
+          "t": "p",
+          "c": "The window blind rattled, once, in no wind."
+        },
+        {
+          "t": "p",
+          "c": "\"Two minutes,\" it said."
+        },
+        {
+          "t": "p",
+          "c": "Wen put her hand flat on the counter next to mine. Her palm was wet. I looked at her and she was grinning like a lunatic."
+        },
+        {
+          "t": "p",
+          "c": "\"Say it,\" she said. \"Say the whole sentence. You know how this works. It has to be said out loud in front of the landlord and it has to be true.\""
+        },
+        {
+          "t": "p",
+          "c": "I took a breath."
+        }
+      ]
+    },
+    {
+      "title": "34. In Occupation",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "34. In Occupation"
+        },
+        {
+          "t": "p",
+          "c": "\"At the moment of renewal,\" I said, \"there are two caretakers in occupation of these premises. Wen Aguilar, maintaining the 1994 volume, in continuous use since January 1994. Ravi Oduya, maintaining the current volume, in use since January. Both volumes are the Record under page ten. Both of us are Caretakers under page ten. Neither of us is outgoing, because neither of us has resigned, been substituted, or ceased to maintain.\""
+        },
+        {
+          "t": "p",
+          "c": "\"One minute.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The renewal proceeds,\" I said. \"We're not stopping it. Renew. Renew with two caretakers in occupation.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That is not—\""
+        },
+        {
+          "t": "p",
+          "c": "\"Show me the clause.\""
+        },
+        {
+          "t": "p",
+          "c": "Silence."
+        },
+        {
+          "t": "p",
+          "c": "I want to describe that silence properly because it lasted about eleven seconds and it was the loudest thing in my life. It was the silence of a system running a query. Somewhere behind that clerk, in filing cabinets going back further than the wall, a hundred and fifty-one years of paper was being checked for a sentence that said only one, and the sentence was not there, because nobody had ever needed to write it."
+        },
+        {
+          "t": "p",
+          "c": "Then the clerk said:"
+        },
+        {
+          "t": "p",
+          "c": "\"There is no clause.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then renew.\""
+        },
+        {
+          "t": "p",
+          "c": "\"If there are two caretakers in occupation,\" it said slowly, \"then no account settles at renewal, because no caretaker is outgoing. And if no account settles, every held dispute remains held. And if every dispute remains held—\""
+        },
+        {
+          "t": "p",
+          "c": "\"Then the boxes stay in the warehouse,\" said Wen Aguilar. \"For another fifty-one years. Say it. Say it out loud, you enormous filing cabinet.\""
+        },
+        {
+          "t": "p",
+          "c": "Behind the blind, the grey went to gold."
+        }
+      ]
+    },
+    {
+      "title": "35. Renewal",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "35. Renewal"
+        },
+        {
+          "t": "p",
+          "c": "Dawn in that room was a strip of light along the bottom of a blind, and it took about four seconds, and nothing else happened at all."
+        },
+        {
+          "t": "p",
+          "c": "No thunder. No screaming. The lease renewed the way leases renew, which is to say that a date passed and a document remained in force, and the only sign of it was that the stack of paper behind the counter got very slightly shorter, as though a sheet had gone from the top."
+        },
+        {
+          "t": "p",
+          "c": "\"Renewed,\" said the clerk. \"Term: fifty-one years. Caretakers in occupation: two. Accounts settled: none. Disputes held: forty-one thousand, two hundred and six.\""
+        },
+        {
+          "t": "p",
+          "c": "Wen sat down on the floor."
+        },
+        {
+          "t": "p",
+          "c": "She did it the way people do when their legs simply finish, sliding down the front of the counter with her back to it, and she put her hands over her face and made a sound I am not going to write down, because some things you don't put in a log."
+        },
+        {
+          "t": "p",
+          "c": "I stayed standing, because one of us had to, and because I had one more thing to do and about four seconds of nerve left in which to do it."
+        },
+        {
+          "t": "p",
+          "c": "\"Right,\" I said to the clerk. \"Hearing.\""
+        },
+        {
+          "t": "p",
+          "c": "It looked at me."
+        },
+        {
+          "t": "p",
+          "c": "\"You cannot be serious.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mrs. Dalisay is on Hendry Street with a signed and dated statement. The renewal is done, so she can enter the premises without being party to it. She'll be at her desk in nine minutes because she is always at her desk by five past and she has been for twenty-two years.\" I picked up my pen. \"Three parties, all present, all able to sign. I'd like to determine forty-one thousand disputes, please. We can start with the coffee.\""
+        }
+      ]
+    },
+    {
+      "title": "36. The Hearing",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "36. The Hearing"
+        },
+        {
+          "t": "p",
+          "c": "The hearing took four days."
+        },
+        {
+          "t": "p",
+          "c": "It is, I am told, the only one there has ever been, and the whole thing is recorded in the black volume, and the black volume is now a legal document that I am not allowed to take out of the building, which is fine, because it does not want to go."
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Dalisay came down in the freight car at 06:14 on the twenty-first of March, in a cardigan, with her diary under her arm and her reading glasses on a chain, and she walked up to the counter of an office eleven floors below a basement and said, to a thing that was not a man:"
+        },
+        {
+          "t": "p",
+          "c": "\"You have had twenty-two years of my life in boxes and I have written down every single one of them.\""
+        },
+        {
+          "t": "p",
+          "c": "She put the diary on the counter."
+        },
+        {
+          "t": "p",
+          "c": "Every morning since 2003. The name of a night technician she could not picture. A face. A recipe her grandmother taught her. The word for a colour. Four hundred and eleven entries, dated, signed, with a note in the front in her small clear hand: THESE ARE MINE AND I DISPUTE THEIR REMOVAL."
+        },
+        {
+          "t": "p",
+          "c": "The clerk read the whole thing."
+        },
+        {
+          "t": "p",
+          "c": "Then it said, \"You never got in the elevator.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No,\" said Mrs. Dalisay. \"I filed.\""
+        },
+        {
+          "t": "p",
+          "c": "I have thought since about which of us actually beat that building, and it was not me, and it was not Wen with her thirty-one years on a mop bucket. It was a supervisor who never once went downstairs and never once stopped writing it down."
+        }
+      ]
+    },
+    {
+      "title": "37. Boxes",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "37. Boxes"
+        },
+        {
+          "t": "p",
+          "c": "You do not get everything back."
+        },
+        {
+          "t": "p",
+          "c": "That is the first thing they tell you and it is true. Some of the boxes had been open too long. Some of them had been added to by people who were not the owners. Two racks in the eleventh aisle had water damage from a leak in 1988 that nobody logged, which is the single most Merridew Tower fact in this entire account."
+        },
+        {
+          "t": "p",
+          "c": "I got my coffee back on the second day. It is two sugars and it is disgusting and I nearly cried into it."
+        },
+        {
+          "t": "p",
+          "c": "I got the street name back on the third day and it did not fit at first, the way a word doesn't when you have been away from it, and then on the fourth day I was walking to the van and it just arrived, whole, with the corner shop and the bus stop and my mother shouting from the door."
+        },
+        {
+          "t": "p",
+          "c": "The cassette I never played. It is in my bag. Wen says some of them are recordings of people singing to themselves at work and some of them are not, and that I should decide when I am about forty."
+        },
+        {
+          "t": "p",
+          "c": "Wen got four years back out of thirty-one."
+        },
+        {
+          "t": "p",
+          "c": "She was fine about it. She has been fine about it in a way that I do not entirely believe and have decided not to push, because she is a fifty-five-year-old woman who has just discovered that she gets to have a Tuesday."
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Dalisay got the night technician's face back and went home at lunchtime and did not come in the next day, which in twenty-two years she had never done."
+        }
+      ]
+    },
+    {
+      "title": "38. Terms",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "38. Terms"
+        },
+        {
+          "t": "p",
+          "c": "The other thing about a renewal with two caretakers in occupation is that the terms have to be re-issued, and re-issued terms have to be agreed, and agreed means signed, and signed means negotiable."
+        },
+        {
+          "t": "p",
+          "c": "We negotiated for six weeks."
+        },
+        {
+          "t": "p",
+          "c": "Wen did the drafting. She has had thirty-one years to think about what she would ask for and it turns out the answer is: not very much, and all of it extremely specific."
+        },
+        {
+          "t": "blockquote",
+          "c": "AGREED TERMS, MERRIDEW TOWER, EXECUTED 3 MAY:"
+        },
+        {
+          "t": "ol",
+          "items": [
+            "No collection against any party without a written notice served in advance, in ink, in the current Record, at least seven days before the item is taken.",
+            "Two caretakers at all times. If one leaves the position, the position is vacant, not transferred. It cannot be filled by inattention.",
+            "Anyone who enters the premises is a visitor and not a party. Visitors sign in and out. The book is on the desk. It is now a normal book.",
+            "The stair stays. The stair is always in the north-east corner and the door always opens outward. This was never in writing and is now.",
+            "The inventory is open to the caretakers on request. Any person may recover an item they can identify in writing."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "The clerk signed it."
+        },
+        {
+          "t": "p",
+          "c": "That is the part I still cannot get over. It came round to the front of the counter with a pen, and it signed, and its signature is a small neat old-fashioned hand, and afterwards it said the only unguarded thing I ever heard it say."
+        },
+        {
+          "t": "p",
+          "c": "It said: \"Nobody has ever negotiated. In a hundred and fifty-one years. They all either ran or signed.\""
+        }
+      ]
+    },
+    {
+      "title": "39. Night Operator",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "39. Night Operator"
+        },
+        {
+          "t": "p",
+          "c": "I am still on nights."
+        },
+        {
+          "t": "p",
+          "c": "Everybody asks that. My brother asked it four times. The answer is that the position requires two caretakers in occupation, and the terms say occupation means maintaining the Record on the premises, and somebody has to be here after six."
+        },
+        {
+          "t": "p",
+          "c": "The job is the same job. You walk the floors at eleven, one, three and five. You check thirty-one landings, two basements, four risers and the roof. You log what you find."
+        },
+        {
+          "t": "p",
+          "c": "Then, at 03:14, you take the freight car down eleven seconds, and you sign the visitor book, and you spend an hour in a warehouse the size of a county with a woman in a navy polo shirt, going through boxes with names on them and trying to find the owners."
+        },
+        {
+          "t": "p",
+          "c": "Forty-one thousand disputes. We have determined eleven hundred."
+        },
+        {
+          "t": "p",
+          "c": "Some of them are a hundred years old. Some of the owners are dead, and their boxes go to their families, and I have made four of the strangest phone calls of my life, and one of them ended with a man of eighty crying down the line at me because I could tell him what his father's workshop smelled like."
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Dalisay comes down on Wednesdays. She brings biscuits. The clerk has developed an interest in biscuits which I find genuinely unsettling."
+        },
+        {
+          "t": "p",
+          "c": "That is the whole job now."
+        },
+        {
+          "t": "p",
+          "c": "And then, three weeks ago, on a Tuesday, on a floor walk I had done four hundred times, I found a key taped under the fire extinguisher bracket on B2."
+        }
+      ]
+    },
+    {
+      "title": "40. The Tag",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "40. The Tag"
+        },
+        {
+          "t": "p",
+          "c": "It was small. It was brass."
+        },
+        {
+          "t": "p",
+          "c": "It was not our key. Ours is in the desk drawer on Floor Zero, signed for, logged, in the inventory, with a receipt."
+        },
+        {
+          "t": "p",
+          "c": "This one had a paper tag, and the tag was not paper I recognised, and the handwriting was not Wen's block capitals or Mrs. Dalisay's small clear hand or the clerk's neat old-fashioned clerking."
+        },
+        {
+          "t": "p",
+          "c": "It said: HENDRY STREET."
+        },
+        {
+          "t": "p",
+          "c": "I photographed it. I logged it. I did not touch it. I took the photograph down to minus eleven and put it on the counter and asked the only question that mattered."
+        },
+        {
+          "t": "p",
+          "c": "\"Are there others?\""
+        },
+        {
+          "t": "p",
+          "c": "The clerk looked at the photograph for a long time. Long enough that I understood the answer before it spoke, and long enough for me to work out that I had been assuming, for four months, that a building with a lease was a building that was unique, and that this was an assumption I had never once written down."
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Oduya,\" it said. \"How many premises do you imagine were leased in 1874?\""
+        },
+        {
+          "t": "p",
+          "c": "I went back up. I did the 05:00 walk: thirty-one landings, two basements, four risers, the roof. I logged the ficus, which is dying again, and the door closer on 22, which will outlive us all."
+        },
+        {
+          "t": "p",
+          "c": "Then I sat down in the facilities office at ten to six with a black book and a pen and wrote the only entry that has ever frightened me while I was writing it."
+        },
+        {
+          "t": "blockquote",
+          "c": "05:52. Key found taped under extinguisher bracket, B2. Not ours. Tag reads HENDRY STREET. Photographed, logged, left in place."
+        },
+        {
+          "t": "blockquote",
+          "c": "Recommendation: two caretakers required per premises. We have two. They have none."
+        },
+        {
+          "t": "blockquote",
+          "c": "I am going to Hendry Street."
+        },
+        {
+          "t": "note",
+          "c": "End of the sample series. All forty chapters are original prose written for the Offline Reader repository. Nothing here was fetched from anywhere — it ships inside the app, which is why it opens with the network off."
+        }
+      ]
+    }
+  ]
+}

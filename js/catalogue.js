@@ -939,8 +939,13 @@
         (TABS.find(function (t) { return t.id === tab; }) || {}).label || 'Series';
     }
     if (dom.addBtn) dom.addBtn.style.display = (tab === 'library') ? 'inline-flex' : 'none';
-    if (dom.count) dom.count.textContent = list.length ? list.length + (list.length === 1 ? ' series' : ' series') : '';
-    if (dom.chapterToolbar) dom.chapterToolbar.style.display = 'flex';
+    // "series" is its own plural, so there is no singular/plural branch here.
+    if (dom.count) dom.count.textContent = list.length ? list.length + ' series' : '';
+    // The home grid's toolbar — not the series-detail chapter toolbar, which
+    // belongs to a different screen and hides itself when a series has no
+    // chapters. Setting that one here left an inline display:flex behind that
+    // outlived the screen and showed a chapter jump box over an empty list.
+    if (dom.gridToolbar) dom.gridToolbar.style.display = 'flex';
 
     renderGrid(list, tab);
     renderEmpty(list, tab);
@@ -1033,9 +1038,14 @@
     });
   }
 
-  async function resumeProgress(p) {
-    const series = findSeries(p.seriesId);
+  async function resumeProgress(row) {
+    const series = findSeries(row.seriesId);
     if (!series) { toast('That series is no longer in your library.'); return; }
+    // Re-read rather than trusting the row the rail was rendered from: that row
+    // can be a boot-time snapshot, and handing a stale anchor to the reader
+    // does not merely start in the wrong place — the reader writes that anchor
+    // straight back, destroying the real furthest-read position.
+    const p = (await safeCall('getProgress', [row.seriesId], null)) || row;
     const chapter = (series.chapters || []).find(function (c) { return c.id === p.chapterId; }) ||
                     (series.chapters || [])[0];
     if (!chapter) { toast('No chapters available for ' + series.title + '.'); return; }
@@ -1476,7 +1486,7 @@
     };
   }
 
-  function chapterState(ch, orderedIdx) {
+  function chapterState(ch) {
     if (!seriesProgress || !seriesProgress.chapterId) return 'unread';
     if (ch.id === seriesProgress.chapterId) return seriesProgress.completed ? 'read' : 'reading';
     const cur = seriesProgress.chapterNum;
@@ -1510,12 +1520,12 @@
     }
 
     rows.forEach(function (r) {
-      list.appendChild(chapterRow(s, r.ch, r.idx));
+      list.appendChild(chapterRow(s, r.ch));
     });
   }
 
-  function chapterRow(s, ch, orderedIdx) {
-    const state = chapterState(ch, orderedIdx);
+  function chapterRow(s, ch) {
+    const state = chapterState(ch);
     const row = el('div', 'ch-item cat-ch-row cat-ch--' + state);
 
     const main = el('button', 'cat-ch-main');
@@ -1641,7 +1651,16 @@
 
   async function openChapter(series, chapter, opts) {
     if (!series || !chapter) return;
-    const resume = (opts && opts.resume) || null;
+    // Callers pass whatever progress row they were rendered from, which may be
+    // stale (the Continue rail, the cached seriesProgress behind the chapter
+    // list). A stale anchor is not a cosmetic problem: the reader adopts it and
+    // then writes it back, erasing the real position. The store is the truth.
+    let resume = (opts && opts.resume) || null;
+    if (resume) {
+      const fresh = await safeCall('getProgress', [series.id], null);
+      if (fresh && fresh.chapterId === chapter.id) resume = fresh;
+      else if (fresh && resume.chapterId !== chapter.id) resume = null;
+    }
     const backTo = currentSeries && currentSeries.id === series.id ? 'series-screen' : 'home-screen';
 
     window.showScreen('loading-screen');
@@ -1659,6 +1678,13 @@
     }
 
     await writeOpenProgress(series, chapter, file, resume);
+
+    // Push the reader itself, so goBack() pops the reader and lands on the
+    // screen underneath. Without this it popped 'series-screen' — the entry
+    // for the screen the reader was opened *from* — and every close went home,
+    // losing the chapter list and its scroll position.
+    pushScreen(backTo === 'series-screen' ? 'series-screen' : 'home-screen');
+    pushScreen('reader');
 
     if (file.kind === 'image' || (Array.isArray(file.pages) && file.pages.length)) {
       const resumePage = (resume && resume.chapterId === chapter.id && typeof resume.pageIdx === 'number')
@@ -1840,6 +1866,10 @@
     window.readerOrigin = 'upload';
     window.showScreen('home-screen');
     renderHome();
+    // Progress was last read at boot, so the Continue rail would otherwise show
+    // a snapshot from before anything in this session was read. Re-read and
+    // re-render; the screen is already up, so this only refreshes the rail.
+    loadProgress().then(function () { renderContinue(); }).catch(function () {});
   }
 
   function goBack() {

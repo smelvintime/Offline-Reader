@@ -1,14 +1,19 @@
-const CACHE_NAME = 'cbz-reader-v5.00';
+const CACHE_NAME = 'cbz-reader-v5.01';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './css/catalogue.css',
+  './css/novel.css',
+  './css/importer.css',
   './js/config.js',
   './js/store.js',
   './js/reader.js',
-  './js/online.js',
+  './js/novel-reader.js',
+  './js/importer.js',
+  './js/catalogue.js',
   './manifest.json',
   './icon.svg',
   './jszip.min.js',

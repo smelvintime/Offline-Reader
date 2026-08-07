@@ -11,6 +11,9 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <title>Offline Reader</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./css/catalogue.css">
+  <link rel="stylesheet" href="./css/novel.css">
+  <link rel="stylesheet" href="./css/importer.css">
 </head>
 <body>
 
@@ -203,8 +206,15 @@
     <button id="order-notice-dismiss" aria-label="Dismiss">✕</button>
   </div>
 
+  <!-- Load order is part of the contract — see docs/ARCHITECTURE.md §2.
+       config and store first (everything reads them), then the image reader,
+       then the feature modules, then the catalogue, which boots the app. -->
+  <script src="./js/config.js"></script>
+  <script src="./js/store.js"></script>
   <script src="./jszip.min.js"></script>
   <script src="./js/reader.js"></script>
-  <script src="./js/online.js"></script>
+  <script src="./js/novel-reader.js"></script>
+  <script src="./js/importer.js"></script>
+  <script src="./js/catalogue.js"></script>
 </body>
 </html>

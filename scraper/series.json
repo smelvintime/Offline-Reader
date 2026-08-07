@@ -28,6 +28,35 @@
       "enabled": true,
       "_note": "Hand-written placeholder prose. Never touches the network, so the app always has something to read."
     },
+    {
+      "source": "fixture",
+      "id": "ninth-bell",
+      "type": "lightnovel",
+      "enabled": true,
+      "_note": "Original sample serial, 24 chapters of ~1,100 words. The long-serial case: infinite scroll and 'continue reading'."
+    },
+    {
+      "source": "fixture",
+      "id": "floor-zero",
+      "type": "webnovel",
+      "enabled": true,
+      "_note": "Original sample web novel, 40 chapters of ~300 words. The short-chapter case: fast chapter-to-chapter navigation."
+    },
+    {
+      "source": "fixture",
+      "id": "still-water",
+      "type": "lightnovel",
+      "enabled": true,
+      "_note": "Original sample novel, 6 chapters of ~3,500 words. The long-chapter case: paged mode and anchor preservation."
+    },
+    {
+      "source": "fixture",
+      "id": "ashfall",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical",
+      "_note": "Original sample image series, 8 chapters x 10 committed SVG pages. The image-reader case, with no network and no hosting."
+    },
 
     {
       "source": "gutenberg",

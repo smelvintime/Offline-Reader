@@ -23,18 +23,28 @@ Contents:
 hand if you plan to run the builder again — your edits will be overwritten. Edit
 `scraper/series.json` instead and rebuild.
 
-The one thing in it that is never fetched from anywhere is
-**The Lamplighter's Almanac**, a short piece of original placeholder prose kept
-in `scraper/fixtures/lamplighter.json`. It exists so that the app always has
-something to open, even when every website it fetches from is unreachable. It is
-also the best example to copy when you want to write your own series by hand
-(§6).
+Five of the entries are never fetched from anywhere. They are **fixtures** —
+original prose and artwork written for this repository and committed alongside
+it — so the app always has something to open even when every website it fetches
+from is unreachable. Each one is shaped to exercise a different part of the
+reader:
+
+| Series | Type | Size | What it is there to test |
+| --- | --- | --- | --- |
+| The Lamplighter's Almanac | `lightnovel` | 4 ch | The smallest possible example to copy (§6) |
+| The Ninth Bell of the Meridian Gull | `lightnovel` | 24 ch, 27k words | Infinite scroll across many chapters |
+| Elevator to Floor Zero | `webnovel` | 40 ch, 12k words | Fast chapter-to-chapter navigation |
+| The Weight of Still Water | `lightnovel` | 6 ch, 21k words | Paged mode — long chapters paginate deeply |
+| Ashfall Courier | `manhwa` | 8 ch, 80 pages | The image reader, with pages drawn as SVG |
+
+Ashfall Courier's pages are hand-written SVG committed to `chapters/`, so the
+image path works with no network, no gateway, and nothing hosted anywhere.
 
 > **Note on the version committed here:** the machine that produced the current
 > `catalog.json` had no network access to `gutenberg.org`, `api.mangadex.org` or
 > `flamecomics.xyz` — the egress policy answered `HTTP 403` to every request — so
-> the committed catalogue contains the hand-written sample series only. The
-> Gutenberg, MangaDex and Flame Comics entries are configured and enabled in
+> the committed catalogue contains the fixture series only. The Gutenberg,
+> MangaDex and Flame Comics entries are configured and enabled in
 > `scraper/series.json`; running `npm run scrape` from a machine that can reach
 > those sites fills them in. Nothing was invented to paper over the gap.
 
@@ -307,6 +317,28 @@ You have two ways to do this. The first is easier and survives rebuilds.
 
 5. Run `npm run scrape`. Your series is now in the catalogue with a chapter file
    per chapter, and it will still be there after every future rebuild.
+
+#### A picture fixture (manga / manhwa)
+
+A fixture chapter that carries `"pages"` instead of `"blocks"` becomes an image
+chapter. The paths are relative to `scraper/fixtures/`, and the files are copied
+in beside the chapters exactly like the cover:
+
+```json
+{
+  "title": "Ashfall Courier",
+  "type": "manhwa",
+  "readingDirection": "vertical",
+  "chapters": [
+    { "title": "Two Hundred and Eleven Days",
+      "pages": ["ashfall/c-0001-p01.svg", "ashfall/c-0001-p02.svg"] }
+  ]
+}
+```
+
+`Ashfall Courier` is the worked example — see `scraper/fixtures/ashfall.json`
+and the SVG pages in `scraper/fixtures/ashfall/`. Any image format works; SVG is
+used there only because it stays small and readable in a git diff.
 
 ### Option B — writing catalog.json yourself
 

@@ -1,0 +1,2908 @@
+{
+  "_readme": [
+    "Hand-written sample series. Original prose written for this repository —",
+    "nothing here is scraped and nothing here is copyrighted. It never touches",
+    "the network, so the reader always has something to open.",
+    "Allowed block types: p h2 h3 h4 hr blockquote pre ul ol img note."
+  ],
+  "title": "The Weight of Still Water",
+  "altTitles": [],
+  "author": "E. H. Sarrow",
+  "artist": null,
+  "status": "completed",
+  "genres": [
+    "Literary",
+    "Historical",
+    "Mystery"
+  ],
+  "tags": [
+    "fixture",
+    "original",
+    "sample"
+  ],
+  "language": "en",
+  "cover": "still-water.cover.svg",
+  "description": "Six long chapters, each of them the better part of an hour's reading. An archivist is sent to catalogue the village of Hallowmere in the six months before a reservoir drowns it, and finds a parish register that records five deaths and a churchyard that holds three. A quiet novel about paperwork, which is to say about what a community agrees to write down. Original sample content written for this repository — deliberately heavy chapters, for testing paged mode and pagination.",
+  "chapters": [
+    {
+      "title": "One: The Commission",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "One: The Commission"
+        },
+        {
+          "t": "p",
+          "c": "The valley was to be flooded in October, and Ilse Vanterpool was given until then to write down what was in it."
+        },
+        {
+          "t": "p",
+          "c": "She drove up on the first Monday in April with the county's grey estate car full of boxes, and stopped where the new road stopped, at a gate with a Water Board sign on it, and got out to open the gate herself because there was nobody else within four miles to do it. The morning smelled of wet stone. Below her the Ashlie went down its own valley in the way rivers do when they have never been argued with, in long slow bends across a flat green floor, past a church tower, past a mill, past thirty-one roofs of grey slate, and out of sight around the shoulder of the hill where the men from the Board had built their dam."
+        },
+        {
+          "t": "p",
+          "c": "The dam was finished. That was the thing she had not been ready for. In her head the commission had a quality of the hypothetical — a valley that was going to be flooded, one day, by a dam that was going to be built — and here it was already, a wall of pale concrete across the neck of the valley with a crane on top of it and a temporary bridge and four sheds, and behind it, on the far side, nothing yet but a wet meadow and a river that did not know."
+        },
+        {
+          "t": "p",
+          "c": "She stood at the gate for some minutes and looked at it."
+        },
+        {
+          "t": "p",
+          "c": "Then she got back in the car and drove down into Hallowmere, and the road went under a beech avenue and came out at a green, and she parked outside a public house with its windows boarded and its sign taken down, and that was the beginning of it."
+        },
+        {
+          "t": "h3",
+          "c": "The scope of the work"
+        },
+        {
+          "t": "p",
+          "c": "The letter of commission ran to two pages and had been written by a man who had clearly been told to make it sound larger than it was."
+        },
+        {
+          "t": "blockquote",
+          "c": "The Contractor shall prepare a full inventory and photographic record of the fabric, contents and monuments of the parish of Hallowmere prior to inundation, together with such documentary material as may be recovered from the parish chest, the school, and other public buildings, and shall deposit the same with the County Record Office. The Contractor's attention is drawn to the Board's programme, under which the valley floor must be cleared by 30 September."
+        },
+        {
+          "t": "p",
+          "c": "Ilse had read it four times on the train down to the interview and had recognised it for what it was: a line item. Somewhere in the estimate for a dam that had cost eleven million pounds there was a figure of two thousand, four hundred pounds against the words historical record, and she was that figure, and the figure existed because a member of the county council had asked a question in the spring of the year the scheme went through, and because it is cheaper to employ an archivist for six months than to be asked the question again."
+        },
+        {
+          "t": "p",
+          "c": "She did not mind. She had spent fourteen years in a basement in the county town listing other people's papers and had long ago made her peace with being a line item; a line item is a thing that gets done."
+        },
+        {
+          "t": "p",
+          "c": "What she minded, in the first week, was the size of it."
+        },
+        {
+          "t": "p",
+          "c": "They had told her there were thirty-one houses. There were thirty-one houses, and a church, and a chapel, and a school, and a mill with a wheel in it, and a smithy that had not been a smithy since before the war and was full of the smith's grandson's furniture, and a village hall with a stage and a piano and forty-one folding chairs, and a shop, and a bus shelter, and a war memorial, and eleven barns, and two hundred and six gravestones, and a Victorian pumping engine in a shed at the bottom of the lane which nobody had mentioned to her at any point and which turned out to be the only working example of its type in the country."
+        },
+        {
+          "t": "p",
+          "c": "She wrote to the Record Office at the end of the first week and asked for an assistant. They wrote back and said that there was no provision for an assistant, and enclosed, as though it were a comfort, a copy of the estimate showing the figure of two thousand, four hundred pounds."
+        },
+        {
+          "t": "h3",
+          "c": "Mr. Cordell"
+        },
+        {
+          "t": "p",
+          "c": "The Board's resident engineer was called Hollis Cordell and he came to find her on the Thursday, in the church, where she was on her knees with a tape measure and a torch trying to establish whether a stone in the chancel floor was a slab or a ledger."
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Vanterpool? Cordell. I'm told I have to be nice to you.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Told by whom?\""
+        },
+        {
+          "t": "p",
+          "c": "\"By the Board's solicitor, who says you have a statutory right to be here, and by my wife, who says you're doing the only decent part of this whole job.\" He was a heavy, tired man of about fifty in a good coat and terrible boots. \"I've brought you the keys to the school and the hall, and a list of the properties we've already stripped, and I would like to say one thing before you decide what you think of me.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Go on.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I have flooded two valleys. This is my third. In the first one, in the fifties, the Board took the view that a village which is going to be under ninety feet of water does not need to be recorded, and they cleared it in eleven weeks, and there is now not one photograph of the inside of any building in that place, and I have thought about it every year since.\" He put the keys on the pew. \"So take what you want. Take the doors off if you want. If anybody from my office tells you that you cannot go into a building, send them to me.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse got up off her knees."
+        },
+        {
+          "t": "p",
+          "c": "\"Thank you,\" she said. \"May I ask what the programme actually is? I have been told October.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The gates close on the first of October, weather allowing. After that the water comes up at about a foot a week for the first month, faster after, and the floor of the valley is under by Christmas and the church tower goes under in the spring.\" He said it without any particular emotion, the way a man says a timetable he has said many times. \"There are three things that must happen before the gates close, Miss Vanterpool, and I want you to know all three now rather than in August.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Please.\""
+        },
+        {
+          "t": "p",
+          "c": "\"One. Every building on the valley floor must be demolished to below the level of the future water. That is not vandalism, whatever they write in the newspapers; a floating roof timber is a hazard to a dam. Two. The graves must be moved.\" He looked at the floor of the chancel. \"All of them. Two hundred and six stones and whatever is under them, to the new ground at Culverton. That is a licence job and it starts in July.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And three?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Three,\" said Cordell, \"is Mr. Pike.\""
+        },
+        {
+          "t": "h3",
+          "c": "The village, before"
+        },
+        {
+          "t": "p",
+          "c": "It is worth setting down what Hallowmere was, because in six months it was not going to be anything, and because the whole of what follows depends on it having been a real place with a real number of people in it."
+        },
+        {
+          "t": "p",
+          "c": "Two hundred and forty souls in 1940. Thirty-one houses on the valley floor and eleven more up the sides, of which nine were farms. A church, a chapel, a school, a mill, a shop with a post office counter in it, a public house called the Ashlie Arms, a village hall built by subscription in 1922 as a war memorial and used four nights a week ever since."
+        },
+        {
+          "t": "p",
+          "c": "By the year the scheme went through there were sixty-one people. By the spring Ilse came there was one."
+        },
+        {
+          "t": "p",
+          "c": "That is not the dam's fault, or not entirely. The county's own figures showed the population halving between 1931 and 1961, before anybody had drawn a line on a map, for the reasons every upland parish in the country halved: the milk price, the buses, the pull of the towns, and the simple fact that a young man who has seen somewhere else will generally go there. The dam did not kill Hallowmere. The dam arrived at the bedside."
+        },
+        {
+          "t": "p",
+          "c": "Ilse thought about this a great deal in her first fortnight and eventually wrote a paragraph about it in her interim report, which the Board's solicitor asked her to remove on the grounds that it was editorial. She removed it from the report and kept it in the file, with a note recording that it had been removed and by whom, which is what you do."
+        },
+        {
+          "t": "h3",
+          "c": "Mr. Pike"
+        },
+        {
+          "t": "p",
+          "c": "Every drowned valley has one and Hallowmere's was Emrys Pike, sixty-five years old, of Ford Cottage, the last inhabitant, who had refused the Board's offer four times and had refused the Board's improved offer twice and had told the Board's land agent, in writing, that he would be at home."
+        },
+        {
+          "t": "p",
+          "c": "He kept bees. That was the first thing Ilse learned about him, from Cordell, and it turned out to be the most useful thing anybody ever told her, because Emrys Pike would not discuss the valley or the dam or the compensation or the law, but he would discuss bees at any hour of the day or night with any person who asked, and he could not stop himself, and this was the crack in him through which everything else eventually came."
+        },
+        {
+          "t": "p",
+          "c": "She went to Ford Cottage on the Friday of the first week with a notebook and no plan."
+        },
+        {
+          "t": "p",
+          "c": "It was the last house on the lane, past the mill, with the river on one side and eleven hives on the other in a row facing south-east, and the door was open, and a man was sitting at a table under the window writing in a ledger with a fountain pen."
+        },
+        {
+          "t": "p",
+          "c": "\"You'll be the record woman,\" he said, without looking up."
+        },
+        {
+          "t": "p",
+          "c": "\"Ilse Vanterpool.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know. Cordell told me. You've been in the church all week measuring the floor.\" He finished a line and blotted it. \"You'll want to record my house.\""
+        },
+        {
+          "t": "p",
+          "c": "\"If you'll let me. Not today.\""
+        },
+        {
+          "t": "p",
+          "c": "That got her a look. He had a long face, badly shaved, and very pale eyes, and something about the way he sat — squared to the table, both forearms on it — reminded her powerfully of somebody and she could not think who."
+        },
+        {
+          "t": "p",
+          "c": "\"Why not today?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because today I want to ask you about the bees,\" said Ilse, \"and I have been told that if I ask you about the bees I will not get away before dark, and I have four hours of daylight and a church to finish.\""
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike put down his pen."
+        },
+        {
+          "t": "p",
+          "c": "\"Sit down,\" he said. \"You'll have tea. It's got to be tea, I've no coffee, and the milk's tinned.\""
+        },
+        {
+          "t": "p",
+          "c": "She was there until nine."
+        },
+        {
+          "t": "h3",
+          "c": "What the bees were for"
+        },
+        {
+          "t": "p",
+          "c": "He kept eleven stocks and had kept bees since he was thirteen. He told her the whole management of them in the order a beekeeper thinks of things, which is not the order anybody else would use: the spring build-up first, then swarming, then the summer flow off the lime trees on the drive at Ashe House, then the heather in August up on the top, which is what the valley bees were famous for, then the winter feed and the mouse guards and the long anxious months of not knowing."
+        },
+        {
+          "t": "p",
+          "c": "At about seven o'clock, over the third pot of tea, Ilse asked the question she had been holding since four."
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Pike. What happens to them in October?\""
+        },
+        {
+          "t": "p",
+          "c": "The room went quiet in a way rooms do."
+        },
+        {
+          "t": "p",
+          "c": "\"They'll go up to Culverton,\" he said. \"There's a field. It's arranged.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And you?\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'll go where the bees go.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I was told you'd refused four offers.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I have refused four offers,\" said Emrys Pike, \"and I will refuse the next four, and when the water is over the doorstep I will get into the van with the hives and I will drive to Culverton, and everybody will say, well, he came round in the end, and everybody will be wrong.\" He turned the ledger on the table so that it faced her: a beekeeper's record, hive by hive, year by year, in a hand that had not changed in thirty years. \"You're an archivist. You'll understand this and Cordell won't. It isn't the house. It isn't the land. It's that when I go up to Culverton I stop being from here, and being from here is the only thing about me that has ever been true.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse looked at the ledger."
+        },
+        {
+          "t": "p",
+          "c": "Hive 1. Hive 2. Swarm taken from the ash, 12 May. Requeened 3 June, dark queen, own stock. Fed 14 lb, 20 September."
+        },
+        {
+          "t": "p",
+          "c": "Forty years of a man writing down small facts because they were his."
+        },
+        {
+          "t": "p",
+          "c": "\"That,\" she said, \"is more or less the definition of my profession, Mr. Pike.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Aye. Well.\" He shut the ledger. \"That's why I've let you sit here for five hours.\""
+        },
+        {
+          "t": "h3",
+          "c": "The parish chest"
+        },
+        {
+          "t": "p",
+          "c": "The church of St. Ivo at Hallowmere is a small building of no particular architectural distinction, with a fifteenth-century tower, a nave rebuilt in 1837 after a fire, and a chancel which is the oldest part and which has a stone floor of ledger slabs, of which Ilse eventually catalogued nineteen."
+        },
+        {
+          "t": "p",
+          "c": "On the wall of the nave, above the door, there is a painted board of the eighteenth century recording a bequest, and Ilse copied it out on her second morning because painted boards are always the first thing to go when a building is stripped and nobody ever thinks to record them:"
+        },
+        {
+          "t": "pre",
+          "c": "GIVEN BY MR. JOHN AYNSCOMBE OF THIS PARISH\nANNO 1741\nThe rent of four acres called Long Meadow\nfor bread to be laid on this table\nevery Sunday for ever\nand for the teaching of four poor children\nof Hallowmere to read."
+        },
+        {
+          "t": "p",
+          "c": "Long Meadow is under the reservoir. There has been no bread on that table since 1913, when the charity was consolidated by the Commissioners into a fund that now pays for a book prize at a comprehensive school eleven miles away, and Ilse traced the whole chain of it in September and put a note of it in the finding aid, and that note is the only reason anybody now knows why the prize is called the Aynscombe."
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "The parish chest was in the vestry: an iron-bound oak box of the seventeenth century, four feet long, with three locks and one key, which meant that the other two had been forced at some point in the past and nobody had ever mentioned it."
+        },
+        {
+          "t": "p",
+          "c": "She opened it on the Monday of the second week, alone, in the cold, with a torch in her teeth, and this is what was in it, and she listed it that evening in her working notebook exactly as follows:"
+        },
+        {
+          "t": "ol",
+          "items": [
+            "Register of baptisms, marriages and burials, 1561-1699. Vellum, limp binding, water damage to first eleven leaves.",
+            "Register of baptisms, 1700-1812; register of marriages 1754-1812; register of burials 1700-1812. Three volumes, calf.",
+            "Registers of baptisms, marriages and burials, printed forms, 1813 to date. Eleven volumes.",
+            "Churchwardens' accounts, 1699-1841. Two volumes.",
+            "Vestry minute book, 1786-1894.",
+            "Overseers of the poor, accounts and settlement examinations, 1698-1834. Bundle, string-tied, damp.",
+            "Burial fee book, 1871 to date.",
+            "Plan of the churchyard, showing numbered plots, on linen, undated, annotated in three hands.",
+            "Faculty papers, 1837 rebuilding.",
+            "Sundry: two bundles of unsorted correspondence, a box of parish magazines, a tin of collection counting slips, an unopened bottle of communion wine, and a mousetrap."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "It was, she wrote in her notebook that night, a good chest. She meant it as a professional judgement and it was the highest praise she had."
+        },
+        {
+          "t": "p",
+          "c": "She began work on the registers on the Tuesday and it took her the rest of April, and it was in that fortnight, without noticing that she had noticed it, that she first went past the thing that afterwards took over her life."
+        },
+        {
+          "t": "h3",
+          "c": "February 1942"
+        },
+        {
+          "t": "p",
+          "c": "The burial register in use during the war is the eleventh of the printed-form volumes, and it covers 1924 to 1961, and it is unremarkable in every way except one."
+        },
+        {
+          "t": "p",
+          "c": "Between the twelfth and the twenty-second of February 1942, in a village of two hundred and forty souls, the rector recorded five burials, all of them children, all of them between the ages of six and twelve."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 411. Rhys, Marta. Age 11. Abode: Hallowmere. Buried 14 February 1942. By me, T. J. Ammons, Rector."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 412. Pike, Emrys. Age 12. Abode: Hallowmere. Buried 14 February 1942. By me, T. J. Ammons, Rector."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 413. Callow, Grace. Age 6. Abode: Hallowmere. Buried 17 February 1942. By me, T. J. Ammons, Rector."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 414. Braith, Nell. Age 10. Abode: Ferrisport, evacuated. Buried 21 February 1942. By me, T. J. Ammons, Rector."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 415. Braith, Tomas. Age 12. Abode: Ferrisport, evacuated. Buried 21 February 1942. By me, T. J. Ammons, Rector."
+        },
+        {
+          "t": "p",
+          "c": "Five children in nine days."
+        },
+        {
+          "t": "p",
+          "c": "Ilse read it, and copied it, and made a note in the margin of her working sheet — diphtheria? check newspapers, MOH reports — and went on to the next page, because she had four hundred and eleven entries to transcribe and six months to do everything in, and because a rural parish losing five children to an epidemic in the winter of 1942 is a sad thing but not a strange one."
+        },
+        {
+          "t": "p",
+          "c": "It sat in her, though."
+        },
+        {
+          "t": "p",
+          "c": "It sat in her for eleven days, in the way a wrong note sits in a piece of music you are not listening to closely, and it came up out of her on the last Friday in April, in the church, at four in the afternoon, when she had finished the registers and had begun on the plan of the churchyard."
+        },
+        {
+          "t": "p",
+          "c": "The plan is on linen, about three feet by two, and shows the churchyard divided into numbered plots, and it has been annotated by at least three different people over what she later established was a period of about ninety years. It is not a complete record. Nobody ever kept a complete record. But it is good, and it is careful, and where a burial is known the plot carries a number that keys to the burial register."
+        },
+        {
+          "t": "p",
+          "c": "She found 413, Grace Callow, in the south-east corner, under the yew, with her plot number in a hand of the 1940s."
+        },
+        {
+          "t": "p",
+          "c": "She found 411 and 412, Marta Rhys and Emrys Pike, side by side in the same corner, in the same hand."
+        },
+        {
+          "t": "p",
+          "c": "She looked for 414 and 415 for two hours, and they were not there."
+        },
+        {
+          "t": "p",
+          "c": "She went out into the churchyard with the plan and a torch as the light went, and she walked the south-east corner in the wet grass, and she found the yew, and she found Grace Callow's small stone, and beside it two smaller stones with no names on them at all, only initials and a date, M.R. and E.P., 1942."
+        },
+        {
+          "t": "p",
+          "c": "Three graves."
+        },
+        {
+          "t": "p",
+          "c": "And in the register, five children."
+        },
+        {
+          "t": "h3",
+          "c": "Ilse"
+        },
+        {
+          "t": "p",
+          "c": "She went back to the caravan the Board had lent her, which stood on the hard-standing behind the village hall and which she had come to be fond of, and she made her supper, and she sat with the transcription in front of her and did not eat it."
+        },
+        {
+          "t": "p",
+          "c": "It is worth saying, here, what sort of person she was, because everything that follows turns on it."
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool was thirty-nine. She had been an archivist for fourteen years and an assistant archivist for four before that. She was unmarried and had been engaged once, briefly, at twenty-six, to a man who had wanted her to be less exacting, and she had ended it herself, and had never seriously regretted it, and had noticed that she had never seriously regretted it, and had wondered what that said about her."
+        },
+        {
+          "t": "p",
+          "c": "She was good at her work in a specific way: she was not a historian, and did not want to be. Historians want to know what happened. Ilse wanted to know what was written down, and by whom, and when, and what had been done to the paper since. She had a professional distrust of narrative and a professional love of discrepancy. She believed, in the plain way that other people believe in a religion, that a record honestly kept is the only defence an ordinary person has against being rewritten by whoever comes after them."
+        },
+        {
+          "t": "p",
+          "c": "And her mother had died the previous winter, in a nursing home in the county town, of a slow illness, at the age of sixty-two."
+        },
+        {
+          "t": "p",
+          "c": "Her mother's name had been Marta."
+        },
+        {
+          "t": "p",
+          "c": "Ilse had known that for thirty-nine years and had not thought about it at all, at the moment she copied out entry number 411, because Marta is a common enough name in that part of the country and because a woman who dies in a nursing home at sixty-two cannot have been buried at eleven years old in a valley she never once mentioned."
+        },
+        {
+          "t": "p",
+          "c": "It came to her that evening in the caravan, with the paraffin heater ticking, and it came in the sideways manner such things do: not as a thought but as a small physical sensation, a lifting, as though the floor had gone briefly soft."
+        },
+        {
+          "t": "p",
+          "c": "She wrote it down at once, because that is what she was."
+        },
+        {
+          "t": "blockquote",
+          "c": "25 April. Note. Burial register 1924-61 records five child burials 12-22 Feb 1942. Churchyard plan and stones account for three (Callow 6, and two marked only M.R. and E.P.). The two Braith children (evacuees, Ferrisport) are not on the plan and have no stone. Possible: separate plot, unrecorded; possible: bodies returned to Ferrisport for burial, in which case the entry should not be in this register at all."
+        },
+        {
+          "t": "blockquote",
+          "c": "Note also, for my own sake and with no evidential value whatever: my mother was born in 1931, was evacuated from a city in 1940 with her school, would not speak about it, and was called Marta."
+        },
+        {
+          "t": "p",
+          "c": "She looked at what she had written for a while."
+        },
+        {
+          "t": "p",
+          "c": "Then she added one more line, in the way she had been taught, when a record raises a question that the record cannot answer:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Query. Not resolved. To be revisited."
+        },
+        {
+          "t": "p",
+          "c": "She did not sleep much. At about two she got up and made tea and stood in the door of the caravan in her coat, looking down the valley at the one light burning in it, which was a beekeeper's window a quarter of a mile away, where a man of sixty-five who could not leave was sitting up with the ledger he had kept for forty years."
+        },
+        {
+          "t": "p",
+          "c": "She thought: that is a man whose name is on a gravestone under the yew."
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike, aged twelve, buried the fourteenth of February 1942."
+        },
+        {
+          "t": "p",
+          "c": "And in the morning she went down and asked him about swarm control, and did not ask him about anything else at all, for another five weeks."
+        },
+        {
+          "t": "note",
+          "c": "Sample content. This series is original prose written for the Offline Reader repository. Its chapters are deliberately long — three to four thousand words each — so that paged reading mode has something substantial to paginate."
+        }
+      ]
+    },
+    {
+      "title": "Two: An Inventory of Small Things",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "Two: An Inventory of Small Things"
+        },
+        {
+          "t": "p",
+          "c": "May was the month of the houses, and the houses nearly finished her."
+        },
+        {
+          "t": "p",
+          "c": "There is a way of doing this work that is taught, and Ilse had taught it herself to four trainees, and it goes as follows. You do not begin by looking. Looking is the enemy. If you walk into a room and look at it you will see the interesting things, and you will record the interesting things, and thirty years later somebody will want to know what the ordinary things were and you will have failed them."
+        },
+        {
+          "t": "p",
+          "c": "So you begin at the door and you go clockwise. You record every wall, every fitting, every object, in the order it comes, whether or not it is worth recording, and you photograph each wall from the opposite corner, and you write the number of the exposure in the notebook beside the entry, and you do not skip a shelf because it is only jam jars. Especially not because it is only jam jars."
+        },
+        {
+          "t": "p",
+          "c": "Ilse did thirty-one houses in five weeks that way, alone, from half past seven in the morning until the light went."
+        },
+        {
+          "t": "p",
+          "c": "She found, among other things:"
+        },
+        {
+          "t": "ul",
+          "items": [
+            "A complete set of harness for a heavy horse, hanging in a stable, oiled within the last two years, in a village where the last working horse had gone in 1958.",
+            "Forty-one folding chairs in the village hall, of which thirty-nine were the same pattern and two were not, and the two had been repaired with brass plates by somebody who cared.",
+            "A cupboard under a stair containing nine hundred glass photographic negatives, quarter plate, unlabelled, which turned out to be the life's work of a Mr. Aled Stammers, blacksmith and photographer, between about 1898 and 1931, and which she got out of the valley in eleven boxes and which are now the most consulted collection in the county.",
+            "In the shop, behind the counter, a ledger of credit given, running from 1936 to 1971, with running balances for every household in the village, never once totalled, never once chased.",
+            "A mousetrap in the parish chest, empty, and a mousetrap in the school, occupied."
+          ]
+        },
+        {
+          "t": "p",
+          "c": "She got into a rhythm and the rhythm carried her, and by the end of the third week she had stopped noticing that she was living alone in a condemned valley and had started to be irritated when anybody interrupted her."
+        },
+        {
+          "t": "p",
+          "c": "Cordell interrupted her on the twelfth of May."
+        },
+        {
+          "t": "h3",
+          "c": "The programme"
+        },
+        {
+          "t": "p",
+          "c": "\"They've brought the grave licence forward,\" he said. \"July the second. I'm sorry. It was August.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse put down the tape measure. They were in the chapel, which was Baptist, and severe, and had been closed since 1969, and which she had been recording for two hours in the cold."
+        },
+        {
+          "t": "p",
+          "c": "\"Why?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because the contractor who does exhumations is a specialist and there are four of them in the country and one of them has gone bankrupt, so everybody's programme has moved.\" He said it heavily. \"It's eleven weeks of work. Two hundred and six stones, and every one has to be lifted, recorded, moved and re-erected at Culverton, and everything under them has to be taken up and reinterred, and there is a licence and a procedure and a diocesan man who comes and stands there.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'll need to have finished the churchyard survey before they start.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You'll need to have finished it by the twenty-eighth of June.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse looked at her list. She had the church, the chapel, the school, the mill, the hall, the smithy, the pumping engine, eleven barns, and two hundred and six gravestones, and it was the twelfth of May."
+        },
+        {
+          "t": "p",
+          "c": "\"Then I will finish it by the twenty-eighth of June,\" she said."
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Vanterpool—\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Cordell, when I was twenty-four I catalogued the papers of an estate office that had burned in a fire, wet, in a barn, in February, in six weeks, and this is a churchyard in June.\" She picked the tape measure up again. \"I would like one thing, though, and it is not an assistant.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Ask.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The Board's photographs of the valley. The survey ones, from before the scheme. Aerial, if there are any.\""
+        },
+        {
+          "t": "p",
+          "c": "\"There are. Nineteen-sixty-six, for the reservoir design. Why?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because I have a churchyard plan on linen that shows plots and a churchyard on the ground that shows stones, and the two do not entirely agree,\" said Ilse, \"and I would like a third thing that agrees with neither, so I can find out which of them is lying.\""
+        },
+        {
+          "t": "h3",
+          "c": "The school"
+        },
+        {
+          "t": "p",
+          "c": "The school at Hallowmere closed in 1963, when the roll fell to nine, and the building had been used since as a store for the village hall, which meant that everything in it was still in it, under thirty years of other things."
+        },
+        {
+          "t": "p",
+          "c": "She began on it on the fifteenth of May and it took eleven days and it changed the shape of the whole commission."
+        },
+        {
+          "t": "p",
+          "c": "A village school of that period keeps four kinds of record and Hallowmere had all four. There was an admission register, which lists every child admitted, with date of birth, name of parent, previous school and date of leaving. There was an attendance register, weekly, in printed columns. There was a punishment book, which she read with a sort of dismal fascination and which recorded, over sixty years, a remarkably consistent local view about what a boy might reasonably be hit for. And there was a log book."
+        },
+        {
+          "t": "p",
+          "c": "The log book is the thing. Every school kept one, by law, and the head teacher was required to enter in it the events of the school's life — closures, epidemics, visits by inspectors, notable weather — and to enter nothing else. What that produces, over ninety years, is the single best account of a village that exists anywhere, written by the one person in it whose job was to be exact."
+        },
+        {
+          "t": "p",
+          "c": "Hallowmere's log book runs from 1875 to 1963 in three volumes, and the second volume covers the war."
+        },
+        {
+          "t": "p",
+          "c": "Ilse read it in the caravan over four evenings."
+        },
+        {
+          "t": "blockquote",
+          "c": "3 September 1940. School reopened after summer. Roll 38."
+        },
+        {
+          "t": "blockquote",
+          "c": "14 September 1940. Notification received from the county that this school will receive evacuated children from Ferrisport, with their teacher, Miss A. Prosser. Accommodation to be found. Roll from Monday 79."
+        },
+        {
+          "t": "blockquote",
+          "c": "16 September 1940. Forty-one children arrived by bus at 2 p.m. with Miss Prosser. All were billeted by 6 p.m. except two, who slept at the schoolhouse. Roll 79."
+        },
+        {
+          "t": "blockquote",
+          "c": "17 September 1940. Two shifts instituted, Hallowmere children in the morning, Ferrisport children in the afternoon, on the advice of the county. This is not satisfactory and I shall say so."
+        },
+        {
+          "t": "p",
+          "c": "Forty-one children arrived."
+        },
+        {
+          "t": "p",
+          "c": "Ilse went back to the admission register and counted the Ferrisport admissions of September 1940, and there were thirty-nine."
+        },
+        {
+          "t": "p",
+          "c": "She counted them again in the morning, when she was fresh, and there were thirty-nine, and she wrote them out in a list with their dates of birth and their parents' names and the Ferrisport school they had come from, and thirty-nine is what there were."
+        },
+        {
+          "t": "p",
+          "c": "Then she went through the attendance register for the autumn term of 1940 and counted the names in the Ferrisport columns, and there were forty-one, and the two extra were N. Braith and T. Braith, and they appear in the attendance register every week from the twentieth of September 1940, and they never appear in the admission register at all."
+        },
+        {
+          "t": "p",
+          "c": "She sat back."
+        },
+        {
+          "t": "p",
+          "c": "An admission register is the formal document; it goes to the county and it is what a school is funded on. An attendance register is the working document; it is filled in twice a day by a teacher who has thirty-nine or forty-one children in front of her and no time to be political about it."
+        },
+        {
+          "t": "p",
+          "c": "The two extra children were in the room. They were simply not on the paper that mattered."
+        },
+        {
+          "t": "h3",
+          "c": "Miss Prosser"
+        },
+        {
+          "t": "p",
+          "c": "She read the log book to the end of the war that night with the paraffin heater ticking and the valley black outside, and afterwards she could not have said whether what she felt was excitement or shame, because both of them feel identical at one in the morning."
+        },
+        {
+          "t": "blockquote",
+          "c": "2 October 1940. Miss Prosser has asked whether two of her children may be entered on the attendance register only, their papers having been lost in the raid of 26 August. I have entered them. The county may make of it what it wishes."
+        },
+        {
+          "t": "blockquote",
+          "c": "11 November 1940. Miss Prosser has been three times to the billeting officer about the Braith children and has come back three times with nothing. She is a formidable woman and I would not care to be the billeting officer."
+        },
+        {
+          "t": "blockquote",
+          "c": "19 December 1940. Christmas concert. The Ferrisport children sang. Mrs. Ammons at the piano. Nell Braith spoke a piece and was very good."
+        },
+        {
+          "t": "p",
+          "c": "And then, more than a year later, in a different ink and a noticeably worse hand:"
+        },
+        {
+          "t": "blockquote",
+          "c": "12 February 1942. School closed by order of the Medical Officer of Health, diphtheria having been confirmed in the village. Six cases. I have sent the children home with instructions."
+        },
+        {
+          "t": "blockquote",
+          "c": "23 February 1942. School reopened. Roll 71. We have lost five."
+        },
+        {
+          "t": "blockquote",
+          "c": "24 February 1942. Nothing to record."
+        },
+        {
+          "t": "blockquote",
+          "c": "25 February 1942. Nothing to record."
+        },
+        {
+          "t": "blockquote",
+          "c": "26 February 1942. Nothing to record."
+        },
+        {
+          "t": "p",
+          "c": "Four words, three times, in a book whose entire purpose was to record."
+        },
+        {
+          "t": "p",
+          "c": "Ilse had read enough log books to know that a head teacher writes nothing to record about a week in which nothing happens, and does not write it about the week after five of her children have been buried, and that these three entries were the sound of a woman sitting at a desk with a pen and being unable to do her job."
+        },
+        {
+          "t": "p",
+          "c": "She wrote in her notebook:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Log book, 12-26 Feb 1942. Five deaths confirmed from the school's side. Consistent with register. Note however: log book says six cases and five deaths, which is an extraordinary case fatality rate for diphtheria in 1942, when antitoxin was available and the MOH would have been on it within a day. Check MOH annual report, county archive. Check newspapers. Check death certificates at the registrar's — five certificates should exist."
+        },
+        {
+          "t": "blockquote",
+          "c": "Note also: the two Braith children appear on the attendance register from Sept 1940 and never on the admission register. Their papers were said to be lost. They are two of the five who died."
+        },
+        {
+          "t": "p",
+          "c": "She underlined the last sentence twice, which she never did, and then in the morning she was embarrassed by the underlining and did not cross it out, because crossing out is falsification."
+        },
+        {
+          "t": "h3",
+          "c": "Her mother's box"
+        },
+        {
+          "t": "p",
+          "c": "The box came on the twenty-first of May, sent up from her flat by her neighbour at her own request, and she had put off asking for it for a month."
+        },
+        {
+          "t": "p",
+          "c": "When her mother died there had been very little. A nursing home room reduces a life to what fits on two shelves. There was a wedding photograph, and a wristwatch, and a Bible she had never once seen her mother open, and a biscuit tin of documents, and four cardigans that Ilse had given to the home."
+        },
+        {
+          "t": "p",
+          "c": "She had gone through the tin in January, sitting on the floor of her flat, in the flat competent way she did everything, and had found: a marriage certificate; a birth certificate for Ilse; a rent book from 1954; three ration books; a photograph of a woman in a WVS uniform who Ilse had never identified; and her mother's own birth certificate, which recorded the birth of Marta Rhys, on the ninth of March, 1931, at Ferrisport, to Elin Rhys, no father named."
+        },
+        {
+          "t": "p",
+          "c": "She had looked at that in January and had thought: so she was illegitimate, and never said, and that explains a good deal."
+        },
+        {
+          "t": "p",
+          "c": "She looked at it again in May, in a caravan behind a village hall in a valley that was going to be flooded, and she thought something entirely different."
+        },
+        {
+          "t": "p",
+          "c": "Marta Rhys. Aged eleven in February 1942."
+        },
+        {
+          "t": "blockquote",
+          "c": "No. 411. Rhys, Marta. Age 11. Abode: Hallowmere. Buried 14 February 1942."
+        },
+        {
+          "t": "p",
+          "c": "The birth certificate in her hand was a certified copy, not an original. It had been issued — the stamp said so — in October 1949, from the register office at Ferrisport, which had been bombed in 1940, and whose records had been reconstituted after the war from whatever could be found."
+        },
+        {
+          "t": "p",
+          "c": "Ilse sat in the caravan for a long time with a paraffin heater ticking and a piece of paper in her hand and did what she had been trained to do, which is to say she wrote down exactly what she had, and exactly what it did and did not prove."
+        },
+        {
+          "t": "blockquote",
+          "c": "Certified copy of an entry of birth, issued Ferrisport 1949, for Marta Rhys, b. 9 March 1931, mother Elin Rhys."
+        },
+        {
+          "t": "blockquote",
+          "c": "Burial register Hallowmere records burial of Marta Rhys, aged 11, of Hallowmere, 14 February 1942. If b. March 1931, she would have been 10 at the date of burial, not 11."
+        },
+        {
+          "t": "blockquote",
+          "c": "These may be two different people. Rhys is a common name."
+        },
+        {
+          "t": "blockquote",
+          "c": "These may be the same person, in which case one of the two documents is false."
+        },
+        {
+          "t": "blockquote",
+          "c": "There is no version of this in which both documents are true."
+        },
+        {
+          "t": "p",
+          "c": "She read that over twice."
+        },
+        {
+          "t": "p",
+          "c": "Then she wrote, underneath, in a hand that was not as steady as she would have liked:"
+        },
+        {
+          "t": "blockquote",
+          "c": "If the burial entry is false, someone in this valley wrote a false entry in a parish register in 1942 and my mother is the reason."
+        },
+        {
+          "t": "h3",
+          "c": "What she did next"
+        },
+        {
+          "t": "p",
+          "c": "What she did next was nothing, for eleven days, which is the part she was later least able to explain to anybody."
+        },
+        {
+          "t": "p",
+          "c": "She worked. She finished the school and started the mill. She catalogued the pumping engine, and got a specialist down from the museum to look at it, and had the satisfaction of watching a man of sixty stand in a shed and say a swear word very quietly. She did four barns."
+        },
+        {
+          "t": "p",
+          "c": "She did not go to the county archive to look at the Medical Officer's report. She did not write to the registrar for the death certificates. She did not go and see Emrys Pike, whose name was on a stone under the yew, and who was eleven days older than the dead boy would have been."
+        },
+        {
+          "t": "p",
+          "c": "She thought about it constantly and she did none of it, and towards the end of that fortnight she came to understand why, and it was not pleasant."
+        },
+        {
+          "t": "p",
+          "c": "She was afraid that it was true."
+        },
+        {
+          "t": "p",
+          "c": "Not afraid of the truth in the abstract; she had spent her professional life saying, at meetings, in a level voice, that the record is the record. She was afraid, specifically, of the version of the story in which her mother's silence had been a lie rather than a wound. She had spent thirty-nine years believing that her mother did not talk about the war because the war had been terrible. If this was true, her mother had not talked about the war because her mother had been someone else, and had decided, at some point, to be Marta Rhys, and had gone on deciding it every day for forty years, including all the days when she had been sitting across a kitchen table from her own daughter."
+        },
+        {
+          "t": "p",
+          "c": "That is not a wound. That is a policy."
+        },
+        {
+          "t": "p",
+          "c": "On the second of June she woke up at four in the morning with the answer, and it was so simple that she laughed out loud in the dark."
+        },
+        {
+          "t": "p",
+          "c": "She did not have to decide anything. She was not there as a daughter. She was there as an archivist with a statutory commission and eleven weeks to go, and there was a churchyard to survey, and a churchyard survey records every stone in the ground and what is cut on it, and the two nameless stones under the yew were part of her commission, and so was the plan, and so was the burial fee book she had not yet opened."
+        },
+        {
+          "t": "p",
+          "c": "She could do her job. Her job, done properly, would answer it."
+        },
+        {
+          "t": "p",
+          "c": "That was the moment the commission stopped being work and became something else, and she knew it at the time, and she wrote it down."
+        },
+        {
+          "t": "blockquote",
+          "c": "2 June. I have realised that the survey will answer the question whether I want it to or not. I am therefore going to do the survey properly and let it. I am recording here that I am aware of my own interest in the outcome, and that I intend to record everything I find whether or not it is convenient to me personally. If I fail to do that, this note is the evidence against me."
+        },
+        {
+          "t": "h3",
+          "c": "A swarm"
+        },
+        {
+          "t": "p",
+          "c": "There is one other thing from that fortnight and it belongs here rather than anywhere else."
+        },
+        {
+          "t": "p",
+          "c": "On the twenty-eighth of May, at about eleven in the morning, Emrys Pike's fourth stock swarmed, and Ilse — who was in the churchyard with a clipboard, working her way along the north wall — heard it before she saw it: a sound like a distant aeroplane that was in fact about nine thousand insects coming over the yew hedge at head height."
+        },
+        {
+          "t": "p",
+          "c": "She did what anybody does, which is to stand extremely still."
+        },
+        {
+          "t": "p",
+          "c": "The swarm went over her and settled in the lower branches of a damson tree at the corner of the churchyard, in a hanging brown mass the size and shape of a rugby ball, and hummed to itself."
+        },
+        {
+          "t": "p",
+          "c": "Emrys arrived four minutes later with a skep, a sheet and a pair of secateurs, walking, not running, because you do not run."
+        },
+        {
+          "t": "p",
+          "c": "\"You'll want to stand back.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'd rather stand here, if it's safe.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It's safe. A swarm's got no house to defend and a bellyful of honey; it's the mildest thing in the world.\" He spread the sheet under the branch. \"It's the only time in the year they'd let you do this to them.\""
+        },
+        {
+          "t": "p",
+          "c": "She watched him take a swarm. It is one of the four or five most extraordinary things she ever saw. He cut the branch, and lowered the whole hanging mass into the skep in one motion, and set the skep upside down on the sheet with a stone under one edge, and stood back, and within ninety seconds the bees that were still in the air were walking up the sheet and in under the rim in a wide dark stream, thousands of them, in a hurry, going in."
+        },
+        {
+          "t": "p",
+          "c": "\"How do they know?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The queen's in there. They can smell her and they can hear the ones by the door telling them.\" He wiped his hands. \"That's all a colony is, that. A great many small things agreeing about where the middle is.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse wrote that down that evening in the back of her notebook, in the section she kept for things people said. She could not have explained then why it belonged with the log book and the fee book and a certified copy of a birth certificate issued at Ferrisport in 1949."
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Pike,\" she said. \"May I ask you a dull question about your own family?\""
+        },
+        {
+          "t": "p",
+          "c": "The change in him was very small and very fast, and she saw it because she had been watching him take a swarm and was therefore watching him closely."
+        },
+        {
+          "t": "p",
+          "c": "\"I'm not a family man.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No, I mean historically. For the record. There's a Pike child buried under the yew in 1942 with initials on the stone and no name. If it's a relation I'd want to record the relationship correctly.\""
+        },
+        {
+          "t": "p",
+          "c": "He picked up the skep. He was careful with it; you are, with nine thousand of anything."
+        },
+        {
+          "t": "p",
+          "c": "\"That's my brother,\" said Emrys Pike, and walked away down the lane."
+        },
+        {
+          "t": "p",
+          "c": "Ilse stood in the churchyard with a clipboard."
+        },
+        {
+          "t": "p",
+          "c": "She had been an archivist for fourteen years and she knew exactly one thing about that answer, which was that a man who has a brother buried under a yew says my brother, and a man who does not have a brother buried under a yew says that's my brother, in the way you say the name of a thing you have practised saying."
+        },
+        {
+          "t": "p",
+          "c": "She went back to the north wall and recorded eleven more stones before the light went, and her handwriting on that page is noticeably worse than on the pages either side of it, which is the sort of thing she would have noticed in somebody else's records at once."
+        },
+        {
+          "t": "h3",
+          "c": "The fee book"
+        },
+        {
+          "t": "p",
+          "c": "The burial fee book is a small red ledger, 1871 to date, and it records what was paid, by whom, for what, at every burial in the parish for a hundred years."
+        },
+        {
+          "t": "p",
+          "c": "It is the least glamorous document in any parish chest and it is very frequently the most useful, because a register records what happened and a fee book records what somebody paid for, and money is much harder to falsify than sentiment."
+        },
+        {
+          "t": "p",
+          "c": "Ilse opened it on the evening of the second of June and turned to February 1942 and found this:"
+        },
+        {
+          "t": "blockquote",
+          "c": "14 Feb. Rhys (child). Grave, 12s 6d. Paid by parish."
+        },
+        {
+          "t": "blockquote",
+          "c": "14 Feb. Pike (child). Grave, 12s 6d. Paid, R. Pike."
+        },
+        {
+          "t": "blockquote",
+          "c": "17 Feb. Callow (child). Grave, 12s 6d. Paid, J. Callow."
+        },
+        {
+          "t": "blockquote",
+          "c": "21 Feb. Braith (2 children). Nil."
+        },
+        {
+          "t": "blockquote",
+          "c": "21 Feb. Braith. Nil."
+        },
+        {
+          "t": "p",
+          "c": "Nil."
+        },
+        {
+          "t": "p",
+          "c": "Not paid by parish, which is what is written when a family cannot pay and the parish stands the cost, as it had done nine days earlier for the Rhys child. Not a dash, which is what the same rector wrote in 1938 when the entry did not apply."
+        },
+        {
+          "t": "p",
+          "c": "Nil, twice, in a book about money, in a hand that had written twelve shillings and sixpence three times that same fortnight."
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool sat back in a caravan in a doomed valley and understood, with the absolute clarity of a person who has spent fourteen years reading other people's accounts, that no grave had been dug on the twenty-first of February 1942, because nobody had paid the sexton to dig one, because there had been nobody to put in it."
+        }
+      ]
+    },
+    {
+      "title": "Three: The Second Register",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "Three: The Second Register"
+        },
+        {
+          "t": "p",
+          "c": "The Medical Officer of Health for the county produced an annual report every year from 1875, and the county archive holds a complete run, and on the fifth of June Ilse Vanterpool drove eleven miles down the valley and forty miles across the county to read the one for 1942."
+        },
+        {
+          "t": "p",
+          "c": "She had worked in that building for fourteen years. It was extremely strange to walk into her own searchroom as a reader, and to sign the register, and to be brought a volume by a young man called Delaney who had been her trainee two years before and who had the decency to say nothing at all except \"You're brown.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'm outdoors.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Suits you. There's a rumour you've gone native and live in a caravan.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I do live in a caravan.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Right,\" said Delaney. \"Well. Table four.\""
+        },
+        {
+          "t": "h3",
+          "c": "What the doctor wrote"
+        },
+        {
+          "t": "p",
+          "c": "The Medical Officer's report for 1942 devotes a page and a half to diphtheria, which was the great enemy of that decade and which the whole apparatus of public health had by then been trained on."
+        },
+        {
+          "t": "blockquote",
+          "c": "Diphtheria. There were in the year 61 notified cases in the county, with 4 deaths, a case fatality of 6.5 per cent, continuing the decline noted in previous years and attributable in large measure to the immunisation campaign and to the prompt administration of antitoxin."
+        },
+        {
+          "t": "blockquote",
+          "c": "An outbreak occurred at Hallowmere in February, following the admission of a case at the school. Six cases were notified. Three deaths occurred. The outbreak was contained by closure of the school and by immunisation of the remaining children of the parish, of whom 61 were immunised in the week of 16 February."
+        },
+        {
+          "t": "p",
+          "c": "Three deaths."
+        },
+        {
+          "t": "p",
+          "c": "Ilse read it four times and then sat back and looked at the ceiling of a searchroom she had worked in for fourteen years."
+        },
+        {
+          "t": "p",
+          "c": "The county's Medical Officer, a man whose entire professional function was to count diseases accurately and who would have had the notification cards on his desk within a day, recorded three deaths at Hallowmere in February 1942."
+        },
+        {
+          "t": "p",
+          "c": "The parish register recorded five burials."
+        },
+        {
+          "t": "p",
+          "c": "She copied both, exactly, with references. She ordered up the registrar's indexes and established that death certificates existed for three children in the Hallowmere sub-district in February 1942 — Rhys, Pike, Callow — and none for anyone named Braith, in that quarter or in any quarter that year, anywhere in the county."
+        },
+        {
+          "t": "p",
+          "c": "Then she ordered up the newspaper."
+        },
+        {
+          "t": "h3",
+          "c": "The Gazette"
+        },
+        {
+          "t": "p",
+          "c": "The county Gazette for the twenty-seventh of February 1942 has eleven column inches on the outbreak, under a headline that would not be permitted now, and it is the only account written at the time by anybody who was not in the village."
+        },
+        {
+          "t": "blockquote",
+          "c": "The sympathy of the whole district will go out to the parents of Hallowmere, where three children have died in an outbreak of diphtheria at the village school. Dr. Marris, the Medical Officer, told our reporter that the outbreak had been contained with commendable speed and that the co-operation of the villagers had been exemplary. The school reopened on Monday."
+        },
+        {
+          "t": "blockquote",
+          "c": "A further sadness attaches to the deaths of two evacuated children of the parish, brother and sister, who were among those affected. Their mother was killed in the raid on Ferrisport in August 1940 and no other relative has been traced. The Rector, the Rev. T. J. Ammons, conducted the funerals."
+        },
+        {
+          "t": "p",
+          "c": "There it was, in print, in a newspaper of record: five children, two of them evacuees, brother and sister, no relatives, funerals conducted."
+        },
+        {
+          "t": "p",
+          "c": "And in the Medical Officer's report, three."
+        },
+        {
+          "t": "p",
+          "c": "Ilse sat with both open in front of her and did the thing she was best at in the world, which was to stop wanting an answer and ask instead who each document was for."
+        },
+        {
+          "t": "p",
+          "c": "The Medical Officer's report is an internal, statutory, numerical document produced from notification cards for the purpose of measuring disease. Nobody reads it. It has no audience and therefore no reason to lie."
+        },
+        {
+          "t": "p",
+          "c": "The newspaper is written from what the village tells the reporter."
+        },
+        {
+          "t": "p",
+          "c": "The parish register is written by the rector."
+        },
+        {
+          "t": "p",
+          "c": "Which meant that the falsehood, if there was one, had been produced in the village and pushed outwards, and had gone out through the two channels the village controlled — its rector and its gossip — and had not gone out through the one channel it did not control, which was a doctor with a card index."
+        },
+        {
+          "t": "p",
+          "c": "She wrote in her notebook:"
+        },
+        {
+          "t": "blockquote",
+          "c": "The village told the outside world that five children died. The public health apparatus, which counts independently, recorded three. Two children were therefore removed from the world on paper only."
+        },
+        {
+          "t": "blockquote",
+          "c": "This was not done by an individual. A rector wrote a register entry, a schoolmistress made a log entry, a sexton did not dig two graves and did not charge for them, a stonemason cut two stones with initials and no names, a newspaper was told a story, and everyone in a village of two hundred and forty people knew and no one contradicted it for fifty-two years."
+        },
+        {
+          "t": "blockquote",
+          "c": "I have been thinking of this as a falsification. It is not a falsification. It is a decision."
+        },
+        {
+          "t": "h3",
+          "c": "Enid Sowerby"
+        },
+        {
+          "t": "p",
+          "c": "She found the schoolmistress's assistant on the eleventh of June, and she found her the way archivists find people, which is by not looking for a person at all but for a document with a person's name on it."
+        },
+        {
+          "t": "p",
+          "c": "The school log book named an assistant teacher, Miss E. Bowen, appointed in 1938. The county's education committee minutes recorded a Miss E. Bowen resigning her post in 1946 on her marriage — women had to, then — to a Mr. Sowerby. The county's electoral registers had a Mrs. E. Sowerby in the town from 1946 to 1981, and after 1981 nothing, which usually means death and sometimes means a home."
+        },
+        {
+          "t": "p",
+          "c": "It meant a home. Ashecroft, on the north road, and Mrs. Enid Sowerby was ninety-five, and the matron said she had very good days and very bad days, and that on a good day she would talk your ear off, and that Ilse should come on a Tuesday morning because Tuesday morning was hair."
+        },
+        {
+          "t": "p",
+          "c": "She was in a chair by a window with a rug over her knees, small and upright, with her hair freshly set and a cardigan the colour of a robin's egg."
+        },
+        {
+          "t": "p",
+          "c": "\"You're from the county,\" she said. \"They said the county. Are you here about the school?\""
+        },
+        {
+          "t": "p",
+          "c": "\"I'm here about Hallowmere, Mrs. Sowerby. I'm making the record before they flood it.\""
+        },
+        {
+          "t": "p",
+          "c": "\"They're flooding it.\""
+        },
+        {
+          "t": "p",
+          "c": "\"In October.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Well,\" said Mrs. Sowerby, and looked out of the window for a while. \"That's a thing I hoped to be dead for.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse said nothing, because there was nothing to say to that, and because she had learned early that the largest single mistake in oral history is filling a silence."
+        },
+        {
+          "t": "p",
+          "c": "\"Sit down, then,\" said Mrs. Sowerby. \"Not there. That's Marjorie's chair and she'll be difficult. What do you want to know?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Prosser,\" said Ilse."
+        },
+        {
+          "t": "p",
+          "c": "The old woman's whole face changed."
+        },
+        {
+          "t": "h3",
+          "c": "What Miss Prosser was like"
+        },
+        {
+          "t": "p",
+          "c": "\"Anwen Prosser was the finest teacher I ever saw and she frightened the life out of me for six years.\""
+        },
+        {
+          "t": "p",
+          "c": "\"How?\""
+        },
+        {
+          "t": "p",
+          "c": "\"She was thirty-four when she came up with those children and she had lost her school and her house and every one of her own papers in the raid and she had walked forty of them onto a bus and up a valley and she was not going to lose a single one of them, and God help anybody who got in the way of that. God help them.\" Mrs. Sowerby's hands moved on the rug. \"She fought the billeting officer. She fought the county. She fought Mr. Wardle at the school over the two shifts and she won, and we went to one shift by November and thirty-nine of us in a room built for twenty-eight, and it was chaos, and it was better.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Thirty-nine,\" said Ilse, carefully. \"I thought forty-one arrived.\""
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Sowerby looked at her."
+        },
+        {
+          "t": "p",
+          "c": "It was a long look, of a quality Ilse had not had directed at her before: entirely lucid, entirely aware, and calculating. Whatever else the years had taken, they had not taken the thing that assesses a stranger."
+        },
+        {
+          "t": "p",
+          "c": "\"Forty-one arrived,\" she said. \"Yes. That's right. You've read the log book.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I've read the log book.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And the admission register.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Thirty-nine.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mm.\" Mrs. Sowerby put her head back. \"Are you going to write down what I say?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Yes. That is exactly what I am going to do, and I would rather tell you that than not.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Good. The last one didn't.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse's pencil stopped."
+        },
+        {
+          "t": "p",
+          "c": "\"The last one?\""
+        },
+        {
+          "t": "p",
+          "c": "\"There was a man in about 1979, from a university, doing evacuation. Very keen. He had a machine.\" She sniffed. \"He asked me eleven questions and every one of them was the question he already had the answer to. I gave him nothing and he went away happy.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What would you have told him,\" said Ilse, \"if he had asked the right one?\""
+        },
+        {
+          "t": "h3",
+          "c": "The right question"
+        },
+        {
+          "t": "p",
+          "c": "\"Ask it, then,\" said Mrs. Sowerby. \"Go on. You've come forty miles.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse put her pencil down flat on her notebook, which she did to indicate that she was not writing, and which is a small piece of theatre she was not proud of and used perhaps four times in her career."
+        },
+        {
+          "t": "p",
+          "c": "\"Mrs. Sowerby,\" she said, \"in February 1942 three children died in Hallowmere and five were buried. Where did Nell and Tomas Braith go?\""
+        },
+        {
+          "t": "p",
+          "c": "The room was quiet. Down the corridor a trolley went past with cups on it."
+        },
+        {
+          "t": "p",
+          "c": "\"Nowhere,\" said Enid Sowerby. \"That's the answer. They went nowhere at all. They were at the school on the second of March and they were at the school for the whole of the war and Nell Braith took her scholarship in 1943 and went to the grammar in the town on the bus like the rest of them, and Tomas left at fourteen and went to Meddick's farm, and neither of them ever left this valley until they were grown, and the whole of the county knew them and not one soul asked.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Under what names?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Under their own names,\" said Mrs. Sowerby, \"which is the part that nobody has ever understood and which is why your man from the university got nothing. They didn't hide. That is not what was done. What was done was much simpler and much cleverer and it was Anwen Prosser's idea and it was the wickedest thing I have ever been part of and I would do it again this afternoon.\""
+        },
+        {
+          "t": "p",
+          "c": "She leaned forward, and her voice did not drop, because she was ninety-five and had stopped bothering with that sort of thing."
+        },
+        {
+          "t": "p",
+          "c": "\"They put the two children who died in the graves under the names of the two who were going to be taken away, and they put the two who lived into the world with the names of the two who died. That is all. Grace Callow's little brother and a boy of the Pikes went into the ground as Nell and Tomas Braith. And Nell and Tomas walked out of that school in March as Marta Rhys and Emrys Pike, and their names were on the register and their names were in the parish and their names were on two headstones in the churchyard so that anyone who ever came looking would find them dead and stop looking.\""
+        },
+        {
+          "t": "h3",
+          "c": "The reason"
+        },
+        {
+          "t": "p",
+          "c": "\"Why?\" said Ilse. Her voice sounded ordinary and she was surprised by that. \"Mrs. Sowerby. Why?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because of the letter.\""
+        },
+        {
+          "t": "p",
+          "c": "\"What letter?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The letter from the Ferrisport authority in January 1942 that said that as no relative had been traced, the two Braith children were to be transferred at the end of the school term to institutional care, and that a place had been found for the girl at a home in the west of the county and a place had been found for the boy at a training establishment, and would the billeting officer arrange it.\" Mrs. Sowerby's mouth was a hard line. \"Two different places. Four hundred miles between them, or as good as.\""
+        },
+        {
+          "t": "p",
+          "c": "\"They were going to be separated.\""
+        },
+        {
+          "t": "p",
+          "c": "\"They were going to be separated, and Anwen Prosser had promised their mother's neighbour on a pavement in Ferrisport in September 1940 that she would keep them together, and there was nothing she could do about it, because the letter was correct. That is what people don't understand about it. The letter was not cruel. The letter was correct. There was no relative, and the billet was temporary, and the authority had a duty, and a girl of eleven and a boy of thirteen were about to be sent to the two places the system had for them and that would have been that.\""
+        },
+        {
+          "t": "p",
+          "c": "\"So she—\""
+        },
+        {
+          "t": "p",
+          "c": "\"So she came to the school on a Thursday morning in February with her coat still on and she said, Enid, there are two children dead in this village this week and they are going to be buried anyway. And I said, Anwen, whatever it is you're about to say, don't say it in a school.\""
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Sowerby looked out of the window at the car park."
+        },
+        {
+          "t": "p",
+          "c": "\"She said it in the vestry that night,\" she said, \"to the rector and to Aled Stammers and to Mrs. Callow, who had buried her son on the Tuesday, and it was Mrs. Callow who said yes first. That is the thing I have carried for fifty-two years and I would like somebody to write it down properly at last. Not the teacher. Not the rector. The mother. She had put her boy in the ground on the Tuesday and on the Thursday she sat in a cold vestry and said, he can have my Robert's grave and Robert can have his name, and I'll not have another mother's children split up over a form.\""
+        },
+        {
+          "t": "h3",
+          "c": "What Ilse did with her hands"
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool sat in a chair in a nursing home on the north road for a while without doing anything at all."
+        },
+        {
+          "t": "p",
+          "c": "Then she picked up her pencil and wrote, at the top of a clean page, the date, the place, the time, and the words: Mrs. Enid Sowerby (b. Bowen), aged 95, formerly assistant teacher, Hallowmere school, 1938-46. Interview. Present: E. Sowerby, I. Vanterpool. No recording made; notes taken at the time, written up same day."
+        },
+        {
+          "t": "p",
+          "c": "And then she wrote it all down, for an hour and a quarter, and asked the questions in the order you ask them, and did not once let her hand shake on the page, because there is a discipline for this and she had it and it held."
+        },
+        {
+          "t": "p",
+          "c": "She established: the date of the vestry meeting (the nineteenth of February, a Thursday). Those present. The disposal of the real Braith records — burned in the vestry grate, which is why the admission register is short and the attendance register is not. The rector's role, which was to write the entries and to preach a sermon the following Sunday on the subject of Rahab and the spies, which Mrs. Sowerby said nobody in that church ever forgot."
+        },
+        {
+          "t": "p",
+          "c": "And the fate, afterwards, of the two children."
+        },
+        {
+          "t": "p",
+          "c": "Marta Rhys — Nell Braith — had left the valley in 1949, aged eighteen, gone to a city, married in 1953, and never come back, not once, not for any funeral."
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike — Tomas Braith — had never left it at all."
+        },
+        {
+          "t": "p",
+          "c": "\"Never?\""
+        },
+        {
+          "t": "p",
+          "c": "\"He has been over that hill to market and he has been down to the town for a doctor and he came here once in 1981 to see me because Anwen died and he wanted to hear it from somebody who'd been there.\" Mrs. Sowerby's hands were quiet on the rug now. \"But he has never left, and he cannot leave, and I would think that a woman of your trade would work out why in about four seconds.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse had worked it out in rather less than that."
+        },
+        {
+          "t": "p",
+          "c": "A man whose name is only good in one parish cannot go anywhere that asks for papers. He can hold land in that name because the land was held by a Pike and the parish knew. He can be on the electoral register because the overseer of the register was a neighbour. He can be paid for honey in cash. He cannot draw a pension, or open an account at a new bank, or take a passport, or marry, or move to a county where nobody remembers 1942, and the whole apparatus of his life is a hand-built thing that only exists inside a valley that was going to be under ninety feet of water in October."
+        },
+        {
+          "t": "p",
+          "c": "\"He'll have to go up to Culverton with everyone else,\" said Ilse."
+        },
+        {
+          "t": "p",
+          "c": "\"Yes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"They'll want a name.\""
+        },
+        {
+          "t": "h3",
+          "c": "Nell"
+        },
+        {
+          "t": "p",
+          "c": "Ilse asked one more question and it was not for the record, and she knew it was not for the record while she was asking it, and she asked it anyway."
+        },
+        {
+          "t": "p",
+          "c": "\"What was she like?\""
+        },
+        {
+          "t": "p",
+          "c": "Mrs. Sowerby did not pretend not to know which she."
+        },
+        {
+          "t": "p",
+          "c": "\"Sharp,\" she said. \"Sharp as a tack and no manners at all when she came, and why would she have any, she was a city child with a dead mother in a valley full of farmers who thought she talked funny. She fought two boys in her first fortnight and won both.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That doesn't sound like her.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No. It wouldn't.\" The old woman's eyes came round, mild and terrible. \"She stopped, you see. In March 1942 she stopped. That was the price of it and nobody had thought about the price, because we were all so pleased with ourselves for having found a way. A child who has been told that she is now somebody else, and that the whole village will hold the lie for her, and that if she ever forgets herself in front of a stranger the thing they did in the vestry is undone and everybody who helped goes to prison — that child does not fight boys in the yard any more. That child becomes extremely careful and stays extremely careful for the rest of her life.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse put her hand flat on her notebook."
+        },
+        {
+          "t": "p",
+          "c": "\"She was careful,\" she said. \"She was the most careful person I have ever known. She checked the gas twice. She kept every receipt. She would not have a photograph taken.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No,\" agreed Mrs. Sowerby. \"She wouldn't.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I thought it was the war.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It was the war.\" A pause. \"Just not the part of it you were thinking of.\""
+        },
+        {
+          "t": "p",
+          "c": "There was a long silence, and the trolley came back down the corridor the other way, and somewhere a television was on."
+        },
+        {
+          "t": "p",
+          "c": "\"Did she know?\" said Ilse. \"At eleven. Did she understand what was being done?\""
+        },
+        {
+          "t": "p",
+          "c": "\"She understood better than any of us. She was the one who said, in that vestry, that it would only work if they were buried under their own names, because a stranger looking for Nell Braith would want to see Nell Braith in the ground and would not be satisfied by two children who had never existed.\" Mrs. Sowerby shook her head slowly. \"That was an eleven-year-old. That is what a raid and a dead mother and four months of a billeting officer will make of an eleven-year-old, and if you want to know why she never came back to this valley, my dear, it is not because she was ashamed of us. It is because she thought of it, and it worked, and she had to look at those two stones every Sunday for seven years.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And she never told me.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No,\" said Enid Sowerby. \"And she never told me either, and I was in the room. She left in 1949 and she wrote to Anwen twice and then she stopped, and Anwen said, quite rightly, that this was the correct behaviour and that we should all be glad of it and that she would not be written to again.\""
+        },
+        {
+          "t": "p",
+          "c": "She reached out and put her hand, which was very light, on Ilse's wrist."
+        },
+        {
+          "t": "p",
+          "c": "\"There isn't a name for what you are to me,\" she said. \"But I taught your mother her multiplication and I am extremely pleased to have met you, and now I am going to say the thing I have been working round to for an hour, so pay attention."
+        },
+        {
+          "t": "p",
+          "c": "\"There's a dead girl called Marta Rhys who has your face, my dear, which I noticed when you walked in and which I have been waiting an hour and a half for you to mention. And there's a man of sixty-five in a cottage by a river with a dead boy's name and eleven hives of bees, and in four months the water comes, and I have been lying awake about it since the day the scheme went through.\""
+        }
+      ]
+    },
+    {
+      "title": "Four: High Water Marks",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "Four: High Water Marks"
+        },
+        {
+          "t": "p",
+          "c": "The exhumation contractors arrived on the second of July with a low-loader, a mechanical excavator with a toothless bucket, four men, a site hut and a green canvas screen on a frame, which was the item that upset the parish most and which was there for entirely decent reasons."
+        },
+        {
+          "t": "p",
+          "c": "Ilse had finished the churchyard on the twenty-sixth of June, two days inside her own deadline, having recorded two hundred and six monuments in eleven days by working until it was too dark to read a stone and then going round again with a torch at a raking angle, which is the only reliable way to read a worn inscription and which she had learned from a man in Yorkshire twenty years before."
+        },
+        {
+          "t": "p",
+          "c": "Her survey ran to four hundred and eleven pages. For each stone: plot number keyed to the linen plan; material; dimensions; type; condition; the inscription in full, with square brackets for the parts she could not read and a note of what she thought they said; a photograph from the north and one from the south; and the names, dates and ages transcribed into a separate index."
+        },
+        {
+          "t": "p",
+          "c": "She did the two nameless stones under the yew last, on the evening of the twenty-sixth, and recorded them exactly as she recorded everything else, and it took her nineteen minutes to write six lines because she kept having to stop."
+        },
+        {
+          "t": "blockquote",
+          "c": "205. Plot 41c. Headstone, local sandstone, 380 x 260 x 60mm, plain, no shoulders. Cut by hand, unskilled or hurried; letters 40mm, incised, uneven depth. Condition fair, lichen heavy on north face. Inscription in full: \"M.R. / 1942\"."
+        },
+        {
+          "t": "blockquote",
+          "c": "206. Plot 41d. As above, matching. Inscription in full: \"E.P. / 1942\". The two stones are of one stone split; the break edges correspond. Both have been re-set at some date, the packing stones being of a different sandstone from the local bed."
+        },
+        {
+          "t": "blockquote",
+          "c": "Note. Adjacent, plot 41b, is the stone of Grace Callow, d. 1942, aged 6, a bought stone of Welsh slate with a professional inscription. The contrast in workmanship between 41b and 41c/d is marked and is recorded here for the benefit of any future enquirer."
+        },
+        {
+          "t": "p",
+          "c": "That last sentence is the only thing in four hundred and eleven pages that she ever regretted, not because it was untrue but because she knew exactly what she was doing when she wrote it, which was leaving a light on for somebody."
+        },
+        {
+          "t": "h3",
+          "c": "The screen"
+        },
+        {
+          "t": "p",
+          "c": "The green canvas screen went up around the working area on the third of July, and Cordell walked her round the site at eight in the morning before the men started."
+        },
+        {
+          "t": "p",
+          "c": "\"You'll want to know the procedure.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I do.\""
+        },
+        {
+          "t": "p",
+          "c": "\"The licence requires that the operation be conducted with decency and that the remains be screened from public view at all times. There is no public, but the licence doesn't care.\" He indicated the frame. \"We work one plot at a time. The stone comes up first — it's numbered, photographed, lifted onto a pallet. Then the top is taken off with the machine down to a metre, then hand-dug. Everything recovered goes into a new casket, the casket is numbered against the plot, and it goes into the temporary store in the vestry until the transfer to Culverton at the end of the month.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And if a plot is empty?\""
+        },
+        {
+          "t": "p",
+          "c": "Cordell stopped walking."
+        },
+        {
+          "t": "p",
+          "c": "\"They're never empty,\" he said. \"Sometimes there's nothing left. In acid ground, a child from 1942 — there may be very little. But that's not empty. Empty is a different thing and it means somebody has moved something, and if we find one I have to stop work and notify the coroner and the diocese, and the whole programme goes to pieces.\""
+        },
+        {
+          "t": "p",
+          "c": "\"How likely is that?\""
+        },
+        {
+          "t": "p",
+          "c": "\"In three valleys and about nine hundred graves? Once. And that was a family who'd moved their own father in 1911 without telling anybody.\" He looked at her. \"Why?\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse had been thinking about this for eleven days and had decided on the answer, and the answer was the truth, because a lie to an engineer in July becomes a very expensive problem in September."
+        },
+        {
+          "t": "p",
+          "c": "\"Because in that corner, under the yew, there are two graves of 1942 with stones cut by hand and no names on them,\" she said, \"and the parish register says that the children in them are two evacuees, and the county Medical Officer's report for 1942 says that only three children died at Hallowmere that year, and the burial fee book records that nobody paid for those two graves to be dug.\""
+        },
+        {
+          "t": "p",
+          "c": "Cordell stood in a churchyard with his hands in his pockets and looked at the yew for some time."
+        },
+        {
+          "t": "p",
+          "c": "\"You're telling me,\" he said, \"that I am going to open two graves that may be empty.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I am telling you that I don't know what is in them, and that I would rather you heard it from me in July than from the coroner in August.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Do you have a theory?\""
+        },
+        {
+          "t": "p",
+          "c": "\"I have four documents and a witness.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That's a theory.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That,\" said Ilse, \"is considerably better than a theory, Mr. Cordell, and it is the only thing I have ever been any good at.\""
+        },
+        {
+          "t": "h3",
+          "c": "What Cordell did"
+        },
+        {
+          "t": "p",
+          "c": "He surprised her."
+        },
+        {
+          "t": "p",
+          "c": "She had expected the reaction of a man with a programme, which is the reaction she had had from every engineer, developer, solicitor and county treasurer she had dealt with in fourteen years: how long will this take, can it be done later, is it strictly necessary."
+        },
+        {
+          "t": "p",
+          "c": "Hollis Cordell took his hands out of his pockets and said, \"Then we do that corner last, in the third week, when the men are sick of it and won't gossip, and I'll do it myself with Barrett, who has been with me twenty years and does not talk. And you will be standing there with your notebook, and if there is nothing in them we will stop and I will make the notifications, and if there is something in them we will record it and go on.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Thank you.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Don't thank me. I've got a reason.\" He walked on down the path. \"In the first valley, in the fifties, when I was twenty-six and a junior engineer, we moved a churchyard in eleven weeks. And the foreman came to me one afternoon and said, there's a grave here with two in it and the register says one. And I said — \" he paused \" — I said, is it going to affect the programme.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Ah.\""
+        },
+        {
+          "t": "p",
+          "c": "\"He said no. And I said, then put it in the casket and don't tell me again.\" Cordell's face was unreadable. \"I do not know to this day who the second person was. I have thought about it for thirty-eight years. That was somebody, Miss Vanterpool, and there is now ninety feet of water over the place where I decided not to find out.\""
+        },
+        {
+          "t": "h3",
+          "c": "The billeting officer's file"
+        },
+        {
+          "t": "p",
+          "c": "Between the third and the eighth of July she found the letter, and finding it took her four days and cost the county eleven pounds in photocopying, and it is the single most important document in the whole affair."
+        },
+        {
+          "t": "p",
+          "c": "She found it where such things always are, which is not where the story is but where the money is. The billeting officer was an officer of the county, not of the parish, and an officer of the county keeps a file, and a file goes to the county archive, and the county archive had it under a reference nobody had called up since 1953: CC/EV/44, Evacuation: billeting, Ashlie valley parishes, 1939-1945."
+        },
+        {
+          "t": "p",
+          "c": "Four boxes. Mostly forms. Allowances at ten shillings and sixpence for the first child and eight and sixpence for each after. Complaints about bedding. A long and completely absorbing quarrel about a farmer at Nant who had been billeted four boys and had been using them, and which the billeting officer had dealt with in a single letter of surgical politeness that Ilse copied out for pleasure."
+        },
+        {
+          "t": "p",
+          "c": "And in the third box, in a folder marked BRAITH, N. & T. — Ferrisport, eleven documents."
+        },
+        {
+          "t": "blockquote",
+          "c": "Ferrisport County Borough, Children's Department, 14 January 1942."
+        },
+        {
+          "t": "blockquote",
+          "c": "Dear Sir,"
+        },
+        {
+          "t": "blockquote",
+          "c": "BRAITH, Nell (b. 1931) and BRAITH, Tomas (b. 1929)"
+        },
+        {
+          "t": "blockquote",
+          "c": "Further to your letter of 2 December, I have to inform you that the enquiries of this authority into the family of the above children are now concluded and that no relative has been traced who is able or willing to receive them. The mother was killed on 26 August 1940. The father is recorded as deceased 1937. No other relative is known."
+        },
+        {
+          "t": "blockquote",
+          "c": "The children are accordingly to be received into the care of this authority at the end of the current school term. A vacancy has been secured for the girl at the Ashwood Home, Marlbrook, and arrangements are in hand for the boy at the Training Establishment, Vesey Point, which as you will know takes boys from the age of thirteen."
+        },
+        {
+          "t": "blockquote",
+          "c": "I am aware that this will be unwelcome to the school and to the foster households and I am grateful for the trouble they have taken. The Committee has no discretion in the matter, the children being unaccompanied and without relatives, and it is not open to this authority to leave them in temporary billets indefinitely."
+        },
+        {
+          "t": "blockquote",
+          "c": "Would you kindly arrange for them to be presented at the Ferrisport office on 3 April 1942, with their clothing."
+        },
+        {
+          "t": "blockquote",
+          "c": "Yours faithfully, (signed) H. M. Loach, for the Children's Officer."
+        },
+        {
+          "t": "p",
+          "c": "Ilse read it three times in a searchroom and then went outside and stood in the car park for ten minutes."
+        },
+        {
+          "t": "p",
+          "c": "It is not a wicked letter. That is what she had told Cordell and it is what the document proves. It is a careful, humane, slightly weary letter written by a person who has done everything they can within a system that has run out of options, and it is signed for the Children's Officer by a clerk called Loach who probably wrote eleven of them that week."
+        },
+        {
+          "t": "p",
+          "c": "Underneath it in the folder were four letters from Anwen Prosser, and they get shorter as they go."
+        },
+        {
+          "t": "p",
+          "c": "The first, from October 1940, is four pages, and argues that the children should be entered on the school's admission register despite the loss of their papers, and cites the county's own circular."
+        },
+        {
+          "t": "p",
+          "c": "The second, from March 1941, is two pages, and proposes that a household in Hallowmere be approved as a permanent foster placement, and names the household — Mr. and Mrs. R. Pike, Ford Cottage — and encloses a reference from the rector."
+        },
+        {
+          "t": "p",
+          "c": "The third, from December 1941, is one page, and asks what has happened about the second letter."
+        },
+        {
+          "t": "p",
+          "c": "The fourth is dated the twentieth of January 1942, six days after Loach's letter, and it is three lines long."
+        },
+        {
+          "t": "blockquote",
+          "c": "Sir, I acknowledge yours of the 14th. I shall not present these children on 3 April. Yours faithfully, A. Prosser."
+        },
+        {
+          "t": "p",
+          "c": "And clipped to it, in the file, in the billeting officer's own hand, on a slip of paper, the only informal thing in four boxes:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Miss P. is a difficulty. Suggest we let the term run. Something may turn up."
+        },
+        {
+          "t": "p",
+          "c": "Something turned up on the twelfth of February in the form of a disease, and Ilse sat in a car park in the county town in July and did not know what to do with the fact that she was grateful for it."
+        },
+        {
+          "t": "h3",
+          "c": "Emrys, in July"
+        },
+        {
+          "t": "p",
+          "c": "She went to Ford Cottage on the eighth."
+        },
+        {
+          "t": "p",
+          "c": "The bees were at the heather stage of the year, or nearly; he had taken the hives up onto the top in the last week of June, which meant the cottage was quiet and the row of stands beside the river was empty, eleven pale rectangles in the flattened grass."
+        },
+        {
+          "t": "p",
+          "c": "He was in the garden with a smoker in bits on a bench."
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Vanterpool.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Pike.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You've not been down in three weeks.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I've been recording the churchyard.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Aye. I know.\" He did not look up from the smoker. \"I watched you. You were out there in the dark with a torch on the twenty-fourth.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Raking light. It's the only way to read a worn stone.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mm.\""
+        },
+        {
+          "t": "p",
+          "c": "She sat down on the wall, uninvited, which she had never done before."
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Pike, I have been to see Enid Sowerby.\""
+        },
+        {
+          "t": "p",
+          "c": "The smoker's bellows, which he had been re-leathering, went down on the bench very slowly."
+        },
+        {
+          "t": "p",
+          "c": "\"How is she?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Ninety-five and entirely herself.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That'll be right.\""
+        },
+        {
+          "t": "p",
+          "c": "\"She told me about the nineteenth of February 1942.\""
+        },
+        {
+          "t": "p",
+          "c": "For a while the only sound in that garden was the river, which was low, and a blackbird somewhere in the hedge, and Ilse made herself sit still and say nothing, which was the hardest professional thing she did all summer."
+        },
+        {
+          "t": "p",
+          "c": "\"Then you'll know my name isn't my name,\" said Emrys Pike at last."
+        },
+        {
+          "t": "p",
+          "c": "\"I know that a decision was taken in a vestry by five people, one of whom had buried her son two days earlier, and that it was taken to stop two children being separated by an authority that was acting entirely correctly, and that everybody in a village of two hundred and forty people held it for fifty-two years.\" Ilse kept her voice flat. \"I have not formed a view about your name. I am not sure it is my business to have one.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It's your business if you write it down.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Yes,\" she said. \"It is.\""
+        },
+        {
+          "t": "p",
+          "c": "He picked the bellows up again and put them down again."
+        },
+        {
+          "t": "p",
+          "c": "\"Are you going to?\""
+        },
+        {
+          "t": "h3",
+          "c": "Two words"
+        },
+        {
+          "t": "p",
+          "c": "He did not answer for a while, and when he did it was not an answer."
+        },
+        {
+          "t": "p",
+          "c": "\"You've got her way of sitting,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "\"I beg your pardon?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Straight on to the table. Both arms.\" He nodded at her. \"You've been doing it on that wall for three months and I've been not saying so since April.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse looked down at herself and found that she was sitting exactly squared to the low wall with both forearms along the top of it, which is what he did at his table under the window, which is what she had noticed about him on the first Friday in April and had been unable to place."
+        },
+        {
+          "t": "p",
+          "c": "She had been unable to place it because the person it reminded her of had done it at a kitchen table in a flat in a city for thirty-nine years, and because there is no reason on earth why a woman should recognise her own mother in a stranger's posture and every reason why she should recognise it in her own."
+        },
+        {
+          "t": "p",
+          "c": "\"That's inherited,\" she said, \"or it's learned. It isn't evidence.\""
+        },
+        {
+          "t": "p",
+          "c": "\"No,\" agreed Emrys Pike. \"It's not evidence.\""
+        },
+        {
+          "t": "p",
+          "c": "He set the bellows down on the bench and squared them up with the edge, which was another thing."
+        },
+        {
+          "t": "p",
+          "c": "\"There's two words in what you said that I've been waiting fifty-two years for somebody to get wrong,\" he said, \"and you got them right, and that's why I've told you as much as I have. You said the letter was correct. Everybody who ever half-guessed at this — and there's been four over the years, one of them a policeman in 1958 — has come at it as though there was a villain. There was no villain. There was a clerk in Ferrisport doing his job and a Committee with no discretion and a teacher with a promise she'd made on a pavement, and every one of them was right, and the thing still could not be allowed to happen.\""
+        },
+        {
+          "t": "p",
+          "c": "\"I know,\" said Ilse. \"I have the letter. I read it on Tuesday.\""
+        },
+        {
+          "t": "p",
+          "c": "That got her a look she had not had before, and which she recognised, because she had given it to people herself: the look of somebody discovering that the person opposite has read the actual document."
+        },
+        {
+          "t": "p",
+          "c": "\"You've got Loach's letter.\""
+        },
+        {
+          "t": "p",
+          "c": "\"CC/EV/44. County archive. Box three, folder marked with your sister's name. Along with four letters from Miss Prosser, the last of which is three lines long.\""
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike put his hand over his mouth and kept it there for some time."
+        },
+        {
+          "t": "p",
+          "c": "\"She never told us she'd written that,\" he said, at last. \"Not once, in forty years. She just came to the school with her coat on.\""
+        },
+        {
+          "t": "h3",
+          "c": "The question of the record"
+        },
+        {
+          "t": "p",
+          "c": "She had been asked that question, in various forms, perhaps two hundred times in fourteen years, and she had a standard answer, and she heard herself decline to use it."
+        },
+        {
+          "t": "p",
+          "c": "\"I don't know yet,\" she said."
+        },
+        {
+          "t": "p",
+          "c": "\"That's honest.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It's not a virtue. It's that I have four documents and a witness and I do not yet have the shape of the thing, and until I have the shape I will not know what the record is.\" She looked at the empty hive stands. \"Mr. Pike, may I tell you what I do know, and would you tell me if I have got any of it wrong? You may say nothing at all. It would be better for you if you said nothing at all.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Say it.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Nell and Tomas Braith came up from Ferrisport in September 1940 with Miss Prosser and thirty-nine other children. Their mother had been killed in August. Their papers were lost. Miss Prosser had them entered on the attendance register and not the admission register, and fought the billeting officer for sixteen months, and lost, and in January 1942 a letter came saying they were to be separated and institutionalised at the end of the term."
+        },
+        {
+          "t": "p",
+          "c": "\"In February, diphtheria came to the school. Three children died: Grace Callow, aged six; a Rhys child; and a Pike child. The Callow boy and the Pike boy were buried under the names Braith, and the graves were dug in the corner under the yew by somebody who did not charge for it. The rector wrote five entries. The newspaper was told five. The Medical Officer, who counts independently, recorded three, and nobody in this valley ever read the Medical Officer's report, and that is the only reason I am sitting on your wall."
+        },
+        {
+          "t": "p",
+          "c": "\"And two children walked out of that school in March 1942 with the names of two dead children of this parish and lived here in plain sight for the rest of the war.\""
+        },
+        {
+          "t": "p",
+          "c": "The blackbird went on."
+        },
+        {
+          "t": "p",
+          "c": "\"And one of them,\" said Ilse, \"was my mother.\""
+        },
+        {
+          "t": "h3",
+          "c": "Ford Cottage"
+        },
+        {
+          "t": "p",
+          "c": "She had thought about how to say it for eleven days and in the end she said it like that, badly, into the middle of a sentence about documents, and the effect on the man on the bench was not what she had prepared for at all."
+        },
+        {
+          "t": "p",
+          "c": "He did not look astonished. He looked, for a moment, almost annoyed — the expression of a man who has been given a piece of information he had worked out for himself some time ago and had hoped to be wrong about."
+        },
+        {
+          "t": "p",
+          "c": "\"Marta Rhys,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "\"Marta Vanterpool. She married in 1953. She died last November.\""
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike sat quite still on his bench in his garden by the river."
+        },
+        {
+          "t": "p",
+          "c": "\"November,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "\"The seventeenth. In a home in the county town. She had been ill for two years.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Was it hard?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The last month was.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Was she—\" He stopped, and started again, and his voice had not changed at all, which was somehow the worst part. \"Did she have people?\""
+        },
+        {
+          "t": "p",
+          "c": "\"She had me,\" said Ilse. \"She had me every day for the last four months and she talked about the weather and the food and a woman in the next room who sang, and she never once said the word Hallowmere, and I did not know there was a word to say.\""
+        },
+        {
+          "t": "p",
+          "c": "She had not known she was going to say that either."
+        },
+        {
+          "t": "p",
+          "c": "They sat."
+        },
+        {
+          "t": "p",
+          "c": "After a while Emrys Pike stood up and went into the cottage and came out with a biscuit tin, which he put on the wall beside her without a word, and went back to his bench and picked up the bellows."
+        },
+        {
+          "t": "p",
+          "c": "Inside the tin there were forty-one photographs."
+        },
+        {
+          "t": "p",
+          "c": "Quarter-plate contact prints, brown with age, and on the back of each one, in pencil, in a careful hand: a date and a list of names."
+        },
+        {
+          "t": "p",
+          "c": "Hallowmere school, 1941. Hallowmere school, 1942. The Christmas concert, 1940, the whole room, forty-one children and two teachers and a piano."
+        },
+        {
+          "t": "p",
+          "c": "And a girl of nine at the front on the left with her chin up and her hands behind her back, and on the back of the print, in pencil: Nell Braith, before."
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool held a photograph of her mother aged nine and could not see it for some time."
+        },
+        {
+          "t": "p",
+          "c": "\"Aled Stammers took them,\" said Emrys, behind her, working on the smoker. \"Blacksmith. He had a camera and he was in that vestry. He gave me the tin in 1961 when he was dying and he said: somebody will come one day and want these, and it won't be a policeman."
+        },
+        {
+          "t": "p",
+          "c": "\"He was ninety per cent sure it wouldn't be a policeman,\" said Emrys Pike. \"He wasn't a hundred.\""
+        }
+      ]
+    },
+    {
+      "title": "Five: The Removal of the Graves",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "Five: The Removal of the Graves"
+        },
+        {
+          "t": "p",
+          "c": "They opened plot 41c on the twenty-third of July, at seven in the morning, in fine weather, behind a green canvas screen, with four people present: Cordell, a foreman called Barrett, a young man from the diocese named Mr. Ubodi who had driven up from the town and who had never attended an exhumation before, and Ilse Vanterpool with a notebook."
+        },
+        {
+          "t": "p",
+          "c": "The stone had come up the day before. It was on a pallet with a number chalked on it, and it weighed, Barrett said, about eighty pounds, which is nothing, and which is why two people could have cut and set it in a night."
+        },
+        {
+          "t": "p",
+          "c": "The top eighteen inches came off with a spade rather than the machine, because the plot was small and the machine was clumsy and Cordell had decided, without saying so, that this corner was going to be done by hand."
+        },
+        {
+          "t": "p",
+          "c": "At two feet, Barrett stopped."
+        },
+        {
+          "t": "p",
+          "c": "\"Coffin fittings,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "He said it the way a man says a routine thing, and Ilse understood that she had been holding her breath since seven o'clock, and let it out, and wrote down the time."
+        },
+        {
+          "t": "h3",
+          "c": "What was in the graves"
+        },
+        {
+          "t": "p",
+          "c": "There is a decency about this that has to be respected in a written account, and the account she wrote at the time respects it, and so will this."
+        },
+        {
+          "t": "p",
+          "c": "There was a child in plot 41c."
+        },
+        {
+          "t": "p",
+          "c": "The remains were those of a young person; the coffin furniture was of a common wartime pattern, tin, ungilded; there was no plate; the soil was acid and the preservation was poor. Everything recovered was placed in a new casket, and the casket was numbered 41c, and it went into the vestry with the others, and in September it went to Culverton and was reinterred with the two hundred and five other caskets from that churchyard, and there is a stone over it now with M.R. 1942 on it, because that is what was cut on the stone that came off the top."
+        },
+        {
+          "t": "p",
+          "c": "There was a child in plot 41d also. The same in every particular."
+        },
+        {
+          "t": "p",
+          "c": "Nothing was empty. Nothing was disturbed. There was no anomaly of any kind that an exhumation contractor would have reported, and Mr. Ubodi from the diocese signed the sheet at half past eleven and drove back to the town and had, as far as Ilse could tell, an entirely ordinary day."
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "Cordell came and stood next to her while Barrett's men were backfilling."
+        },
+        {
+          "t": "p",
+          "c": "\"Well,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "\"Yes.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That's not what you expected.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It is exactly what I expected,\" said Ilse. \"It is not what I feared. Those are different, and I have been confusing them for three weeks.\""
+        },
+        {
+          "t": "p",
+          "c": "She had been standing behind a canvas screen for four and a half hours with a notebook and had written eleven lines. She looked at them."
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Cordell, may I say the obvious thing out loud, because I want a witness to it?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Go on.\""
+        },
+        {
+          "t": "p",
+          "c": "\"There is a child in each of those graves. There has been a child in each of those graves since February 1942. Whatever was done in this parish, nobody lied about there being bodies, and nobody put an empty box in the ground to make a story work. Two children died and were buried, decently, with a service, by a rector who then wrote their names down wrong on purpose.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Is that better or worse?\""
+        },
+        {
+          "t": "p",
+          "c": "\"It is enormously better,\" said Ilse, \"and I am ashamed of how relieved I am, and I intend to write that down too.\""
+        },
+        {
+          "t": "h3",
+          "c": "The parents"
+        },
+        {
+          "t": "p",
+          "c": "It was Barrett, of all people, who gave her the last piece, and he gave it to her over a flask of tea at the tailgate of a van, in the way such things always come."
+        },
+        {
+          "t": "p",
+          "c": "\"Funny corner, that,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "\"How so?\""
+        },
+        {
+          "t": "p",
+          "c": "\"The two little ones with the initials. They've been re-set.\" He nodded at the pallet. \"Somebody took them up and put them back. Not recent — twenty, thirty years back. You can tell because the packing's a different stone and it's been done properly, with a level. Whoever did it cared, and whoever did it wasn't a mason, because a mason would have used the same bed.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Why would somebody re-set two graves in the fifties or sixties?\""
+        },
+        {
+          "t": "p",
+          "c": "Barrett shrugged, in the manner of a man who has spent twenty years being the last person to see things. \"Ground settles. Little graves settle worse — less weight, less depth. If you visit and it's leaning, you put it right.\""
+        },
+        {
+          "t": "p",
+          "c": "\"If you visit.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Aye, well,\" said Barrett, \"somebody visited that corner for a good long while, missus. There's no lichen on the south face of either of them below about four inches. That's a hand. That's fifty years of somebody's hand.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool went and stood in the corner under the yew after they had all gone home, at eight in the evening, in the long light, with the backfilled ground raw and dark in the grass, and she looked at the two stones on the pallet."
+        },
+        {
+          "t": "p",
+          "c": "There is no lichen on the lower south face of either of them. It is in her survey, in the condition field, recorded on the twenty-sixth of June as lichen heavy on north face, and she had written it without thinking about what the sentence implied, which is that there was no lichen on the other one, which on a stone of that age in that valley is not natural."
+        },
+        {
+          "t": "p",
+          "c": "She had recorded the evidence for a man's fifty-two years of grief three weeks before she understood that she had recorded it."
+        },
+        {
+          "t": "h3",
+          "c": "Mr. Ubodi"
+        },
+        {
+          "t": "p",
+          "c": "The young man from the diocese came back on the twenty-ninth, unannounced, and found her in the vestry among the caskets, checking numbers."
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Vanterpool. May I ask you something that is not diocesan business?\""
+        },
+        {
+          "t": "p",
+          "c": "\"You may ask.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Was there something wrong in that corner?\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse put her pen down. He was about twenty-six, and had signed a sheet at half past eleven on the twenty-third and had driven back to the town, and had apparently been thinking about it for six days."
+        },
+        {
+          "t": "p",
+          "c": "\"Why do you ask?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because Mr. Cordell did that corner himself, with Mr. Barrett, at seven in the morning, on the day I happened to be there, and Mr. Cordell has not personally handled a spade at any other point in eleven weeks.\" He said it apologetically and entirely accurately. \"And because you were there with a notebook, and you did not write anything for four hours, and then you wrote for about a minute.\""
+        },
+        {
+          "t": "p",
+          "c": "\"You watch people.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It is most of my job.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse thought about it for the length of time it takes to decide whether to bring somebody in or keep them out, and decided, and has never regretted it."
+        },
+        {
+          "t": "p",
+          "c": "\"There is an inconsistency in the parish records of 1942,\" she said. \"It is a documentary inconsistency, not a physical one. Everything in those two graves is exactly as it should be, and I will say so in writing to the diocese if it would be useful, and there is nothing whatever for your registry to worry about.\""
+        },
+        {
+          "t": "p",
+          "c": "\"But there is something.\""
+        },
+        {
+          "t": "p",
+          "c": "\"There is something. It is fifty-two years old, it concerns two children, no one alive is at risk from it except in a way that is being dealt with, and when I have finished the work I am going to put every scrap of it in a file with a reference number and lodge it where you or your successor can order it up.\" She picked her pen back up. \"I would rather tell you that than have you spend a career wondering about a corner of a churchyard, Mr. Ubodi. I have met four people this year who are still wondering about something they saw once, and it does them no good at all.\""
+        },
+        {
+          "t": "p",
+          "c": "He was quiet for a moment."
+        },
+        {
+          "t": "p",
+          "c": "\"Thank you,\" he said. \"That is the most satisfactory answer I have ever been given by anybody about anything.\""
+        },
+        {
+          "t": "h3",
+          "c": "The other two"
+        },
+        {
+          "t": "p",
+          "c": "There was one more thing to establish and she had been putting it off since the eleventh of June, and she did it on the twenty-fifth of July, in the county archive, at table four, with Delaney bringing her volumes."
+        },
+        {
+          "t": "p",
+          "c": "If two children of the parish were buried under the names Braith, then two children of the parish had died and had not been buried under their own names. Their families had given up the graves. And that meant that somewhere in the record there were two children whose deaths were registered — a death certificate is a state document and a doctor signs it, and no rector can touch it — and whose burials are not in the parish register at all."
+        },
+        {
+          "t": "p",
+          "c": "She found them in four hours."
+        },
+        {
+          "t": "blockquote",
+          "c": "Register of deaths, Hallowmere sub-district, February 1942:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Callow, Robert John. Male. Aged 8 years. Diphtheria, certified by A. Marris, MB. Registered 16 February 1942."
+        },
+        {
+          "t": "blockquote",
+          "c": "Pike, Emrys Owen. Male. Aged 12 years. Diphtheria, certified by A. Marris, MB. Registered 16 February 1942."
+        },
+        {
+          "t": "blockquote",
+          "c": "Rhys, Marta. Female. Aged 11 years. Diphtheria, certified by A. Marris, MB. Registered 16 February 1942."
+        },
+        {
+          "t": "p",
+          "c": "Three deaths registered by the state, with a doctor's name on them."
+        },
+        {
+          "t": "p",
+          "c": "And in the parish burial register, five burials, of which three carry those names — Rhys, Pike, Callow — and two carry the names Braith."
+        },
+        {
+          "t": "p",
+          "c": "So: Grace Callow, aged six, in the register as burial 413, is not in the death register at all, because Grace Callow did not die. Robert John Callow, aged eight, did."
+        },
+        {
+          "t": "p",
+          "c": "The rector had not even changed the surnames of two of the three. He had buried Robert Callow under his sister's name and a Pike boy under his own name and had put the two Braith names on the two graves that were dug and paid for by nobody, and Ilse looked at the pattern for a long time before she saw what it actually was."
+        },
+        {
+          "t": "p",
+          "c": "It was not a clever forgery. It was a rector under great strain in a cold February writing entries that were as close to true as he could make them while still doing what the vestry had asked. Every name in that register belongs to a real child of that parish who really was dead. He had simply distributed them wrongly, deliberately, and the only entirely false element in the whole thing — the only sentence that names a person who is not in the ground — is the pair of Braith entries, and even those had a body under each of them."
+        },
+        {
+          "t": "p",
+          "c": "She wrote in her notebook:"
+        },
+        {
+          "t": "blockquote",
+          "c": "He minimised. Faced with an instruction to lie, he told the smallest possible number of lies, and arranged them so that no dead child was unrecorded and no grave was empty. That is not the behaviour of a criminal. That is the behaviour of a clerk with a conscience, which is a thing I have read a hundred times in a hundred parishes and have never before seen under this kind of pressure."
+        },
+        {
+          "t": "blockquote",
+          "c": "I would like it recorded that I think T. J. Ammons did his job."
+        },
+        {
+          "t": "h3",
+          "c": "August"
+        },
+        {
+          "t": "p",
+          "c": "August was administration, which is to say it was the worst month."
+        },
+        {
+          "t": "p",
+          "c": "The valley emptied of contractors. The caskets went to Culverton on the fourth in four unmarked vans, and the stones followed on the sixth and eleventh, and a mason set them in the new ground in four rows in the order they had come, which is not the order they had been in and which upset Ilse more than she expected."
+        },
+        {
+          "t": "p",
+          "c": "The demolition began on the twelfth. The chapel went first, being furthest from the road. It took two hours."
+        },
+        {
+          "t": "p",
+          "c": "Ilse recorded everything and photographed everything and grew, over about eleven days, into a state of exhaustion she did not recognise at the time because it did not feel like tiredness; it felt like precision. She got up earlier. Her handwriting got smaller and better. She stopped cooking anything that required a pan."
+        },
+        {
+          "t": "p",
+          "c": "On the fourteenth she wrote her interim report for the Board and the Record Office: eleven pages, four appendices, entirely factual, describing the fabric, the contents, the recovery of the Stammers negatives, the pumping engine (which the museum had by then agreed to take, and which was lifted out on the nineteenth by a crane and a man in tears), the churchyard survey, and the deposit of the parish records."
+        },
+        {
+          "t": "p",
+          "c": "It did not mention Nell and Tomas Braith."
+        },
+        {
+          "t": "p",
+          "c": "She sat with that for two days, and then she wrote a memorandum to herself, which is a thing archivists do and which nobody outside the profession has ever understood, and put it in the file:"
+        },
+        {
+          "t": "blockquote",
+          "c": "Memorandum. On the omission from the interim report."
+        },
+        {
+          "t": "ol",
+          "items": [
+            "The interim report is a report on the physical record of the parish, made under a commission from the Board, and its readers are the Board's solicitor and the county's estates committee. The 1942 matter is not within its scope. I am satisfied that its omission from this document is correct and is not concealment.",
+            "The 1942 matter is, however, within the scope of my professional duty in another respect: I hold, or have identified, records which are inconsistent with one another, and an archivist who catalogues inconsistent records without noting the inconsistency has not done the work.",
+            "I am also personally connected to the matter, and my judgement is therefore not to be trusted on it, and this note exists so that whoever reads the file after me knows that I knew that.",
+            "Decision deferred to the completion of the commission. There is a living person whose position is affected and I will not decide anything before I have discussed it with him."
+          ]
+        },
+        {
+          "t": "h3",
+          "c": "The school"
+        },
+        {
+          "t": "p",
+          "c": "They took the school down on the twenty-second of August and Ilse made herself watch the whole of it, which took four hours, because she had decided in July that she was not going to record buildings and then look away while they were unmade."
+        },
+        {
+          "t": "p",
+          "c": "A demolition of that kind is not spectacular. The roof slates come off by hand and go on a pallet, because slate is worth money. The roof timbers come off and are stacked, because a floating timber is a hazard to a dam. Then the machine puts its bucket against the top of a gable and pushes, gently, twice, and the wall goes down in one piece and lies in the grass in the shape it had been standing in, and then the machine breaks it up."
+        },
+        {
+          "t": "p",
+          "c": "The schoolroom had been built in 1875 for fifty-six children and had held seventy-nine of them in the autumn of 1940. She had recorded it in May: the two stoves, the high windows that were high so that children could not look out of them, the map rail, the marks on the door frame where three generations of head teachers had measured somebody."
+        },
+        {
+          "t": "p",
+          "c": "At about two o'clock the machine took out the wall with the door frame in it, and the marks went into the rubble, and Ilse wrote in her notebook: 14:07, north wall (with door frame, recorded HAL/S/2 p.211, photograph 44/17) demolished."
+        },
+        {
+          "t": "p",
+          "c": "Then she wrote, underneath, and left it in:"
+        },
+        {
+          "t": "blockquote",
+          "c": "It is a great deal easier to have recorded a thing properly."
+        },
+        {
+          "t": "p",
+          "c": "She thought about that sentence for the rest of the afternoon and eventually understood that it was the nearest she was ever going to get to a philosophy of her own profession. Not comfort — recording something does not save it, and she had spent six months proving that a photograph is not a wall. But there is a specific, narrow, entirely real consolation in having done the work at the time, and it is available only to the person who did it, and it cannot be shared or explained, and it is the reason people stay in that job on the salary."
+        },
+        {
+          "t": "p",
+          "c": "At four o'clock Barrett's men knocked off and the site went quiet, and there was a heap of stone where a school had been, and a stack of slates worth about four hundred pounds, and a pallet of timber, and eleven boxes in a strong room forty miles away with the whole of that school's paper life in them, admission register, attendance register, punishment book and log, 1875 to 1963, catalogued, listed, and available on request to any member of the public with two days' notice."
+        },
+        {
+          "t": "h3",
+          "c": "The last of the water meadow"
+        },
+        {
+          "t": "p",
+          "c": "On the twenty-eighth of August, Cordell drove her up to the top of the valley in a Land Rover to see the marks."
+        },
+        {
+          "t": "p",
+          "c": "They had painted a line on the rock at the head of the valley in white, at the level the water would stand at when the reservoir was full: a horizontal stripe across the crag, four hundred feet up, and another on the shoulder opposite, so that the surveyors could see them from the dam."
+        },
+        {
+          "t": "p",
+          "c": "Standing under it, Ilse could not make it mean anything. That is the trouble with a line on a rock. She stood at the bottom of a valley and looked up at a mark on a cliff and her mind refused, absolutely refused, to fill in the intervening air with water."
+        },
+        {
+          "t": "p",
+          "c": "\"Nobody can do it,\" said Cordell. \"I've watched three hundred people try. You'll only get it on the day it happens and then you'll get it all at once.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Mr. Cordell, may I ask you something that isn't about the programme?\""
+        },
+        {
+          "t": "p",
+          "c": "\"That'll make a change.\""
+        },
+        {
+          "t": "p",
+          "c": "\"How long before people stop coming?\""
+        },
+        {
+          "t": "p",
+          "c": "He put his hands on the bonnet and thought about it, and she liked him very much for taking it seriously."
+        },
+        {
+          "t": "p",
+          "c": "\"About twenty years for the ones who lived there,\" he said. \"They come every year at first. Then there's a stretch where they come with their children, and the children are bored, and that's the worst of it. Then they stop. And then, thirty years on, there's a second lot, which is those same children, in middle age, wanting to see where their mother was from.\" He shrugged. \"The first valley I did has a car park now and a board with a photograph on it and about four thousand visitors a year, and not one of them ever lived there.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And the ones who can't leave?\""
+        },
+        {
+          "t": "p",
+          "c": "\"There aren't any,\" said Cordell. \"In the end there aren't any. They all leave, Miss Vanterpool. That's the part that finishes you. You spend two years being told that a man will die before he goes, and then one Tuesday in September he loads a van.\""
+        },
+        {
+          "t": "h3",
+          "c": "What Emrys had done"
+        },
+        {
+          "t": "p",
+          "c": "He had loaded a van, as it turned out, though not in the way anybody expected."
+        },
+        {
+          "t": "p",
+          "c": "Ilse went down to Ford Cottage on the last day of August and found the eleven hive stands still empty, the bees still up on the heather, the garden dug over, and Emrys Pike sitting at the table under the window with the fountain pen and a sheet of Board notepaper."
+        },
+        {
+          "t": "p",
+          "c": "\"I've took the offer,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "She sat down."
+        },
+        {
+          "t": "p",
+          "c": "\"When?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Tuesday. The land agent's been four times and the last time he brought a girl of about twenty-five who'd read the file and she said something nobody else had said in six years.\" He turned the paper round. \"She said: Mr. Pike, we can't complete without proof of identity, and if you haven't got any, that's a problem we solve, not a reason we don't pay you.\""
+        },
+        {
+          "t": "p",
+          "c": "Ilse read the letter. It was a standard completion letter with a standard schedule, and at the bottom, under Documents required, somebody had written in biro, in a young hand: birth cert / passport / driving licence / OR statutory declaration — see D. Hartnoll, we have done these before."
+        },
+        {
+          "t": "p",
+          "c": "\"Statutory declaration,\" she said."
+        },
+        {
+          "t": "p",
+          "c": "\"Aye. It's a thing where you swear in front of a solicitor as to who you are, and other folk swear as to who you are, and that stands.\" He took the paper back. \"She said they do it for people who were born abroad in the war and for travellers and for folk whose register office burned.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Whose register office burned,\" said Ilse."
+        },
+        {
+          "t": "p",
+          "c": "\"Aye,\" said Emrys Pike. \"Ferrisport, twenty-sixth of August 1940.\" He capped his pen. \"It's been available the whole time, Miss Vanterpool. Fifty-two years. All I ever had to do was find a solicitor and two people who'd swear I was who I said I was, and there was two hundred and forty of them in this valley and every one would have done it, and I never asked a single soul, because I thought that the first person I told would be the last day of my life.\""
+        },
+        {
+          "t": "p",
+          "c": "He looked out of the window at the river."
+        },
+        {
+          "t": "p",
+          "c": "\"That's what it does to you,\" he said. \"That's the whole of what it does to you. It's not the water coming. It's fifty-two years of not asking a question in case of the answer.\""
+        }
+      ]
+    },
+    {
+      "title": "Six: The Weight of Still Water",
+      "blocks": [
+        {
+          "t": "h2",
+          "c": "Six: The Weight of Still Water"
+        },
+        {
+          "t": "p",
+          "c": "The gates closed on the first of October at eleven in the morning, and nothing happened, and everybody went home."
+        },
+        {
+          "t": "p",
+          "c": "That is the thing nobody photographs. A dam does not fill a valley the way a bath fills; the Ashlie in October carried perhaps thirty million gallons a day and the reservoir was designed to hold eleven thousand million, and when the gates came down the river simply stopped going through the wall and began, very quietly, to spread out over the flat ground behind it at the rate of about a foot a week."
+        },
+        {
+          "t": "p",
+          "c": "Ilse stood on the temporary bridge with Cordell and four of his men and watched a river not go somewhere."
+        },
+        {
+          "t": "p",
+          "c": "\"That's it?\""
+        },
+        {
+          "t": "p",
+          "c": "\"That's it. It's the least dramatic thing in engineering.\" He handed her a thermos cup. \"Come back at Christmas.\""
+        },
+        {
+          "t": "h3",
+          "c": "The first of October"
+        },
+        {
+          "t": "p",
+          "c": "There were eleven people on the bridge and four of them were photographers from the county papers, and there was no ceremony, because the Board had considered a ceremony and the Board's public relations man had concluded, correctly, that there is no way to hold one."
+        },
+        {
+          "t": "p",
+          "c": "Cordell had asked her, in September, whether she wanted to be there."
+        },
+        {
+          "t": "p",
+          "c": "\"Is it usual for the archivist to attend?\""
+        },
+        {
+          "t": "p",
+          "c": "\"There is no usual. You are the fourth archivist I have met and the other three were on the telephone.\""
+        },
+        {
+          "t": "p",
+          "c": "So she went, and stood at the rail, and at eleven o'clock two men in a control cabin the size of a shed did something with a panel, and eleven hundred tons of steel came down at a rate of four feet a minute, and the noise it made was much less than she had expected and went on for much longer."
+        },
+        {
+          "t": "p",
+          "c": "Below the dam the river ran on for a while out of the pipework, thinning, and then it was a trickle over gravel, and there were four men from the fisheries board down there in waders taking trout out of the pools by hand and putting them in tanks, and that, oddly, was the thing that made her put her hand over her mouth: not the gate, but four men in a dry riverbed in October catching fish in their hands so that they could be carried somewhere else."
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike did not come. She had not expected him to and had asked anyway, on the twenty-eighth, and he had said, without heat: \"I've watched enough of it from the inside.\""
+        },
+        {
+          "t": "p",
+          "c": "At about a quarter past eleven the photographers left. By noon the whole site had gone back to work, because a gate closing is not a milestone in the construction programme; the milestone had been three weeks earlier, when the grouting was signed off, and the men had marked that one in the site hut with a crate of beer."
+        },
+        {
+          "t": "p",
+          "c": "Ilse stayed until two, walking the shoreline that did not exist yet, watching the flat green floor of a valley begin, invisibly, to become the bottom of something."
+        },
+        {
+          "t": "h3",
+          "c": "The last three weeks"
+        },
+        {
+          "t": "p",
+          "c": "She had three weeks left on the commission and she spent them on the deposit, which is the unglamorous end of the work and the only part that lasts."
+        },
+        {
+          "t": "p",
+          "c": "Everything she had recovered went to the county Record Office in ninety-one boxes: the parish chest entire; the school records; the Stammers negatives, nine hundred plates, repacked in acid-free sleeves at her own expense because the estimate had not run to it; the shop ledger; the chapel minute book; the beekeeper's ledger of a man who had kept eleven stocks for forty years, which Emrys Pike gave her in September and which she accepted after arguing with him for an hour about whether it was a public record, and which is now the most requested single item in the Hallowmere collection because it turns out that people want to read about bees."
+        },
+        {
+          "t": "p",
+          "c": "She wrote the finding aid herself, which is unusual for a deposit that size, and it took her the whole of October and eleven days into November past the end of her contract, unpaid, in a room in the county town."
+        },
+        {
+          "t": "p",
+          "c": "A finding aid is a catalogue. It is a description of every item in a collection, arranged by the structure of the original records rather than by subject, with a general introduction describing what the collection is, where it came from, how it came to be as it is, and what is not in it."
+        },
+        {
+          "t": "p",
+          "c": "That last part is the part that mattered."
+        },
+        {
+          "t": "h3",
+          "c": "The introduction"
+        },
+        {
+          "t": "p",
+          "c": "She wrote eleven drafts of the introductory note to the Hallowmere collection. The tenth was seven pages long and contained everything: Mrs. Sowerby's interview in full, the Medical Officer's figures, the fee book, the death register, the two names, her mother."
+        },
+        {
+          "t": "p",
+          "c": "She read it through on a Tuesday evening in November and understood that it was a work of history and not a work of cataloguing, and that she had written it because she wanted to be the person who found it, and that this was a perfectly natural and entirely disqualifying reason to put something in a finding aid."
+        },
+        {
+          "t": "p",
+          "c": "She threw it away and wrote the eleventh draft in ninety minutes, and it is what stands at the front of the collection today."
+        },
+        {
+          "t": "blockquote",
+          "c": "Hallowmere parish and school records, 1561-1994. 91 boxes."
+        },
+        {
+          "t": "blockquote",
+          "c": "The parish of Hallowmere was inundated in 1994-95 on the completion of the Ashlie reservoir. The records described here were recovered from the parish chest, the school, the chapel and private hands between April and September 1994 under a commission from the Northern Water Board."
+        },
+        {
+          "t": "blockquote",
+          "c": "Users should note the following."
+        },
+        {
+          "t": "blockquote",
+          "c": "1. The burial register (HAL/P/11) records five child burials between 12 and 22 February 1942. The county Medical Officer's annual report for 1942 (CC/MOH/68) records three deaths at Hallowmere in that outbreak, and the register of deaths for the sub-district records three. The burial fee book (HAL/P/19) records payment for three graves. The churchyard plan (HAL/P/23) and the monumental survey made in 1994 (HAL/S/1-4) locate three graves of 1942, of which two are marked with initials only."
+        },
+        {
+          "t": "blockquote",
+          "c": "2. The school admission register (HAL/E/2) records 39 evacuated children admitted in September 1940. The attendance register (HAL/E/4) and the school log book (HAL/E/1) record 41."
+        },
+        {
+          "t": "blockquote",
+          "c": "3. These inconsistencies are not errors of transcription and have been checked against the originals. The compiler has formed a view as to their explanation. That view is set out in a statement deposited with this collection as HAL/X/1, together with the evidence for it, including a record of interview made in June 1994 with a surviving witness. HAL/X/1 is closed to public inspection until 1 January 2025 and thereafter is open without restriction."
+        },
+        {
+          "t": "blockquote",
+          "c": "4. The compiler was personally connected to the events described in HAL/X/1 and has recorded the nature of that connection within it."
+        },
+        {
+          "t": "p",
+          "c": "Four numbered paragraphs. No story at all."
+        },
+        {
+          "t": "p",
+          "c": "She was extremely pleased with it and could not explain to a single person in her life why."
+        },
+        {
+          "t": "h3",
+          "c": "HAL/X/1"
+        },
+        {
+          "t": "p",
+          "c": "The statement runs to forty-one pages and she wrote it in December, in her own flat, with the tin of photographs on the table."
+        },
+        {
+          "t": "p",
+          "c": "It contains everything: the documents, in order, with references; the interview, in full, written up the same day, with a note of what was said off the record and why she considered it on; her own connection, stated plainly in the third paragraph and not mentioned again; and the account Emrys Pike gave her over four evenings in September, in his own words, read back to him and signed by him on the last day of the month in the presence of Hollis Cordell, who witnessed it and who has never spoken about it to anybody."
+        },
+        {
+          "t": "p",
+          "c": "At the end of it, she wrote four paragraphs of her own, which are the only opinion in ninety-one boxes."
+        },
+        {
+          "t": "blockquote",
+          "c": "The compiler makes the following observations, which are opinion and are marked as such."
+        },
+        {
+          "t": "blockquote",
+          "c": "The events of February 1942 involved the making of false entries in a parish register by a clerk in holy orders, and the concealment from a local authority of two children in its care, and were criminal at the time. No prosecution was ever brought because nobody outside the parish ever knew, and everybody inside it did."
+        },
+        {
+          "t": "blockquote",
+          "c": "Five adults are named as having been present at the vestry meeting of 19 February 1942. Four are dead. The fifth was ninety-five at the date of interview and had waited fifty-two years to be asked. Two children were preserved together who would otherwise have been separated by an authority acting lawfully and with no ill intent. Both lived ordinary lives. One left the valley and never returned. One never left it."
+        },
+        {
+          "t": "blockquote",
+          "c": "It is not the function of an archivist to approve or condemn what is in the records. It is the function of an archivist to ensure that the record cannot be quietly disposed of, and that what was written down can be checked against what else was written down. Everything necessary to check this account is in this collection and is listed in the schedule at page 39."
+        },
+        {
+          "t": "blockquote",
+          "c": "The compiler notes that the arrangement of February 1942 was held for fifty-two years by an entire community and was undone in eleven weeks by one person reading a fee book. Communities are not good at keeping secrets. They are good at not being asked."
+        },
+        {
+          "t": "h3",
+          "c": "Christmas"
+        },
+        {
+          "t": "p",
+          "c": "She went back at Christmas, as Cordell had told her to."
+        },
+        {
+          "t": "p",
+          "c": "The road down into the valley was gone — closed at the gate, and beyond the gate the tarmac ran forty yards and stopped at a shoreline. She stood at the end of a road she had driven down every day for six months and looked at the water."
+        },
+        {
+          "t": "p",
+          "c": "The valley floor was under. All of it. The green, the beech avenue, the lane past the mill, the hard-standing behind the village hall where a caravan had stood: all of it under eleven feet of very still, very cold, brown-grey water, and the surface of it perfectly flat in the windless afternoon, with a heron standing in what had been somebody's garden."
+        },
+        {
+          "t": "p",
+          "c": "Above the water, the church tower."
+        },
+        {
+          "t": "p",
+          "c": "They had left it, in the end; the diocese and the Board had argued for two years and the tower had won, because it was fifteenth century and because at full supply level it would stand eleven feet clear and be, as the Board's own report put it, an amenity."
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool stood at the end of the road in the cold and looked at a tower coming out of a lake, and Cordell had been right: she got it all at once, and it was not sadness, exactly. It was a physical understanding of weight. There were eleven feet of water where she had walked, and by spring there would be ninety, and water is heavy, and it does not move, and it does not care, and there is a great deal of it."
+        },
+        {
+          "t": "p",
+          "c": "She stood there for about an hour."
+        },
+        {
+          "t": "hr"
+        },
+        {
+          "t": "p",
+          "c": "Then she drove up to Culverton, because it was on the way, and walked through a new churchyard with two hundred and six stones set in four straight rows in a field with a wire fence round it, and found, in the third row, near the end, a small sandstone headstone with M.R. and 1942 cut on it by hand, and beside it its twin."
+        },
+        {
+          "t": "p",
+          "c": "They had been set up level, and the mason had packed them with the same stone as the rest, so that the different-coloured packing was gone."
+        },
+        {
+          "t": "p",
+          "c": "There was no lichen on the lower south face of either of them. It takes decades. It will come."
+        },
+        {
+          "t": "h3",
+          "c": "The photographs"
+        },
+        {
+          "t": "p",
+          "c": "There was one decision left and she made it in the week between Christmas and the new year, sitting on the floor of her flat with the biscuit tin."
+        },
+        {
+          "t": "p",
+          "c": "Forty-one contact prints. On the back of each, in pencil, in the hand of a blacksmith who took photographs: a date and the names of everyone in the frame."
+        },
+        {
+          "t": "p",
+          "c": "An archivist knows what to do with such an object and Ilse did it: she listed it, item by item, and described the tin, and noted the provenance in a single sentence — Given to the compiler by E. Pike, Ford Cottage, Hallowmere, 8 July 1994; stated by him to have been given to him by A. Stammers, 1961 — and prepared it for deposit with the rest of the Stammers material, where it belongs, because a photographer's work should stay together and because those forty-one prints are the only surviving photographs of the interior of a school that no longer exists."
+        },
+        {
+          "t": "p",
+          "c": "Then she took one of them out."
+        },
+        {
+          "t": "p",
+          "c": "She sat with it on the floor for a long time: a girl of nine at the front on the left, chin up, hands behind her back, in a room with a piano and a paper chain and thirty-nine other children, four months into being an orphan and eighteen months out from being somebody else."
+        },
+        {
+          "t": "p",
+          "c": "There is a rule about this and Ilse had enforced it against other people for fourteen years. You do not break a collection. You do not take one item out because you have a personal interest in it; that is precisely how collections are destroyed, one reasonable exception at a time, and every archivist has stood in a strong room holding a folder with a gap in it and cursed a dead man who thought his reason was good."
+        },
+        {
+          "t": "p",
+          "c": "She put it back in the tin."
+        },
+        {
+          "t": "p",
+          "c": "Then she photographed it, twice, properly, with a copy stand borrowed from work, and had a print made, and put the print in a frame, and hung it in her hall, and wrote a note for the file recording that she had done so and that the original was deposited entire."
+        },
+        {
+          "t": "p",
+          "c": "It is, she thought, the whole difference: the record goes to the strong room, and you may keep a copy, and you must say that you have."
+        },
+        {
+          "t": "h3",
+          "c": "Ford Cottage, at Culverton"
+        },
+        {
+          "t": "p",
+          "c": "He had four acres and a bungalow and the eleven hives were in a row facing south-east against a hedge, and he had put the stands out in the same order and the same spacing, which she noticed and did not remark on."
+        },
+        {
+          "t": "p",
+          "c": "\"You found the graves, then.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Third row.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Aye. I'll get up there Sundays. It's a bus and a walk.\" He put the kettle on. \"The girl of twenty-five got the declaration through in November. I'm on the pension. There's a card with my name on it in my coat and I have took it out and looked at it, I should think, forty times.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Which name?\""
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike put two mugs on the table."
+        },
+        {
+          "t": "p",
+          "c": "\"That's the thing,\" he said. \"I told them. I sat in that solicitor's office in the town with a woman I'd never met and I told her the whole of it, everything, the vestry and the register and the stones, and I waited to be arrested, and she wrote it down and she said: right, Mr. Pike, so the position is that you have been known as Emrys Pike since 1942, and that is your name, because a name is what you are known by and always has been, and the rest is a matter of birth records which we can note as unavailable.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That's the law,\" said Ilse. \"That is, genuinely, the law.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Fifty-two years,\" he said."
+        },
+        {
+          "t": "p",
+          "c": "They drank the tea."
+        },
+        {
+          "t": "p",
+          "c": "\"Miss Vanterpool. What did you do with it? In the end. The record.\""
+        },
+        {
+          "t": "p",
+          "c": "She had prepared four different answers on the drive and used none of them."
+        },
+        {
+          "t": "p",
+          "c": "\"It's all deposited,\" she said. \"The documents are catalogued and open, and anybody can go and look at them tomorrow, and the introduction to the collection says in four numbered paragraphs that they contradict each other and where the contradictions are. And the explanation — Mrs. Sowerby, your statement, my mother, all of it — is in one sealed file that nobody may read until 2025.\""
+        },
+        {
+          "t": "p",
+          "c": "\"Why 2025?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Because it's thirty years, and thirty years is the standard closure for a record affecting a living person, and because you will be ninety-six.\" She turned the mug round. \"It is not a secret, Mr. Pike. That is the part I need you to understand, because I have thought about very little else since August. If I had left it out, it would have been a secret, and secrets die with the last person who knows them, and then somebody in 2080 finds a burial register that doesn't match a Medical Officer's report and there is nobody alive to explain it and the true version is gone for good.\""
+        },
+        {
+          "t": "p",
+          "c": "\"And this way?\""
+        },
+        {
+          "t": "p",
+          "c": "\"This way it is a record with a date on it. It exists. It is listed. It is in the catalogue where anybody can see that it is there and that they cannot read it yet. And on the first of January 2025 a person I will probably never meet will order up a box at table four and find forty-one pages and a tin of photographs, and every single thing in it will be checkable against something else in the same collection.\" She looked up. \"That is the entire difference between a record and a rumour, and it is the only thing my profession is for.\""
+        },
+        {
+          "t": "p",
+          "c": "Emrys Pike considered this for a while."
+        },
+        {
+          "t": "p",
+          "c": "\"Anwen Prosser would have liked you,\" he said. \"She'd have argued with you for four hours and then she'd have liked you.\""
+        },
+        {
+          "t": "h3",
+          "c": "The last thing"
+        },
+        {
+          "t": "p",
+          "c": "He walked her out to the car at the end of the afternoon, past the hives, which were quiet, it being December, and doing what bees do in December, which is to sit in a ball in the dark and eat."
+        },
+        {
+          "t": "p",
+          "c": "\"They're alive in there?\""
+        },
+        {
+          "t": "p",
+          "c": "\"Every one. They'll not come out till February and there's nothing you can do for them and nothing you can know. You feed them in September and then you wait five months.\" He put his hand flat on the roof of the nearest hive, the way another man would put a hand on a gate. \"That's the job. Most of the job is not knowing and not opening it to look.\""
+        },
+        {
+          "t": "p",
+          "c": "\"That sounds like a reproach.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It's not.\" He almost smiled. \"You opened it. It wanted opening. It's just that I've had fifty-two years of the other and I'd not like you to think I was ashamed of them all, because I was not, not one of them. They did a wicked thing in a vestry on a Thursday and it was the right thing and they never once discussed it again, in fifty-two years, not one of them, not even at a funeral. Do you know what that is?\""
+        },
+        {
+          "t": "p",
+          "c": "\"No.\""
+        },
+        {
+          "t": "p",
+          "c": "\"It's love,\" said Emrys Pike. \"It's just love done by farmers.\""
+        },
+        {
+          "t": "p",
+          "c": "She drove back down the hill in the dark, and stopped at the top of the rise where you can see the whole of the reservoir, and got out."
+        },
+        {
+          "t": "p",
+          "c": "There was a moon. The water was absolutely still, eleven miles of it, and it held the moon and the shoulder of the hill and one small hard shape near the middle which was a tower with nothing under it that anybody could see."
+        },
+        {
+          "t": "p",
+          "c": "Ilse Vanterpool stood on a road in the cold with a car door open behind her and thought about ninety-one boxes in a strong room forty miles away, catalogued, listed, referenced, on a shelf with a number, where they would sit in the dark and be quiet and not go anywhere, and be there on the first of January 2025, and on the first of January 2125, if anyone had done their job."
+        },
+        {
+          "t": "p",
+          "c": "Then she got back in the car, because it was cold, and because the record was made, and because there was nothing else that needed doing."
+        },
+        {
+          "t": "note",
+          "c": "End of the sample series. All six chapters are original prose written for the Offline Reader repository — the parish, the valley, the reservoir and every document quoted are invented. Nothing here was fetched from anywhere, which is why it opens with the network off."
+        }
+      ]
+    }
+  ]
+}

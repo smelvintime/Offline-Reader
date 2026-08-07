@@ -1,6 +1,6 @@
 // Offline Reader — CBZ/ZIP reader core: state, archive loading, rendering,
 // chapter navigation, library persistence, auto-scroll.
-// Loaded as a classic script; shares the global lexical scope with online.js,
+// Loaded as a classic script; shares the global lexical scope with catalogue.js,
 // which must be loaded after this file.
 
 // --- Service Worker ---

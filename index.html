@@ -8,9 +8,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Offline Reader">
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
   <title>Offline Reader</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./css/catalogue.css">
+  <link rel="stylesheet" href="./css/novel.css">
+  <link rel="stylesheet" href="./css/importer.css">
 </head>
 <body>
 
@@ -210,9 +214,11 @@
   <script src="./js/store.js"></script>
   <script src="./jszip.min.js"></script>
   <script src="./js/reader.js"></script>
-  <!-- online.js is the current catalogue/boot module. It is replaced by
-       js/catalogue.js once that lands; until then it stays so the online
-       library keeps working. -->
-  <script src="./js/online.js"></script>
+  <!-- novel-reader and importer both register their own screen, so they must
+       load after reader.js (which defines registerScreen) and before
+       catalogue.js, which boots the app and calls into both. -->
+  <script src="./js/novel-reader.js"></script>
+  <script src="./js/importer.js"></script>
+  <script src="./js/catalogue.js"></script>
 </body>
 </html>

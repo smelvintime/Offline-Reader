@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Cloudflare Worker content gateway for the Offline Reader PWA — CORS/referer bypass and HTML→JSON normalization. Stores nothing.",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "dev": "wrangler dev",
     "dev:local": "wrangler dev --local --var ALLOW_PRIVATE_TARGETS:true",
     "deploy": "wrangler deploy"

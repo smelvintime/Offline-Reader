@@ -52,9 +52,10 @@
      bottom of this file relaxes it once we can assume a pointer. */
   --cat-tap:    44px;
 
-  --cat-gap:    clamp(0.7rem, 1.4vw, 1.25rem);
-  --cat-pad-x:  1rem;
-  --cat-shell:  860px;              /* widened on large viewports, see below */
+  --cat-gap:      clamp(0.7rem, 1.4vw, 1.25rem);
+  --cat-card-min: 8.5rem;           /* series-grid track floor, steps up below */
+  --cat-pad-x:    1rem;
+  --cat-shell:    860px;            /* widened on large viewports, see below */
 
   --cat-dur:    150ms;
   --cat-ease:   cubic-bezier(0.4, 0, 0.2, 1);
@@ -370,12 +371,18 @@
 
 /* ── Series grid / list ───────────────────────────────────────────────────── */
 
-/* One fluid track definition covers 360px → 1280px+; the only breakpoint in
-   this file switches the *list* layout to two columns once there is room. */
+/* One fluid track definition covers 360px → 1280px+. The card floor is a plain
+   rem, deliberately NOT a vw clamp: the shell is capped, so past ~1200px a vw
+   floor keeps growing while the container does not, and the grid starts *losing*
+   columns as the window widens. The floor steps up in the two media queries at
+   the bottom of this file, which are the same ones the shell widens in. */
 #series-grid { margin-bottom: 2rem; }
+/* An empty grid still owns its bottom margin, which stacks with the empty
+   state's padding into a hole the size of a card. */
+#series-grid:empty { margin-bottom: 0.5rem; }
 #series-grid.cat-layout-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(8.5rem, 13vw, 11rem), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--cat-card-min), 1fr));
   gap: var(--cat-gap);
   align-items: start;
 }
@@ -610,9 +617,11 @@
   gap: clamp(0.85rem, 3vw, 1.4rem);
   margin-bottom: 1.1rem;
 }
+/* Capped at 152px: a taller cover than the (line-clamped) info column beside it
+   leaves a dead band under the genre chips on wide viewports. */
 #series-hero-cover,
 #series-hero-cover-ph {
-  width: clamp(96px, 27vw, 168px);
+  width: clamp(96px, 27vw, 152px);
   height: auto;
 }
 #series-hero-cover-ph { font-size: 1.6rem; }
@@ -1005,17 +1014,17 @@
 /* Past this width a pointer is likely and the 44px floor can relax a little;
    it is the only tap-target breakpoint in the file. */
 @media (min-width: 48rem) {
-  :root { --cat-tap: 38px; }
+  :root { --cat-tap: 38px; --cat-card-min: 9.5rem; }
   .cat-tab { min-height: 40px; }
   .cat-ch-dl { width: 46px; }
   .cat-del { width: 36px; height: 36px; }
   #series-grid.cat-layout-list { grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
 }
 
-/* Room to breathe on a desktop-sized window: a wider shell so the fluid grid
-   keeps adding columns instead of stalling at six. */
+/* Room to breathe on a desktop-sized window: a wider shell, and a wider card
+   floor to go with it, so covers grow rather than the column count exploding. */
 @media (min-width: 68rem) {
-  :root { --cat-shell: 1180px; --cat-pad-x: 1.5rem; }
+  :root { --cat-shell: 1180px; --cat-pad-x: 1.5rem; --cat-card-min: 11rem; }
   #home-body   { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
   #series-body { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
   #home-header { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
@@ -1028,7 +1037,8 @@
   .cat-stat { flex: 0 1 8rem; }
   .cat-primary { flex: 0 1 22rem; }
   .cat-toolbar--chapters,
-  #series-chapter-list { max-width: 62rem; }
+  #series-chapter-list,
+  #series-body .home-section-label { max-width: 62rem; }
   .cat-range { max-width: 44rem; }
   .cat-empty { max-width: 44rem; margin-inline: auto; }
 }

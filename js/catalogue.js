@@ -939,8 +939,13 @@
         (TABS.find(function (t) { return t.id === tab; }) || {}).label || 'Series';
     }
     if (dom.addBtn) dom.addBtn.style.display = (tab === 'library') ? 'inline-flex' : 'none';
-    if (dom.count) dom.count.textContent = list.length ? list.length + (list.length === 1 ? ' series' : ' series') : '';
-    if (dom.chapterToolbar) dom.chapterToolbar.style.display = 'flex';
+    // "series" is its own plural, so there is no singular/plural branch here.
+    if (dom.count) dom.count.textContent = list.length ? list.length + ' series' : '';
+    // The home grid's toolbar — not the series-detail chapter toolbar, which
+    // belongs to a different screen and hides itself when a series has no
+    // chapters. Setting that one here left an inline display:flex behind that
+    // outlived the screen and showed a chapter jump box over an empty list.
+    if (dom.gridToolbar) dom.gridToolbar.style.display = 'flex';
 
     renderGrid(list, tab);
     renderEmpty(list, tab);
@@ -1476,7 +1481,7 @@
     };
   }
 
-  function chapterState(ch, orderedIdx) {
+  function chapterState(ch) {
     if (!seriesProgress || !seriesProgress.chapterId) return 'unread';
     if (ch.id === seriesProgress.chapterId) return seriesProgress.completed ? 'read' : 'reading';
     const cur = seriesProgress.chapterNum;
@@ -1510,12 +1515,12 @@
     }
 
     rows.forEach(function (r) {
-      list.appendChild(chapterRow(s, r.ch, r.idx));
+      list.appendChild(chapterRow(s, r.ch));
     });
   }
 
-  function chapterRow(s, ch, orderedIdx) {
-    const state = chapterState(ch, orderedIdx);
+  function chapterRow(s, ch) {
+    const state = chapterState(ch);
     const row = el('div', 'ch-item cat-ch-row cat-ch--' + state);
 
     const main = el('button', 'cat-ch-main');

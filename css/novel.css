@@ -10,6 +10,55 @@
  * only thing that has to run afterwards is repagination.
  */
 
+/* ── Bundled faces ────────────────────────────────────────────────────────────
+ *
+ * These ship with the app (fonts/, SIL OFL — see fonts/LICENSE.md) rather than
+ * being pulled from a CDN, because a reader that only reads well online is not
+ * an offline reader. The service worker caches each file the first time it is
+ * used, so picking OpenDyslexic once on a train keeps it on the next flight.
+ *
+ * They are not preloaded: 550 KB of type nobody selected is 550 KB wasted, and
+ * every stack below falls back to system fonts, so the reader is legible from
+ * the first frame whether or not the face has arrived. font-display: swap makes
+ * that explicit — text paints in the fallback, then upgrades.
+ */
+
+@font-face {
+  font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400;
+  font-display: swap; src: url('../fonts/opendyslexic-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'OpenDyslexic'; font-style: normal; font-weight: 700;
+  font-display: swap; src: url('../fonts/opendyslexic-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'OpenDyslexic'; font-style: italic; font-weight: 400;
+  font-display: swap; src: url('../fonts/opendyslexic-400i.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400;
+  font-display: swap; src: url('../fonts/atkinson-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 700;
+  font-display: swap; src: url('../fonts/atkinson-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible'; font-style: italic; font-weight: 400;
+  font-display: swap; src: url('../fonts/atkinson-400i.woff2') format('woff2');
+}
+
+/* Variable — one file covers the whole 400–700 range. */
+@font-face {
+  font-family: 'Literata'; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url('../fonts/literata-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Literata'; font-style: italic; font-weight: 400 700;
+  font-display: swap; src: url('../fonts/literata-var-italic.woff2') format('woff2');
+}
+
 /* ── Root & theme tokens ──────────────────────────────────────────────────── */
 
 #novel-screen {
@@ -32,7 +81,8 @@
   --nv-align:   left;
   --nv-para:    0.85em;
   --nv-indent:  0em;
-  --nv-track:   0em;
+  --nv-track:   0em;      /* letter spacing */
+  --nv-word:    0em;      /* word spacing   */
 
   /* Layout — the chrome floats over the prose, so these paddings stay constant
      whether the header/footer are shown or hidden. Toggling chrome must never
@@ -72,16 +122,88 @@
   --nv-border: rgba(255, 255, 255, 0.09); --nv-accent: #7c7ff5;
   --nv-chrome: rgba(0, 0, 0, 0.72);
 }
-
-/* Typeface stacks. No webfonts: the reader has to work with the radio off, and
-   a 300 KB dyslexia font that 404s offline is worse than a good local stack. */
-#novel-screen[data-font='serif']    { --nv-font: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif; }
-#novel-screen[data-font='sans']     { --nv-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-#novel-screen[data-font='mono']     { --nv-font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
-#novel-screen[data-font='dyslexic'] {
-  --nv-font: 'OpenDyslexic', 'Open Dyslexic', 'Comic Sans MS', 'Chalkboard SE', 'Trebuchet MS', Verdana, sans-serif;
-  --nv-track: 0.02em;          /* wider tracking is the part of OpenDyslexic we can reproduce */
+/* Dark, but grey rather than void — less of a hole punched in a lit room. */
+#novel-screen[data-theme='dim'] {
+  --nv-bg: #1a1b1e; --nv-fg: #dcdce1; --nv-muted: #90909b;
+  --nv-surf: rgba(255, 255, 255, 0.06); --nv-surf-2: rgba(255, 255, 255, 0.11);
+  --nv-border: rgba(255, 255, 255, 0.1); --nv-accent: #818cf8;
+  --nv-chrome: rgba(26, 27, 30, 0.72);
 }
+/* Warm off-white — paper, not screen. Lighter than sepia. */
+#novel-screen[data-theme='cream'] {
+  --nv-bg: #faf3e3; --nv-fg: #33302a; --nv-muted: #7d7466;
+  --nv-surf: rgba(70, 58, 34, 0.06); --nv-surf-2: rgba(70, 58, 34, 0.12);
+  --nv-border: rgba(70, 58, 34, 0.16); --nv-accent: #8a6d1f;
+  --nv-chrome: rgba(250, 243, 227, 0.75);
+  --nv-shadow: 0 -10px 40px rgba(80, 60, 30, 0.18);
+}
+/* Deeper than sepia — the aged-paperback end of the range. */
+#novel-screen[data-theme='tan'] {
+  --nv-bg: #e3d2b0; --nv-fg: #3a2c17; --nv-muted: #7c6844;
+  --nv-surf: rgba(70, 50, 20, 0.09); --nv-surf-2: rgba(70, 50, 20, 0.17);
+  --nv-border: rgba(70, 50, 20, 0.24); --nv-accent: #8a4f16;
+  --nv-chrome: rgba(227, 210, 176, 0.78);
+  --nv-shadow: 0 -10px 40px rgba(70, 50, 25, 0.24);
+}
+/* Cool blue-grey, for people who find warm darks muddy. */
+#novel-screen[data-theme='nord'] {
+  --nv-bg: #2e3440; --nv-fg: #e0e4ec; --nv-muted: #98a3b5;
+  --nv-surf: rgba(216, 226, 244, 0.07); --nv-surf-2: rgba(216, 226, 244, 0.13);
+  --nv-border: rgba(216, 226, 244, 0.14); --nv-accent: #88c0d0;
+  --nv-chrome: rgba(46, 52, 64, 0.74);
+}
+#novel-screen[data-theme='forest'] {
+  --nv-bg: #1a2420; --nv-fg: #dbe4de; --nv-muted: #8ba095;
+  --nv-surf: rgba(214, 240, 226, 0.06); --nv-surf-2: rgba(214, 240, 226, 0.12);
+  --nv-border: rgba(214, 240, 226, 0.13); --nv-accent: #7fc9a0;
+  --nv-chrome: rgba(26, 36, 32, 0.74);
+}
+
+/* Custom — the reader picks a background and a text colour and the rest of the
+   palette is mixed from those two, so every surface, border and muted label
+   stays in proportion no matter what pair they choose. --nv-bg and --nv-fg are
+   written as inline styles by applyPrefs(); everything here is derived. */
+#novel-screen[data-theme='custom'] {
+  --nv-muted:  color-mix(in srgb, var(--nv-fg) 58%, var(--nv-bg));
+  --nv-surf:   color-mix(in srgb, var(--nv-fg) 8%,  transparent);
+  --nv-surf-2: color-mix(in srgb, var(--nv-fg) 15%, transparent);
+  --nv-border: color-mix(in srgb, var(--nv-fg) 18%, transparent);
+  --nv-chrome: color-mix(in srgb, var(--nv-bg) 74%, transparent);
+  --nv-shadow: 0 -10px 40px color-mix(in srgb, var(--nv-fg) 22%, transparent);
+}
+/* The accent has to read against the chosen background, and a mix of the two
+   would drift towards invisible. applyPrefs() sets data-lum from the
+   background's luminance and we pick the readable indigo for that end. */
+#novel-screen[data-theme='custom'][data-lum='dark']  { --nv-accent: #8b93ff; }
+#novel-screen[data-theme='custom'][data-lum='light'] { --nv-accent: #4f46e5; }
+
+/* Typeface stacks. The first three are pure system stacks and download nothing;
+   the last three name a bundled face (see the @font-face block at the top) and
+   still list system fallbacks, so they render sensibly before the file lands —
+   or if it never does.
+
+   Held as named properties rather than written straight into --nv-font, because
+   the settings sheet renders each option in the face it selects and needs to
+   reach the same stack without restating it. */
+#novel-screen {
+  --nv-face-serif:    Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+  --nv-face-sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --nv-face-mono:     ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+  --nv-face-literata: 'Literata', Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --nv-face-atkinson: 'Atkinson Hyperlegible', -apple-system, 'Segoe UI', Roboto, Verdana, sans-serif;
+  --nv-face-dyslexic: 'OpenDyslexic', 'Open Dyslexic', 'Comic Sans MS', 'Chalkboard SE', Verdana, sans-serif;
+}
+#novel-screen[data-font='serif']    { --nv-font: var(--nv-face-serif); }
+#novel-screen[data-font='sans']     { --nv-font: var(--nv-face-sans); }
+#novel-screen[data-font='mono']     { --nv-font: var(--nv-face-mono); }
+#novel-screen[data-font='literata'] { --nv-font: var(--nv-face-literata); }
+#novel-screen[data-font='atkinson'] { --nv-font: var(--nv-face-atkinson); }
+#novel-screen[data-font='dyslexic'] { --nv-font: var(--nv-face-dyslexic); }
+
+/* OpenDyslexic's weighted bottoms already carry the emphasis a bold would add,
+   and its cap height runs large, so headings need less of a jump than a serif. */
+#novel-screen[data-font='dyslexic'] .nv-doc h2 { font-size: 1.2em; }
+#novel-screen[data-font='dyslexic'] .nv-doc h3 { font-size: 1.08em; }
 
 #novel-screen[data-width='narrow'] { --nv-maxw: 32rem; }
 #novel-screen[data-width='normal'] { --nv-maxw: 42rem; }
@@ -148,6 +270,7 @@
   font-size: var(--nv-size);
   line-height: var(--nv-lh);
   letter-spacing: var(--nv-track);
+  word-spacing: var(--nv-word);
   text-align: var(--nv-align);
   hyphens: auto;
   -webkit-hyphens: auto;
@@ -491,6 +614,106 @@
   border-color: var(--nv-accent);
   color: var(--nv-accent);
 }
+
+/* Typeface picker — two per row so each option has room to show its own face
+   at a size you can actually judge. */
+.nv-seg-fonts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.35rem; }
+.nv-seg-fonts button {
+  flex: none; min-width: 0; min-height: 52px;
+  flex-direction: column; align-items: flex-start; justify-content: center;
+  display: flex; gap: 0.1rem;
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+}
+/* Each option is a specimen of itself. The ID prefix is load-bearing: the
+   `#novel-screen button { font: inherit }` reset outranks a bare class.
+   Rendering these is also what pulls the bundled regulars down — roughly 200 KB
+   the first time the sheet is opened, cached from then on. The bold and italic
+   files are left until a face is actually chosen. */
+#novel-screen .nv-seg-fonts button[data-font='serif']    { font-family: var(--nv-face-serif); }
+#novel-screen .nv-seg-fonts button[data-font='sans']     { font-family: var(--nv-face-sans); }
+#novel-screen .nv-seg-fonts button[data-font='mono']     { font-family: var(--nv-face-mono); }
+#novel-screen .nv-seg-fonts button[data-font='literata'] { font-family: var(--nv-face-literata); }
+#novel-screen .nv-seg-fonts button[data-font='atkinson'] { font-family: var(--nv-face-atkinson); }
+#novel-screen .nv-seg-fonts button[data-font='dyslexic'] { font-family: var(--nv-face-dyslexic); }
+.nv-font-name { font-size: 0.95rem; font-weight: 600; line-height: 1.2; }
+/* OpenDyslexic sets much wider than the others and its name is the longest, so
+   the specimen is stepped down rather than allowed to run into the edge. */
+#novel-screen .nv-seg-fonts button[data-font='dyslexic'] .nv-font-name { font-size: 0.8rem; }
+.nv-font-note {
+  font-size: 0.62rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--nv-muted);
+  /* The note is chrome, not a specimen — keep it out of the preview face. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.nv-seg-fonts button[aria-pressed='true'] .nv-font-note { color: inherit; opacity: 0.75; }
+
+/* Theme swatches — each one painted in the palette it selects. */
+.nv-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+  gap: 0.35rem;
+}
+.nv-swatch {
+  position: relative;
+  min-height: 56px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 0.1rem;
+  padding: 0.4rem 0.3rem;
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.nv-swatch:active { transform: scale(0.97); }
+.nv-swatch-aa   { font-size: 1.05rem; font-weight: 700; line-height: 1; font-family: Georgia, serif; }
+.nv-swatch-name {
+  font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  opacity: 0.65;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+/* The ring is drawn in the accent, outside the swatch's own colours, so it is
+   legible on a white swatch and a black one alike. */
+.nv-swatch[aria-pressed='true'] {
+  border-color: var(--nv-accent);
+  box-shadow: 0 0 0 2px var(--nv-accent);
+}
+/* Custom carries the reader's own pair as its background, so before they have
+   chosen anything it needs to still look like a button. */
+.nv-swatch-custom { background: var(--nv-surf); }
+
+.nv-pickers { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.nv-pickers[hidden] { display: none; }
+.nv-picker {
+  flex: 1 1 8rem;
+  min-height: 44px;
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  font-size: 0.8rem; font-weight: 600;
+  cursor: pointer;
+}
+/* Chrome and Safari draw a chunky bevelled well by default; strip it back to a
+   plain rounded chip so it sits in the sheet like everything else. */
+.nv-picker input[type='color'] {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  padding: 0;
+  border: 1px solid var(--nv-border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.nv-picker input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+.nv-picker input[type='color']::-webkit-color-swatch { border: none; border-radius: 7px; }
+.nv-picker input[type='color']::-moz-color-swatch { border: none; border-radius: 7px; }
 
 .nv-step { display: flex; align-items: center; gap: 0.6rem; }
 .nv-step button {

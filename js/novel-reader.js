@@ -53,11 +53,39 @@
   const SCREEN_ID = 'novel-screen';
 
   const MODES  = ['paged', 'chapter', 'infinite'];
-  const FONTS  = ['serif', 'sans', 'mono', 'dyslexic'];
+  const FONTS  = ['serif', 'sans', 'mono', 'literata', 'atkinson', 'dyslexic'];
   const WIDTHS = ['narrow', 'normal', 'wide', 'full'];
-  const THEMES = ['dark', 'light', 'sepia', 'black'];
+  const THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest', 'custom'];
   const PARAS  = ['tight', 'normal', 'loose'];
   const ALIGNS = ['left', 'justify'];
+
+  // Which typefaces need a file fetched before the layout they produce is
+  // final. Selecting one has to wait for document.fonts before re-settling, or
+  // the anchor is restored against fallback metrics and then the real face
+  // arrives and moves it. Keyed by data-font value → CSS family name.
+  const WEBFONTS = {
+    literata: 'Literata',
+    atkinson: 'Atkinson Hyperlegible',
+    dyslexic: 'OpenDyslexic',
+  };
+
+  // Swatches for the theme grid: [value, label, background, text]. The colours
+  // are duplicated from css/novel.css on purpose — a swatch is a *preview*, and
+  // reading the real tokens back would mean mounting ten hidden elements to
+  // resolve ten sets of custom properties.
+  const THEME_SWATCHES = [
+    ['dark',   'Dark',   '#0a0a0a', '#e9e9ec'],
+    ['dim',    'Dim',    '#1a1b1e', '#dcdce1'],
+    ['black',  'Black',  '#000000', '#d6d6da'],
+    ['nord',   'Nord',   '#2e3440', '#e0e4ec'],
+    ['forest', 'Forest', '#1a2420', '#dbe4de'],
+    ['light',  'Light',  '#fbfaf8', '#1c1c1f'],
+    ['cream',  'Cream',  '#faf3e3', '#33302a'],
+    ['sepia',  'Sepia',  '#f4ecd8', '#43341f'],
+    ['tan',    'Tan',    '#e3d2b0', '#3a2c17'],
+  ];
+
+  const CUSTOM_DEFAULT = { bg: '#f4ecd8', fg: '#43341f' };
 
   // Defaults mirror the initial values in css/novel.css so the first paint and
   // the settings sheet agree before anything is persisted.
@@ -71,16 +99,26 @@
     theme:      'dark',
     paraSpacing:'normal',
     indent:     false,
+    letterSpacing: 0,
+    wordSpacing:   0,
+    customBg:   CUSTOM_DEFAULT.bg,
+    customFg:   CUSTOM_DEFAULT.fg,
   };
 
   const PREF_KEY = {
     mode: 'novel.mode', fontFamily: 'novel.fontFamily', fontSize: 'novel.fontSize',
     lineHeight: 'novel.lineHeight', width: 'novel.width', align: 'novel.align',
     theme: 'novel.theme', paraSpacing: 'novel.paraSpacing', indent: 'novel.indent',
+    letterSpacing: 'novel.letterSpacing', wordSpacing: 'novel.wordSpacing',
+    customBg: 'novel.customBg', customFg: 'novel.customFg',
   };
 
   const FONT_MIN = 14, FONT_MAX = 32, FONT_STEP = 1;
   const LH_MIN = 1.3,  LH_MAX = 2.2,  LH_STEP = 0.05;
+  // Letter and word spacing are in em, so they hold their proportion when the
+  // text size changes. The ceilings are where prose stops reading as prose.
+  const LS_MIN = 0, LS_MAX = 0.24, LS_STEP = 0.01;
+  const WS_MIN = 0, WS_MAX = 0.8,  WS_STEP = 0.04;
 
   const WPM = 230;                 // "N min left" — deliberately slower than the
                                    // catalogue's 250, because that number is a
@@ -116,6 +154,24 @@
   }
 
   function oneOf(v, list, fallback) { return list.indexOf(v) === -1 ? fallback : v; }
+
+  // Custom-theme colours end up in a CSS custom property, so they are validated
+  // to a literal #rrggbb rather than trusted. Anything else — including the
+  // shorthand and named colours — is rejected in favour of the default.
+  function hexColor(v, fallback) {
+    return typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : fallback;
+  }
+
+  // Perceived lightness of a #rrggbb colour, 0–1. Used only to decide which of
+  // two accent colours reads against a custom background.
+  function luminance(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (v) {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
 
   function fmtNum(n) {
     if (n == null || !Number.isFinite(Number(n))) return '';
@@ -222,6 +278,7 @@
   let lastProgressAt = 0;
   let suppressClickUntil = 0;
   let lastFocus = null;
+  let fontToken = 0;              // guards out-of-order webfont settle passes
 
   function on(target, type, fn, opts) {
     target.addEventListener(type, fn, opts);
@@ -406,19 +463,17 @@
       { value: 'infinite', label: 'Endless' },
     ], function () { return state.mode; }, function (v) { setMode(v); }));
 
-    body.appendChild(segRow('Theme', [
-      { value: 'dark',  label: 'Dark' },
-      { value: 'light', label: 'Light' },
-      { value: 'sepia', label: 'Sepia' },
-      { value: 'black', label: 'Black' },
-    ], function () { return state.prefs.theme; }, function (v) { setPref('theme', v, false); }));
+    body.appendChild(themeRow());
 
     body.appendChild(segRow('Typeface', [
-      { value: 'serif',    label: 'Serif' },
-      { value: 'sans',     label: 'Sans' },
-      { value: 'mono',     label: 'Mono' },
-      { value: 'dyslexic', label: 'Dyslexic' },
-    ], function () { return state.prefs.fontFamily; }, function (v) { setPref('fontFamily', v, true); }));
+      { value: 'serif',    label: 'Serif',    note: 'System' },
+      { value: 'sans',     label: 'Sans',     note: 'System' },
+      { value: 'mono',     label: 'Mono',     note: 'System' },
+      { value: 'literata', label: 'Literata', note: 'For long reading' },
+      { value: 'atkinson', label: 'Atkinson', note: 'High legibility' },
+      { value: 'dyslexic', label: 'OpenDyslexic', note: 'Dyslexia-friendly' },
+    ], function () { return state.prefs.fontFamily; }, function (v) { setPref('fontFamily', v, true); },
+       { className: 'nv-seg-fonts', preview: true }));
 
     body.appendChild(stepRow('Text size', {
       get:  function () { return state.prefs.fontSize; },
@@ -453,6 +508,25 @@
       { value: 'normal', label: 'Normal' },
       { value: 'loose',  label: 'Loose' },
     ], function () { return state.prefs.paraSpacing; }, function (v) { setPref('paraSpacing', v, true); }));
+
+    // Loosening letters and words is one of the few typographic changes with
+    // evidence behind it for dyslexic readers, and it helps crowded scripts at
+    // small sizes generally. Both are in em so they scale with the text size.
+    body.appendChild(stepRow('Letter spacing', {
+      get:  function () { return state.prefs.letterSpacing; },
+      fmt:  function (v) { return v > 0 ? '+' + v.toFixed(2) + ' em' : 'Normal'; },
+      dec:  function () { setPref('letterSpacing', round2(clamp(state.prefs.letterSpacing - LS_STEP, LS_MIN, LS_MAX)), true); },
+      inc:  function () { setPref('letterSpacing', round2(clamp(state.prefs.letterSpacing + LS_STEP, LS_MIN, LS_MAX)), true); },
+      label: 'Letter spacing',
+    }));
+
+    body.appendChild(stepRow('Word spacing', {
+      get:  function () { return state.prefs.wordSpacing; },
+      fmt:  function (v) { return v > 0 ? '+' + v.toFixed(2) + ' em' : 'Normal'; },
+      dec:  function () { setPref('wordSpacing', round2(clamp(state.prefs.wordSpacing - WS_STEP, WS_MIN, WS_MAX)), true); },
+      inc:  function () { setPref('wordSpacing', round2(clamp(state.prefs.wordSpacing + WS_STEP, WS_MIN, WS_MAX)), true); },
+      label: 'Word spacing',
+    }));
 
     // Indent row
     const indentRow = el('div', 'nv-row');
@@ -518,17 +592,28 @@
 
   function round2(n) { return Math.round(n * 100) / 100; }
 
-  function segRow(label, options, get, set) {
+  function segRow(label, options, get, set, opts) {
+    const o2 = opts || {};
     const row = el('div', 'nv-row');
     row.appendChild(el('span', 'nv-row-label', label));
-    const seg = el('div', 'nv-seg');
+    const seg = el('div', 'nv-seg' + (o2.className ? ' ' + o2.className : ''));
     seg.setAttribute('role', 'group');
     seg.setAttribute('aria-label', label);
     const buttons = options.map(function (o) {
-      const b = el('button', null, o.label);
+      const b = el('button');
       b.type = 'button';
       b.setAttribute('aria-pressed', 'false');
       b.dataset.value = o.value;
+      if (o2.preview) {
+        // Each option renders in the face it selects — the only honest way to
+        // choose a typeface is to look at it. data-font on the button picks up
+        // the same --nv-font rules the prose uses.
+        b.dataset.font = o.value;
+        b.appendChild(el('span', 'nv-font-name', o.label));
+        if (o.note) b.appendChild(el('span', 'nv-font-note', o.note));
+      } else {
+        b.textContent = o.label;
+      }
       b.addEventListener('click', function () { set(o.value); });
       seg.appendChild(b);
       return b;
@@ -539,6 +624,89 @@
       buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.value === cur)); });
     });
     return row;
+  }
+
+  // Themes are colours, so they are chosen by looking at colours. Each swatch
+  // paints itself in the palette it selects; the trailing one opens two colour
+  // inputs instead.
+  function themeRow() {
+    const row = el('div', 'nv-row');
+    row.appendChild(el('span', 'nv-row-label', 'Theme'));
+
+    const grid = el('div', 'nv-themes');
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', 'Theme');
+
+    const buttons = THEME_SWATCHES.map(function (t) {
+      const b = el('button', 'nv-swatch');
+      b.type = 'button';
+      b.dataset.value = t[0];
+      b.setAttribute('aria-pressed', 'false');
+      b.setAttribute('aria-label', t[1]);
+      b.title = t[1];
+      b.style.background = t[2];
+      b.style.color = t[3];
+      b.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
+      b.appendChild(el('span', 'nv-swatch-name', t[1]));
+      b.addEventListener('click', function () { setPref('theme', t[0], false); });
+      grid.appendChild(b);
+      return b;
+    });
+
+    // Custom sits in the same grid so it reads as one more choice.
+    const custom = el('button', 'nv-swatch nv-swatch-custom');
+    custom.type = 'button';
+    custom.dataset.value = 'custom';
+    custom.setAttribute('aria-pressed', 'false');
+    custom.setAttribute('aria-label', 'Custom colours');
+    custom.title = 'Custom colours';
+    custom.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
+    custom.appendChild(el('span', 'nv-swatch-name', 'Custom'));
+    custom.addEventListener('click', function () { setPref('theme', 'custom', false); });
+    grid.appendChild(custom);
+    buttons.push(custom);
+
+    row.appendChild(grid);
+
+    // The two pickers. Hidden unless the custom theme is the active one —
+    // there is nothing for them to change otherwise.
+    const pickers = el('div', 'nv-pickers');
+    const bgField = colorField('Background', function () { return state.prefs.customBg; },
+      function (v) { setPref('customBg', v, false); });
+    const fgField = colorField('Text', function () { return state.prefs.customFg; },
+      function (v) { setPref('customFg', v, false); });
+    pickers.append(bgField.el, fgField.el);
+    row.appendChild(pickers);
+
+    sheetSync.push(function (p) {
+      buttons.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === p.theme));
+      });
+      custom.style.background = p.customBg;
+      custom.style.color = p.customFg;
+      pickers.hidden = p.theme !== 'custom';
+      bgField.sync();
+      fgField.sync();
+    });
+
+    return row;
+  }
+
+  function colorField(label, get, set) {
+    const wrap = el('label', 'nv-picker');
+    const input = document.createElement('input');
+    input.type = 'color';
+    // Safari and Firefox fire `input` continuously while the picker is open,
+    // which is what makes the preview live; each one is a cheap style write.
+    input.addEventListener('input', function () { set(hexColor(input.value, get())); });
+    wrap.append(input, el('span', null, label));
+    return {
+      el: wrap,
+      sync: function () {
+        const v = get();
+        if (input.value !== v) input.value = v;
+      },
+    };
   }
 
   function stepRow(label, cfg) {
@@ -612,6 +780,10 @@
       theme:       oneOf(storeGet(PREF_KEY.theme, DEFAULTS.theme), THEMES, DEFAULTS.theme),
       paraSpacing: oneOf(storeGet(PREF_KEY.paraSpacing, DEFAULTS.paraSpacing), PARAS, DEFAULTS.paraSpacing),
       indent:      !!storeGet(PREF_KEY.indent, DEFAULTS.indent),
+      letterSpacing: round2(clamp(num(storeGet(PREF_KEY.letterSpacing, DEFAULTS.letterSpacing), DEFAULTS.letterSpacing), LS_MIN, LS_MAX)),
+      wordSpacing:   round2(clamp(num(storeGet(PREF_KEY.wordSpacing, DEFAULTS.wordSpacing), DEFAULTS.wordSpacing), WS_MIN, WS_MAX)),
+      customBg:    hexColor(storeGet(PREF_KEY.customBg, DEFAULTS.customBg), DEFAULTS.customBg),
+      customFg:    hexColor(storeGet(PREF_KEY.customFg, DEFAULTS.customFg), DEFAULTS.customFg),
     };
     state.prefs = p;
     state.mode = p.mode;
@@ -631,6 +803,42 @@
     r.style.setProperty('--nv-size', p.fontSize + 'px');
     r.style.setProperty('--nv-lh', String(p.lineHeight));
     r.style.setProperty('--nv-align', p.align);
+    r.style.setProperty('--nv-track', p.letterSpacing + 'em');
+    r.style.setProperty('--nv-word', p.wordSpacing + 'em');
+
+    // Only the custom theme writes colours; the presets own theirs in the
+    // stylesheet, and leaving these set would bleed the last custom pair into
+    // whichever preset the reader switched to.
+    if (p.theme === 'custom') {
+      r.style.setProperty('--nv-bg', p.customBg);
+      r.style.setProperty('--nv-fg', p.customFg);
+      r.dataset.lum = luminance(p.customBg) < 0.4 ? 'dark' : 'light';
+    } else {
+      r.style.removeProperty('--nv-bg');
+      r.style.removeProperty('--nv-fg');
+      delete r.dataset.lum;
+    }
+  }
+
+  // A face that has not downloaded yet lays out with fallback metrics, so a
+  // layout computed now is provisional. Resolve once the real file is in, and
+  // let the caller re-settle against it.
+  //
+  // Never rejects: a font that fails to load is a cosmetic problem, and the
+  // fallback stack is already on screen.
+  function fontReady(family) {
+    if (!family || !document.fonts || typeof document.fonts.load !== 'function') {
+      return Promise.resolve(false);
+    }
+    try {
+      // The size is arbitrary but required by the shorthand grammar; `load`
+      // matches on family and returns the faces it fetched.
+      return Promise.all([
+        document.fonts.load('400 1em "' + family + '"'),
+        document.fonts.load('700 1em "' + family + '"'),
+        document.fonts.load('italic 400 1em "' + family + '"'),
+      ]).then(function () { return true; }, function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
   }
 
   // `relayout` is false for purely chromatic changes (theme), which cannot move
@@ -642,7 +850,28 @@
     const anchor = relayout ? currentAnchor() : null;
     applyPrefs();
     syncSheet();
-    if (relayout) { layout(); settleLayout(anchor); }
+    if (!relayout) return;
+    layout();
+    settleLayout(anchor);
+    if (key === 'fontFamily') settleWhenFontLands(value);
+  }
+
+  // Picking a bundled face lays out twice: once immediately against the
+  // fallback, so the reader is never watching a frozen screen while a font
+  // downloads, and once when the file lands and the metrics are real. The
+  // anchor carries across both, so the sentence being read does not move.
+  function settleWhenFontLands(fontValue) {
+    const family = WEBFONTS[fontValue];
+    if (!family) return;
+    const token = ++fontToken;
+    fontReady(family).then(function (loaded) {
+      // A later change owns the layout now, or the reader has moved on.
+      if (!loaded || !state.open || token !== fontToken) return;
+      if (state.prefs.fontFamily !== fontValue) return;
+      const a = currentAnchor();
+      layout();
+      settleLayout(a);
+    });
   }
 
   function resetPrefs() {
@@ -655,6 +884,7 @@
     if (state.mode !== wasMode) rebuildForMode(anchor);
     else layout();
     settleLayout(anchor);
+    settleWhenFontLands(state.prefs.fontFamily);
     toast('Reset to your defaults');
   }
 
@@ -2096,7 +2326,13 @@
           .catch(function () {});
       } else settled = Promise.resolve();
 
-      return settled.then(function () { return true; });
+      // Opening with a bundled face persisted means the first layout above ran
+      // on fallback metrics. Re-settle once the file is in — after the resume
+      // has landed, so it is the reader's real position that gets carried.
+      return settled.then(function () {
+        settleWhenFontLands(state.prefs.fontFamily);
+        return true;
+      });
     },
 
     /**

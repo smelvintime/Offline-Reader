@@ -251,19 +251,47 @@ Progress keys are `series.id`. Imported series get ids of the form
 
 | key                  | values                                        | used by      |
 | -------------------- | --------------------------------------------- | ------------ |
-| `novel.mode`         | `paged` \| `chapter` \| `infinite`             | novel-reader |
-| `novel.fontFamily`   | `serif` \| `sans` \| `mono` \| `dyslexic`      | novel-reader |
-| `novel.fontSize`     | px number, 14–32                               | novel-reader |
-| `novel.lineHeight`   | number, 1.3–2.2                                | novel-reader |
-| `novel.width`        | `narrow` \| `normal` \| `wide` \| `full`       | novel-reader |
-| `novel.align`        | `left` \| `justify`                            | novel-reader |
-| `novel.theme`        | `dark` \| `light` \| `sepia` \| `black`        | novel-reader |
-| `novel.paraSpacing`  | `tight` \| `normal` \| `loose`                 | novel-reader |
-| `novel.indent`       | boolean                                        | novel-reader |
-| `catalogue.tab`      | `all` \| `manga` \| `manhwa` \| `lightnovel` \| `library` | catalogue |
-| `catalogue.layout`   | `grid` \| `list`                               | catalogue    |
+| key                   | values                                        | used by      |
+| --------------------- | --------------------------------------------- | ------------ |
+| `novel.mode`          | `paged` \| `chapter` \| `infinite`             | novel-reader |
+| `novel.fontFamily`    | `serif` \| `sans` \| `mono` \| `literata` \| `atkinson` \| `dyslexic` | novel-reader |
+| `novel.fontSize`      | px number, 14–32                               | novel-reader |
+| `novel.lineHeight`    | number, 1.3–2.2                                | novel-reader |
+| `novel.width`         | `narrow` \| `normal` \| `wide` \| `full`       | novel-reader |
+| `novel.align`         | `left` \| `justify`                            | novel-reader |
+| `novel.theme`         | `dark` \| `dim` \| `black` \| `light` \| `cream` \| `sepia` \| `tan` \| `nord` \| `forest` \| `custom` | novel-reader |
+| `novel.paraSpacing`   | `tight` \| `normal` \| `loose`                 | novel-reader |
+| `novel.indent`        | boolean                                        | novel-reader |
+| `novel.letterSpacing` | em number, 0–0.24                              | novel-reader |
+| `novel.wordSpacing`   | em number, 0–0.8                               | novel-reader |
+| `novel.customBg`      | `#rrggbb` — only read when theme is `custom`   | novel-reader |
+| `novel.customFg`      | `#rrggbb` — only read when theme is `custom`   | novel-reader |
+| `catalogue.tab`       | `all` \| `manga` \| `manhwa` \| `lightnovel` \| `library` | catalogue |
+| `catalogue.layout`    | `grid` \| `list`                               | catalogue    |
 
 Per-series overrides use the same keys via `prefs.getFor(seriesId, key)`.
+
+`novel.customBg` / `novel.customFg` reach a CSS custom property, so they are
+validated against `/^#[0-9a-fA-F]{6}$/` on read and any other value falls back
+to the default. Every other palette token for the custom theme is derived from
+those two with `color-mix()` in `css/novel.css` — nothing else is stored.
+
+### 3.2 Bundled typefaces
+
+`fonts/` holds three SIL OFL faces — OpenDyslexic, Atkinson Hyperlegible and
+Literata (see `fonts/LICENSE.md`). Three rules govern them:
+
+1. **They are not in `SHELL_ASSETS`.** Precaching ~550 KB of type that most
+   readers never select is waste. `sw.js` matches `/fonts/**.woff2` and caches
+   each file the first time it is actually requested.
+2. **Every stack falls back to system fonts** and uses `font-display: swap`, so
+   the reader is legible before — and without — the file.
+3. **Selecting one re-settles the layout.** A face that has not arrived lays out
+   on fallback metrics, so `settleWhenFontLands()` waits on `document.fonts` and
+   settles again against the real metrics, carrying the anchor across both
+   passes. Opening the settings sheet pulls the three regulars (~200 KB) because
+   each option is rendered as a specimen of itself; bold and italic wait until a
+   face is chosen.
 
 ---
 

@@ -206,6 +206,13 @@ async function handleImage(request, env, execCtx, raw) {
 
   const { response } = await safeFetch(target.href, {
     ...sec,
+    // The allowlist check above only covers the host the reader asked for.
+    // Without this gate an allowlisted host could 302 anywhere and we would
+    // happily proxy and edge-cache it — an open image proxy on the operator's
+    // account. Re-gate every hop.
+    allowHost: sec.allowPrivate
+      ? null
+      : async (h) => (await isAllowedHost(h, env)).allowed,
     headers: upstreamHeaders({
       accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       referer: refererFor(host),

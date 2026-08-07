@@ -1071,6 +1071,18 @@
 
   function captureScroll() {
     const top = dom.viewport.getBoundingClientRect().top + stagePadTop();
+    // If the fold sits inside a collapsed spacer we genuinely cannot say where
+    // the reader is — the text is not in the DOM. Returning the first live
+    // entry's opening block would be a confident lie, and because the caller
+    // persists what we return, it would overwrite a real furthest-read position
+    // with block 0. Keep the previous anchor instead; the next scroll into live
+    // content re-establishes it honestly.
+    for (let s = 0; s < state.stack.length; s++) {
+      const e = state.stack[s];
+      if (!e.collapsed || !e.section) continue;
+      const r = e.section.getBoundingClientRect();
+      if (r.top <= top + 1 && r.bottom > top + 1) return state.anchor;
+    }
     for (let s = 0; s < state.stack.length; s++) {
       const entry = state.stack[s];
       if (entry.collapsed || !entry.section) continue;
@@ -1770,8 +1782,32 @@
     scrollRaf = requestAnimationFrame(function () {
       scrollRaf = 0;
       if (Date.now() < state.suppressSyncUntil) return;
+      trackCurrentChapter();
       syncPosition();
     });
+  }
+
+  // dividerIO reports threshold *crossings* through a band 8% of the viewport
+  // tall. Scroll faster than that band is deep — a flick, a scrollbar drag —
+  // and the divider passes it without ever flipping isIntersecting, so the
+  // observer stays silent and state.chIndex freezes. That is not cosmetic:
+  // applyWindow() then never runs, so sections collapsed behind the reader are
+  // never re-filled, and scrolling back lands in an unbounded blank region.
+  // Geometry is the source of truth; the observer is just the cheap fast path.
+  function trackCurrentChapter() {
+    if (state.mode !== 'infinite' || !state.stack.length) return;
+    const rootTop = dom.viewport.getBoundingClientRect().top;
+    const band = rootTop + dom.viewport.clientHeight * 0.08;
+    let best = -1;
+    for (let i = 0; i < state.stack.length; i++) {
+      const sec = state.stack[i].section;
+      if (!sec) continue;
+      // The last section whose top is at or above the band is the one being read.
+      if (sec.getBoundingClientRect().top <= band) best = i; else break;
+    }
+    if (best < 0) best = 0;
+    const idx = chapterIndexOf(state.stack[best].chapter.id);
+    if (idx >= 0) setCurrentChapter(idx);
   }
 
   let resizeTimer = 0;

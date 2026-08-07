@@ -212,6 +212,40 @@ describe('assertPublicDns', () => {
 describe('safeFetch — redirects are re-validated', () => {
   const opts = { mode: 'off' };
 
+  test('a redirect cannot escape the caller\'s host gate', async () => {
+    // Regression: /image checked its allowlist against the pre-redirect host
+    // only, so any allowlisted host serving a 302 turned the gateway into an
+    // open image proxy. The gate must be re-applied on every hop.
+    const stub = fetchStub({
+      'allowed.example.com/hop.png': () =>
+        new Response(null, { status: 302, headers: { location: 'https://elsewhere.example.org/x.png' } }),
+      'elsewhere.example.org/x.png': () =>
+        new Response('PNGDATA', { status: 200, headers: { 'content-type': 'image/png' } }),
+    });
+    await assert.rejects(
+      safeFetch('https://allowed.example.com/hop.png', {
+        ...opts,
+        fetchImpl: stub,
+        allowHost: async (h) => h === 'allowed.example.com',
+      }),
+      (e) => e.code === 'blocked_host' && /elsewhere\.example\.org/.test(e.message),
+    );
+  });
+
+  test('a redirect within the host gate is still followed', async () => {
+    const stub = fetchStub({
+      'allowed.example.com/a.png': () =>
+        new Response(null, { status: 302, headers: { location: 'https://allowed.example.com/b.png' } }),
+      'allowed.example.com/b.png': () => new Response('ok', { status: 200 }),
+    });
+    const { response } = await safeFetch('https://allowed.example.com/a.png', {
+      ...opts,
+      fetchImpl: stub,
+      allowHost: async (h) => h === 'allowed.example.com',
+    });
+    assert.equal(response.status, 200);
+  });
+
   test('follows a redirect to another public host', async () => {
     const stub = fetchStub({
       'a.example.com/one': () =>

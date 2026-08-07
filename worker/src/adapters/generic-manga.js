@@ -16,9 +16,14 @@ export const id = 'generic-manga';
 export const label = 'Generic manga / manhwa site';
 export const priority = 90;
 
-/** Host or path hints that a site serves comics rather than prose. */
-const COMIC_HINT =
-  /(manga|manhwa|manhua|webtoon|toon|comic|comik|komik|scan|scans|chapter-\d|read\/)/i;
+/**
+ * Host or path hints that a site serves comics rather than prose.
+ *
+ * Deliberately narrow. Patterns like `chapter-\d` or `/read/` were tried and
+ * removed: novel sites use them just as much, so they made this adapter steal
+ * every novel chapter from generic-novel. Only comic-specific vocabulary here.
+ */
+const COMIC_HINT = /(manga|manhwa|manhua|webtoon|comic|komik|komiks|scanlation|scans?\b)/i;
 
 export function matches(url, ctx) {
   if (ctx && ctx.kind === 'image') return true;

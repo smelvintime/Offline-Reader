@@ -1,0 +1,606 @@
+/* Offline Reader — importer skin. Owned by js/importer.js.
+ *
+ * Everything is scoped under #import-screen so it cannot leak into the reader
+ * or the catalogue, which share a stylesheet with hard-coded dark colours.
+ * Tokens mirror styles.css (--bg/--surf/--border/--accent/--text/--muted) but
+ * are re-declared locally with fallbacks: this screen has to look right even if
+ * it is loaded on a page that never defined them (the test harness does that).
+ *
+ * Mobile-first. The narrowest target is a 360 px phone in a standalone PWA
+ * window, so every horizontal rhythm is set there and widened at 640 px.
+ */
+
+#import-screen {
+  --imp-bg:      var(--bg, #0a0a0a);
+  --imp-surf:    var(--surf, rgba(255, 255, 255, .08));
+  --imp-surf-2:  rgba(255, 255, 255, .04);
+  --imp-border:  var(--border, rgba(255, 255, 255, .1));
+  --imp-accent:  var(--accent, #6366f1);
+  --imp-text:    var(--text, #f0f0f0);
+  --imp-muted:   var(--muted, #a0a0a0);
+  --imp-danger:  #f0616d;
+  --imp-warn:    #e8b23a;
+  --imp-ok:      #4ade80;
+  --imp-radius:  10px;
+
+  display: none;               /* showScreen() flips this to flex */
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: var(--imp-bg);
+  color: var(--imp-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Every interactive element gets a visible ring, and only from the keyboard —
+   a persistent outline after a tap looks like a bug. */
+#import-screen :focus-visible {
+  outline: 2px solid var(--imp-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 0 0 auto;
+  padding: .55rem .75rem;
+  padding-top: calc(.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(.75rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--imp-border);
+  background: rgba(10, 10, 10, .85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+#import-screen .imp-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#import-screen .imp-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: var(--imp-radius);
+  background: transparent;
+  color: var(--imp-text);
+  cursor: pointer;
+  transition: background .15s;
+}
+#import-screen .imp-icon-btn:hover { background: var(--imp-surf); }
+#import-screen .imp-icon-btn:active { background: var(--imp-surf); transform: scale(.94); }
+
+/* ── Body / views ─────────────────────────────────────────────────────────── */
+
+#import-screen .imp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem .875rem;
+  padding-left: calc(.875rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(.875rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+#import-screen .imp-view {
+  display: flex;
+  flex-direction: column;
+  gap: .875rem;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+#import-screen .imp-view[hidden] { display: none; }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-card {
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: var(--imp-surf-2);
+  padding: .875rem;
+  display: flex;
+  flex-direction: column;
+  gap: .625rem;
+}
+#import-screen .imp-card[hidden] { display: none; }
+#import-screen .imp-card--muted { background: transparent; border-style: dashed; }
+
+#import-screen .imp-card-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: var(--imp-text);
+}
+#import-screen .imp-card--muted .imp-card-head { color: var(--imp-warn); }
+#import-screen .imp-card-title { font-size: .95rem; font-weight: 700; letter-spacing: -.1px; }
+
+#import-screen .imp-card-sub {
+  font-size: .8125rem;
+  line-height: 1.5;
+  color: var(--imp-muted);
+}
+
+/* ── Inputs ───────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-input,
+#import-screen .imp-select {
+  width: 100%;
+  min-width: 0;
+  padding: .625rem .75rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: rgba(255, 255, 255, .05);
+  color: var(--imp-text);
+  /* 16px minimum stops iOS Safari zooming the whole page on focus. */
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1.35;
+}
+#import-screen .imp-input::placeholder { color: rgba(255, 255, 255, .32); }
+#import-screen .imp-input:focus,
+#import-screen .imp-select:focus { border-color: var(--imp-accent); }
+#import-screen .imp-textarea { resize: vertical; min-height: 4.5rem; line-height: 1.5; }
+#import-screen .imp-select { appearance: none; -webkit-appearance: none; padding-right: 2rem; }
+
+#import-screen .imp-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+#import-screen .imp-input-row .imp-input { flex: 1 1 12rem; }
+
+#import-screen .imp-file-input { display: none; }
+
+#import-screen .imp-field {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+#import-screen .imp-field[hidden] { display: none; }
+#import-screen .imp-label {
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--imp-muted);
+}
+#import-screen .imp-hint { font-size: .75rem; line-height: 1.45; color: var(--imp-muted); }
+
+#import-screen .imp-check {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  font-size: .8125rem;
+  color: var(--imp-text);
+  cursor: pointer;
+}
+#import-screen .imp-check input { accent-color: var(--imp-accent); width: 1rem; height: 1rem; margin-top: .1rem; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-height: 40px;
+  padding: .5rem .875rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: var(--imp-surf);
+  color: var(--imp-text);
+  font-size: .8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, opacity .15s;
+}
+#import-screen .imp-btn:hover { background: rgba(255, 255, 255, .12); }
+#import-screen .imp-btn:active { transform: scale(.98); }
+#import-screen .imp-btn:disabled { opacity: .45; cursor: default; transform: none; }
+
+#import-screen .imp-btn--accent {
+  background: var(--imp-accent);
+  border-color: var(--imp-accent);
+  color: #fff;
+}
+#import-screen .imp-btn--accent:hover { background: #7477f0; }
+#import-screen .imp-btn--ghost { background: transparent; }
+#import-screen .imp-btn--danger { color: var(--imp-danger); border-color: rgba(240, 97, 109, .35); background: rgba(240, 97, 109, .1); }
+#import-screen .imp-btn--danger:hover { background: rgba(240, 97, 109, .18); }
+#import-screen .imp-btn--small { min-height: 34px; padding: .35rem .625rem; font-size: .75rem; }
+
+#import-screen .imp-linkbtn {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: .4rem .1rem;
+  border: 0;
+  background: none;
+  color: var(--imp-muted);
+  font-size: .8125rem;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+#import-screen .imp-linkbtn:hover { color: var(--imp-text); }
+
+/* ── Link preview (pre-fetch guess) ───────────────────────────────────────── */
+
+#import-screen .imp-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .375rem;
+  font-size: .75rem;
+  color: var(--imp-muted);
+}
+#import-screen .imp-preview[hidden] { display: none; }
+#import-screen .imp-preview.bad { color: var(--imp-warn); }
+#import-screen .imp-preview-note { flex: 1 1 100%; color: var(--imp-muted); opacity: .8; }
+
+#import-screen .imp-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: .15rem .45rem;
+  border: 1px solid var(--imp-border);
+  border-radius: 6px;
+  background: var(--imp-surf);
+  font-size: .6875rem;
+  font-weight: 600;
+  color: var(--imp-text);
+  white-space: nowrap;
+}
+#import-screen .imp-chip--soft { font-weight: 500; color: var(--imp-muted); background: transparent; }
+
+/* ── Drop zone ────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .3rem;
+  padding: 1.5rem 1rem;
+  border: 1px dashed var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: rgba(255, 255, 255, .02);
+  color: var(--imp-muted);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, background .15s, color .15s;
+}
+#import-screen .imp-drop:hover,
+#import-screen .imp-drop.over {
+  border-color: var(--imp-accent);
+  background: rgba(99, 102, 241, .08);
+  color: var(--imp-text);
+}
+#import-screen .imp-drop-title { font-size: .875rem; font-weight: 700; color: var(--imp-text); }
+#import-screen .imp-drop-sub { font-size: .75rem; letter-spacing: .04em; }
+
+/* ── Status / progress ────────────────────────────────────────────────────── */
+
+#import-screen .imp-status {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .625rem .75rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: rgba(255, 255, 255, .03);
+  font-size: .8125rem;
+  line-height: 1.5;
+}
+#import-screen .imp-status[hidden] { display: none; }
+#import-screen .imp-status--error { border-color: rgba(240, 97, 109, .4); background: rgba(240, 97, 109, .08); color: #ffd7da; }
+#import-screen .imp-status--ok    { border-color: rgba(74, 222, 128, .35); background: rgba(74, 222, 128, .08); }
+#import-screen .imp-status--error svg { color: var(--imp-danger); flex: 0 0 auto; }
+#import-screen .imp-status--ok svg    { color: var(--imp-ok); flex: 0 0 auto; }
+
+#import-screen .imp-status-row { display: flex; align-items: flex-start; gap: .5rem; }
+#import-screen .imp-status-text { flex: 1 1 auto; min-width: 0; }
+#import-screen .imp-status-detail { font-size: .75rem; color: var(--imp-muted); }
+#import-screen .imp-status-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+#import-screen .imp-spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: .15rem;
+  border: 2px solid var(--imp-border);
+  border-top-color: var(--imp-accent);
+  border-radius: 50%;
+  animation: imp-spin .7s linear infinite;
+}
+@keyframes imp-spin { to { transform: rotate(360deg); } }
+
+#import-screen .imp-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--imp-surf);
+  overflow: hidden;
+}
+#import-screen .imp-bar-fill {
+  height: 100%;
+  background: var(--imp-accent);
+  border-radius: 2px;
+  transition: width .2s ease-out;
+}
+
+/* Respect the OS setting — a spinner is decoration, not information. */
+@media (prefers-reduced-motion: reduce) {
+  #import-screen .imp-spinner { animation-duration: 2.4s; }
+  #import-screen .imp-bar-fill { transition: none; }
+  #import-screen .imp-btn:active,
+  #import-screen .imp-icon-btn:active { transform: none; }
+}
+
+/* ── Banners ──────────────────────────────────────────────────────────────── */
+
+#import-screen .imp-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  padding: .625rem .75rem;
+  border: 1px solid rgba(232, 178, 58, .4);
+  border-radius: var(--imp-radius);
+  background: rgba(232, 178, 58, .1);
+  font-size: .8125rem;
+  line-height: 1.5;
+}
+#import-screen .imp-banner[hidden] { display: none; }
+#import-screen .imp-banner svg { flex: 0 0 auto; margin-top: .15rem; color: var(--imp-warn); }
+#import-screen .imp-banner--info {
+  border-color: rgba(99, 102, 241, .4);
+  background: rgba(99, 102, 241, .1);
+}
+#import-screen .imp-banner--info svg { color: var(--imp-accent); }
+
+/* ── Confirm view ─────────────────────────────────────────────────────────── */
+
+#import-screen .imp-confirm-top {
+  display: flex;
+  gap: .875rem;
+  align-items: flex-start;
+}
+
+#import-screen .imp-cover {
+  flex: 0 0 96px;
+  width: 96px;
+  aspect-ratio: 2 / 3;
+  border: 1px solid var(--imp-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--imp-surf);
+}
+#import-screen .imp-cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#import-screen .imp-cover-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  padding: .5rem;
+  color: var(--imp-muted);
+  text-align: center;
+}
+#import-screen .imp-cover-ph-title {
+  font-size: .625rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+#import-screen .imp-facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+#import-screen .imp-fact { display: flex; gap: .5rem; font-size: .8125rem; }
+#import-screen .imp-fact-label { flex: 0 0 5rem; color: var(--imp-muted); }
+#import-screen .imp-fact-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#import-screen .imp-form { display: flex; flex-direction: column; gap: .75rem; }
+
+#import-screen .imp-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .375rem;
+}
+#import-screen .imp-seg {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: .45rem .5rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: transparent;
+  color: var(--imp-muted);
+  font-size: .75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s;
+}
+#import-screen .imp-seg:hover { color: var(--imp-text); background: var(--imp-surf); }
+#import-screen .imp-seg.active {
+  background: rgba(99, 102, 241, .18);
+  border-color: var(--imp-accent);
+  color: var(--imp-text);
+}
+
+#import-screen .imp-section-label {
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--imp-muted);
+}
+
+#import-screen .imp-chapters {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  overflow: hidden;
+}
+#import-screen .imp-chapter {
+  display: flex;
+  align-items: baseline;
+  gap: .625rem;
+  padding: .5rem .75rem;
+  font-size: .8125rem;
+  border-bottom: 1px solid var(--imp-border);
+}
+#import-screen .imp-chapter:last-child { border-bottom: 0; }
+#import-screen .imp-chapter-num {
+  flex: 0 0 auto;
+  min-width: 1.75rem;
+  color: var(--imp-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: .75rem;
+}
+#import-screen .imp-chapter-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#import-screen .imp-chapter-meta { flex: 0 0 auto; color: var(--imp-muted); font-size: .6875rem; }
+#import-screen .imp-chapter--more { color: var(--imp-muted); justify-content: center; }
+
+#import-screen .imp-actions {
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+#import-screen .imp-actions--start { justify-content: flex-start; }
+#import-screen .imp-actions .imp-btn { flex: 1 1 auto; }
+#import-screen .imp-actions--start .imp-btn { flex: 0 0 auto; }
+
+/* ── Manage view ──────────────────────────────────────────────────────────── */
+
+#import-screen .imp-usage {
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  padding: .75rem;
+  background: var(--imp-surf-2);
+}
+#import-screen .imp-usage-row { display: flex; flex-direction: column; gap: .2rem; }
+#import-screen .imp-usage-main { font-size: .9375rem; font-weight: 700; }
+#import-screen .imp-usage-sub { font-size: .75rem; color: var(--imp-muted); }
+
+#import-screen .imp-manage-list { display: flex; flex-direction: column; gap: .5rem; }
+
+#import-screen .imp-manage-row {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .75rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: var(--imp-surf-2);
+}
+#import-screen .imp-manage-head { display: flex; align-items: flex-start; gap: .625rem; }
+#import-screen .imp-manage-titles { flex: 1 1 auto; min-width: 0; }
+#import-screen .imp-manage-title {
+  font-size: .875rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#import-screen .imp-manage-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .375rem;
+  margin-top: .25rem;
+  font-size: .75rem;
+  color: var(--imp-muted);
+}
+#import-screen .imp-manage-size {
+  flex: 0 0 auto;
+  font-size: .75rem;
+  color: var(--imp-muted);
+  font-variant-numeric: tabular-nums;
+}
+#import-screen .imp-manage-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+#import-screen .imp-confirm-delete {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .625rem .75rem;
+  border: 1px solid rgba(240, 97, 109, .4);
+  border-radius: var(--imp-radius);
+  background: rgba(240, 97, 109, .08);
+}
+#import-screen .imp-confirm-text { font-size: .8125rem; line-height: 1.5; }
+
+#import-screen .imp-empty {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  align-items: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  border: 1px dashed var(--imp-border);
+  border-radius: var(--imp-radius);
+}
+#import-screen .imp-empty-title { font-size: .9375rem; font-weight: 700; }
+#import-screen .imp-empty-body { font-size: .8125rem; color: var(--imp-muted); max-width: 24rem; line-height: 1.5; }
+
+/* ── Wider screens ────────────────────────────────────────────────────────── */
+
+@media (min-width: 640px) {
+  #import-screen .imp-body { padding: 1.5rem; }
+  #import-screen .imp-card { padding: 1.125rem; }
+  #import-screen .imp-title { font-size: 1.0625rem; }
+  #import-screen .imp-cover { flex-basis: 128px; width: 128px; }
+  #import-screen .imp-actions .imp-btn { flex: 0 0 auto; min-width: 9rem; }
+  #import-screen .imp-manage-row { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  #import-screen .imp-manage-head { flex: 1 1 16rem; }
+  #import-screen .imp-manage-actions { flex: 0 0 auto; }
+  #import-screen .imp-confirm-delete { flex: 1 1 100%; }
+}
+
+/* Very narrow phones: the type picker is four items and must not overflow. */
+@media (max-width: 380px) {
+  #import-screen .imp-seg { flex: 1 1 calc(50% - .2rem); }
+  #import-screen .imp-fact-label { flex-basis: 4.25rem; }
+}

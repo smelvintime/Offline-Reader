@@ -52,7 +52,14 @@ window.showScreen = function (id) {
   const t = document.getElementById(id);
   if (t) { screens.add(t); t.style.display = 'block'; document.body.dataset.screen = id; }
 };
-window.proxyImageUrl = function (u) { return u; };
+// Record every URL that goes through the gateway helper, so the test can prove
+// image blocks are proxied rather than hot-linked.
+window.__proxied = [];
+window.proxyImageUrl = function (u) {
+  window.__proxied.push(u);
+  if (/^(data:|blob:)/i.test(u) || !/^https?:/i.test(u)) return u;
+  return u + (u.indexOf('?') === -1 ? '?' : '&') + 'via=proxy';
+};
 
 // Catalogue is absent; close() falls back to showScreen('home-screen') which is
 // a no-op here. Record the call so the test can assert teardown happened.
@@ -80,6 +87,13 @@ function sentence(rnd, minW, maxW) {
   return out.join(' ') + '.';
 }
 
+// A 3:2 plate as an inline data URI — no network, so the "image loaded" path is
+// deterministic even with the radio off.
+const OK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">' +
+  '<rect width="600" height="400" fill="#4f46e5"/>' +
+  '<circle cx="300" cy="200" r="120" fill="#fbfaf8"/></svg>');
+
 function makeChapter(n) {
   const rnd = lcg(1000 + n * 77);
   const blocks = [];
@@ -93,6 +107,15 @@ function makeChapter(n) {
     else if (i === 30) blocks.push({ t: 'note', c: 'Translator’s note: ' + sentence(rnd, 8, 14) });
     else if (i === 33) blocks.push({ t: 'pre', c: 'ledger[' + n + '] = {\n  gate: "open",\n  since: "winter"\n};' });
     else if (i === 35) blocks.push({ t: 'weird-unknown-type', c: 'This block type is not in the spec and must render as a paragraph.' });
+    // XSS boundary: a hostile source site putting markup in a content string
+    // must end up as literal characters, never as nodes.
+    else if (i === 12) blocks.push({ t: 'p', c: 'HOSTILE <img src=x onerror="window.__pwned=1"> <script>window.__pwned=1<\/script> end.' });
+    // Two illustrations: one that resolves (inline SVG data URI) and one that
+    // cannot, so the collapse-on-error path is exercised for real.
+    else if (i === 14) blocks.push({ t: 'img', src: OK_IMG, alt: 'A working plate' });
+    else if (i === 15) blocks.push({ t: 'img', src: 'https://example.invalid/nope.png', alt: 'A dead plate' });
+    // A scheme that must never reach an <img src>.
+    else if (i === 16) blocks.push({ t: 'img', src: 'javascript:window.__pwned=1', alt: 'Hostile scheme' });
     else {
       const s = [];
       const count = 3 + Math.floor(roll * 3);
@@ -100,7 +123,7 @@ function makeChapter(n) {
       blocks.push({ t: 'p', c: s.join(' ') });
     }
   }
-  const words = blocks.reduce((a, b) => a + String(b.c || (b.items || []).join(' ')).split(/\s+/).filter(Boolean).length, 0);
+  const words = blocks.reduce((a, b) => a + String(b.c || (b.items || []).join(' ') || '').split(/\s+/).filter(Boolean).length, 0);
   return {
     id: 'c-' + String(n).padStart(4, '0'),
     num: n,

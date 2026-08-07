@@ -23,44 +23,18 @@ import {
   readTextCapped,
   capStream,
   upstreamHeaders,
-  normalizeHost,
 } from './lib/security.js';
 import { isAllowedHost, hasKv, learnHosts, staticList } from './lib/allowlist.js';
 import { checkRateLimit } from './lib/ratelimit.js';
 import { parseHtml } from './lib/html.js';
 import { absolutize } from './lib/meta.js';
+import { VERSION, refererFor } from './lib/gateway.js';
 import { selectAdapter, listAdapters, adapterIds } from './adapters/index.js';
 
-export const VERSION = '2.0.0';
-
-// ── Referer spoofing ─────────────────────────────────────────────────────────
-// Hotlink protection checks Referer/Origin. The correct value is the *site* that
-// would normally embed the image, not the CDN host itself.
-
-const KNOWN_REFERERS = new Map([
-  ['uploads.mangadex.org', 'https://mangadex.org/'],
-  ['cdn.flamecomics.xyz', 'https://flamecomics.xyz/'],
-]);
-
-/**
- * A plausible Referer for a target host. Falls back to the registrable-ish
- * parent domain: `cdn.example.com` → `https://example.com/`.
- */
-export function refererFor(hostname) {
-  const host = normalizeHost(hostname);
-  if (!host) return null;
-  if (KNOWN_REFERERS.has(host)) return KNOWN_REFERERS.get(host);
-  if (host.endsWith('.mangadex.network') || host.endsWith('.mangadex.org')) {
-    return 'https://mangadex.org/';
-  }
-  const labels = host.split('.');
-  if (labels.length <= 2) return `https://${host}/`;
-  // Handle two-part public suffixes (co.uk, com.br, …) crudely but adequately.
-  const TWO_PART = /^(co|com|net|org|gov|edu|ac)\.[a-z]{2}$/;
-  const tail2 = labels.slice(-2).join('.');
-  const base = TWO_PART.test(tail2) ? labels.slice(-3).join('.') : tail2;
-  return `https://${base}/`;
-}
+// NOTE: this module must export ONLY its default handler. workerd validates
+// every named export of the entry module and rejects anything that is not a
+// function or an ExportedHandler, so VERSION and refererFor live in
+// lib/gateway.js. See the comment at the top of that file.
 
 // ── Environment-derived security options ─────────────────────────────────────
 
@@ -384,7 +358,9 @@ async function handleChapter(request, env, execCtx, raw, params) {
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
-export async function route(request, env = {}, execCtx = null) {
+// Not exported: workerd turns named exports of the entry module into named
+// entrypoints. Only the default handler leaves this file.
+async function route(request, env = {}, execCtx = null) {
   if (request.method === 'OPTIONS') return preflight();
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return fail('bad_method', `${request.method} is not supported; use GET`);

@@ -676,7 +676,13 @@
       const src = safeImageUrl(b.src);
       if (!src) { fig.classList.add('nv-img-failed'); return fig; }
       const img = el('img');
-      img.loading = 'lazy';
+      // Lazy in the scrolling modes, where "near the viewport" means something
+      // and deferring is a straight win. Eager in paged mode, where it is not:
+      // an illustration on page 7 sits in a column translated far off-screen and
+      // clipped, so it never intersects and a lazy image there would simply
+      // never load. Pagination also needs the intrinsic height to place the
+      // page break correctly, and guessing means repaginating on every arrival.
+      img.loading = state.mode === 'paged' ? 'eager' : 'lazy';
       img.decoding = 'async';
       img.alt = typeof b.alt === 'string' ? b.alt : '';
       // A dead illustration should cost zero layout, not a broken-image glyph.
@@ -1389,21 +1395,29 @@
       state.chIndex = idx;
       const entry = makeEntry(data);
       state.stack = [entry];
-      state.anchor = { chapterId: entry.chapter.id, blockIdx: 0, charInBlock: 0 };
-      if (state.mode === 'infinite') {
-        // Jumping chapters in endless mode restarts the append window there.
-        renderStack();
-        layout();
-        dom.viewport.scrollTop = 0;
-      } else {
-        renderStack();
-        state.page = 0;
-        layout();
-        if (where === 'end' && state.mode === 'paged') gotoPage(state.pageCount - 1, false);
-        else if (state.mode !== 'paged') dom.viewport.scrollTop = where === 'end'
-          ? Math.max(0, dom.viewport.scrollHeight - dom.viewport.clientHeight) : 0;
-      }
-      syncPosition();
+
+      // Which end of the new chapter we land on is expressed as an anchor, not
+      // as a page number or a scroll offset. That matters: paging backwards
+      // into a chapter whose illustrations have not decoded yet would otherwise
+      // pin us to "page 8 of 8", and then the reflow when they arrive — now
+      // page 8 of 10 — would silently drop the reader two pages short of where
+      // they asked to be. Anchored on the last block, the reflow keeps them
+      // exactly where they meant to be.
+      const lastIdx = Math.max(0, entry.blocks.length - 1);
+      state.anchor = (where === 'end')
+        ? {
+            chapterId: entry.chapter.id,
+            blockIdx: lastIdx,
+            charInBlock: Math.max(0, blockText(entry.blocks[lastIdx] || null).length - 1),
+          }
+        : { chapterId: entry.chapter.id, blockIdx: 0, charInBlock: 0 };
+
+      renderStack();
+      state.page = 0;
+      dom.viewport.scrollTop = 0;
+      layout();
+      settleLayout(state.anchor);
+      if (state.mode === 'infinite') applyWindow();
       prefetchNeighbours();
       return true;
     });

@@ -357,7 +357,7 @@ export function getText(node, { collapse = true } = {}) {
   })(node);
   const joined = parts.join('');
   if (!collapse) return joined;
-  return joined.replace(/[ \t ]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+  return joined.replace(/[ \t\u00a0\u200b\ufeff]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
 }
 
 /** Undecoded concatenated text — for <script type="application/ld+json"> bodies. */

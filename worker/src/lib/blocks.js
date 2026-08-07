@@ -52,7 +52,7 @@ const HEADING_MAP = { h1: 'h2', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h4', h6: 'h4'
 
 function pushText(out, t, text, extra) {
   const c = String(text || '')
-    .replace(/[ \t ]+/g, ' ')
+    .replace(/[ \t\u00a0\u200b\ufeff]+/g, ' ')
     .replace(/\s*\n\s*/g, '\n')
     .trim();
   if (!c) return;
@@ -268,9 +268,9 @@ export function countWords(blocks) {
   for (const b of blocks || []) {
     const text = b.items ? b.items.join(' ') : b.c || '';
     if (!text) continue;
-    const cjk = (text.match(/[぀-ヿ㐀-䶿一-鿿가-힯]/g) || []).length;
+    const cjk = (text.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/g) || []).length;
     const latin = text
-      .replace(/[぀-ヿ㐀-䶿一-鿿가-힯]/g, ' ')
+      .replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/g, ' ')
       .split(/\s+/)
       .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
     words += cjk + latin;

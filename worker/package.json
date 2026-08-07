@@ -1,12 +1,16 @@
 {
-  "name": "manga-proxy",
-  "version": "1.0.0",
+  "name": "offline-reader-gateway",
+  "version": "2.0.0",
   "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker content gateway for the Offline Reader PWA — CORS/referer bypass and HTML→JSON normalization. Stores nothing.",
   "scripts": {
+    "test": "node --test test/",
     "dev": "wrangler dev",
+    "dev:local": "wrangler dev --local --var ALLOW_PRIVATE_TARGETS:true",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0"
+    "wrangler": "^3.60.0"
   }
 }

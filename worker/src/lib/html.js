@@ -337,13 +337,28 @@ export function classId(node) {
 
 const NON_TEXT = new Set(['script', 'style', 'noscript', 'template', 'svg', 'head', 'iframe']);
 
-/** Visible-ish text content, entities decoded, whitespace collapsed. */
-export function getText(node, { collapse = true } = {}) {
+/**
+ * Visible-ish text content, entities decoded.
+ *
+ * Three modes, and the distinction matters a lot downstream:
+ *
+ *  - `{ breaks: true }` — **structural** newlines only. Whitespace *inside* a
+ *    text node (i.e. however the author happened to wrap their source) collapses
+ *    to a single space, while `<br>` and block-element boundaries become `\n`.
+ *    This is what block extraction wants: `<p>Long line\n   continues</p>` is
+ *    ONE paragraph, but `<div>a<br>b</div>` is two. Without this distinction any
+ *    pretty-printed `<p>` gets shredded into one block per source line.
+ *  - `{ collapse: true }` (default) — collapse horizontal whitespace, keep any
+ *    newline that survived. Good for headings and short labels.
+ *  - `{ collapse: false }` — verbatim, for `<pre>`.
+ */
+export function getText(node, { collapse = true, breaks = false } = {}) {
   const parts = [];
   (function rec(n) {
     if (!n) return;
     if (n.type === 'text') {
-      parts.push(decodeEntities(n.raw));
+      const t = decodeEntities(n.raw);
+      parts.push(breaks ? t.replace(/\s+/g, ' ') : t);
       return;
     }
     if (!isElement(n)) return;
@@ -356,6 +371,14 @@ export function getText(node, { collapse = true } = {}) {
     if (CLOSES_P.has(n.tag) || n.tag === 'li') parts.push('\n');
   })(node);
   const joined = parts.join('');
+  if (breaks) {
+    // Only the structural '\n's we injected above survive.
+    return joined
+      .replace(/[^\S\n]+/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
   if (!collapse) return joined;
   return joined.replace(/[ \t\u00a0\u200b\ufeff]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
 }

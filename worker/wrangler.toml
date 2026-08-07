@@ -1,6 +1,67 @@
-name = "manga-proxy"
-main = "src/index.js"
-compatibility_date = "2024-01-01"
+####################################################################
+# Offline Reader — content gateway
+#
+# Deploy:  npx wrangler deploy
+# Dev:     npx wrangler dev
+#
+# Everything a human still has to do is marked TODO below.
+####################################################################
 
-[build]
-command = ""
+# TODO(human): this becomes your subdomain — https://<name>.<you>.workers.dev
+name = "offline-reader-gateway"
+main = "src/index.js"
+
+# Bumping this opts into newer workerd behaviour. Safe to raise; if your
+# installed wrangler is older than this date it will warn — either upgrade
+# wrangler or lower this to a date it recognises.
+compatibility_date = "2026-08-07"
+
+# No build step: the worker is plain ES modules, exactly like the PWA.
+
+####################################################################
+# KV — the learned half of the /image allowlist (ARCHITECTURE.md §7.3)
+#
+# OPTIONAL. With no namespace bound the worker still runs: /image falls back to
+# the compiled-in static allowlist and /health reports "kv": false.
+#
+# To enable:
+#   npx wrangler kv namespace create OR_ALLOWLIST
+#   npx wrangler kv namespace create OR_ALLOWLIST --preview
+# then paste the ids below and uncomment the block.
+####################################################################
+
+# [[kv_namespaces]]
+# binding = "OR_ALLOWLIST"
+# TODO(human): replace with the id printed by `wrangler kv namespace create`
+# id = "00000000000000000000000000000000"
+# preview_id = "11111111111111111111111111111111"
+
+####################################################################
+# Optional vars. All have safe defaults; none are required.
+####################################################################
+
+[vars]
+# Extra image hosts to allow, comma or whitespace separated. Supports "*.host".
+EXTRA_ALLOWED_HOSTS = ""
+
+# DNS rebinding guard for outbound fetches: "lenient" (default — allow when the
+# DoH lookup fails), "strict" (refuse unless proven public), or "off".
+DNS_GUARD = "lenient"
+
+# Override the base URL used to build the /chapter and /image links returned by
+# /resolve. Only needed behind a custom domain or a proxy. Empty = infer from
+# the incoming request.
+# PUBLIC_BASE = "https://gateway.example.com"
+
+# Per-isolate rate limits (see README "Rate limiting is not a security
+# boundary"). Numbers are requests per 60s per client IP per isolate.
+# RATE_LIMIT_IMAGE = "300"
+# RATE_LIMIT_PARSE = "30"
+
+####################################################################
+# DANGER — dev only. Disables the SSRF host checks so the worker can be pointed
+# at a localhost fixture server. NEVER set this on a public deployment;
+# /health reports it as "allowPrivateTargets": true.
+#
+# Use with:  npx wrangler dev --var ALLOW_PRIVATE_TARGETS:true
+####################################################################

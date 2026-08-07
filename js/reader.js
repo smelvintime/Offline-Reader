@@ -224,15 +224,19 @@ function initLibraryList() {
 }
 
 // ── Proxy config ──────────────────────────────────────────────────────────
-// Set this to your deployed Cloudflare Worker URL (no trailing slash).
-// Leave empty to load images directly (will fail for hotlink-protected CDNs).
-
-const PROXY_BASE = '';  // e.g. 'https://manga-proxy.yourname.workers.dev'
+// The gateway base URL lives in js/config.js (OR_CONFIG.workerBase). With no
+// gateway configured, images load directly — which works for the bundled
+// sample catalogue but fails for hotlink-protected CDNs.
 
 function proxyImageUrl(url) {
-  if (!PROXY_BASE || !url) return url;
-  return PROXY_BASE + '?url=' + encodeURIComponent(url);
+  if (!url) return url;
+  // Already-local and data URLs never need the gateway.
+  if (/^(data:|blob:)/i.test(url) || !/^https?:/i.test(url)) return url;
+  const gw = window.gatewayUrl ? window.gatewayUrl('/image', { url: url }) : null;
+  return gw || url;
 }
+
+window.proxyImageUrl = proxyImageUrl;
 
 // --- Helpers ---
 function naturalSort(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
@@ -241,10 +245,30 @@ function basename(path) { return path.replace(/^.*[\\/]/, ''); }
 const homeScreen   = document.getElementById('home-screen');
 const seriesScreen = document.getElementById('series-screen');
 
-function showScreen(id) {
-  [uploadScreen, loadingScreen, readerScreen, homeScreen, seriesScreen].forEach(s => s.style.display = 'none');
-  document.getElementById(id).style.display = id === 'reader-screen' ? 'block' : 'flex';
+// Screens are registered rather than hard-coded so feature modules can create
+// their own root element at init time and stay out of index.html.
+// See docs/ARCHITECTURE.md §2.1.
+const screens = new Set([uploadScreen, loadingScreen, readerScreen, homeScreen, seriesScreen]);
+
+// Screens that scroll their own content use `block`; the rest are flex-centred.
+const BLOCK_SCREENS = new Set(['reader-screen', 'novel-screen']);
+
+function registerScreen(el) {
+  if (el) screens.add(el);
+  return el;
 }
+
+function showScreen(id) {
+  screens.forEach(s => { if (s) s.style.display = 'none'; });
+  const target = document.getElementById(id);
+  if (!target) { console.warn('[showScreen] unknown screen:', id); return; }
+  screens.add(target); // tolerate screens that forgot to register
+  target.style.display = BLOCK_SCREENS.has(id) ? 'block' : 'flex';
+  document.body.dataset.screen = id;
+}
+
+window.registerScreen = registerScreen;
+window.showScreen     = showScreen;
 
 // Strip chapter/volume numbers from a name and return the series portion.
 // Preserves original casing — used for display titles.

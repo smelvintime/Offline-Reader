@@ -1,12 +1,23 @@
 {
   "name": "Offline Reader",
   "short_name": "Offline Reader",
-  "description": "Read CBZ and ZIP comic archives offline",
+  "description": "Read manga, manhwa and light novels in one place — bring your own series by link, or read CBZ and EPUB files offline.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#1a1a1a",
   "theme_color": "#1a1a1a",
+  "categories": ["books", "entertainment"],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "add"
+    }
+  },
   "icons": [
     {
       "src": "icon.svg",

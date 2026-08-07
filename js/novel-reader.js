@@ -239,7 +239,10 @@
     const root = el('div');
     root.id = SCREEN_ID;
     root.tabIndex = -1;
-    root.setAttribute('role', 'application');
+    // Deliberately NOT role="application": that switches assistive tech out of
+    // browse mode, which is the one mode in which a screen-reader user can
+    // actually read a novel.
+    root.setAttribute('role', 'region');
     root.setAttribute('aria-label', 'Novel reader');
 
     // ── Viewport / stage / measure / doc ──────────────────────────────────
@@ -559,6 +562,13 @@
 
   function syncSheet() { sheetSync.forEach(function (fn) { fn(state.prefs); }); }
 
+  // aria-modal only claims the rest of the screen is unavailable; `inert` makes
+  // it true, so Tab and the virtual cursor cannot wander into the prose behind
+  // an open sheet.
+  function setBackdropInert(on) {
+    [dom.viewport, dom.zones, dom.header, dom.footer].forEach(function (n) { if (n) n.inert = !!on; });
+  }
+
   function openSheet() {
     if (sheetOpen) return;
     sheetOpen = true;
@@ -566,6 +576,7 @@
     dom.scrim.hidden = false;
     dom.sheet.hidden = false;
     dom.sheet.inert = false;
+    setBackdropInert(true);
     dom.settingsBtn.setAttribute('aria-expanded', 'true');
     syncSheet();
     const first = dom.sheet.querySelector('.nv-sheet-head .nv-btn');
@@ -580,6 +591,7 @@
     // The sheet stays displayed (the stylesheet translates it off-screen for
     // the animation), so it has to be explicitly removed from the tab order.
     dom.sheet.inert = true;
+    setBackdropInert(false);
     dom.settingsBtn.setAttribute('aria-expanded', 'false');
     if (lastFocus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) {} }
     lastFocus = null;
@@ -684,7 +696,10 @@
       // page break correctly, and guessing means repaginating on every arrival.
       img.loading = state.mode === 'paged' ? 'eager' : 'lazy';
       img.decoding = 'async';
-      img.alt = typeof b.alt === 'string' ? b.alt : '';
+      // The alt text becomes a visible caption when there is one, so the image
+      // itself is left unlabelled — otherwise a screen reader announces the
+      // same sentence twice, once for the img and once for the figcaption.
+      img.alt = '';
       // A dead illustration should cost zero layout, not a broken-image glyph.
       img.addEventListener('error', function () { fig.classList.add('nv-img-failed'); onImageSettled(); }, { once: true });
       img.addEventListener('load', onImageSettled, { once: true });
@@ -724,6 +739,7 @@
   // Late-loading images repaginate paged mode and shift scroll modes. Coalesce
   // them into one re-layout so a chapter of twenty plates does not thrash.
   let imgSettleTimer = 0;
+  let prefetchTimer = 0;
   function onImageSettled() {
     if (!state.open) return;
     clearTimeout(imgSettleTimer);
@@ -1427,7 +1443,9 @@
   // as the current one is on screen; going backwards is rarer but cheap.
   function prefetchNeighbours() {
     if (typeof window.resolveChapterContent !== 'function') return;
-    setTimeout(function () {
+    clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(function () {
+      prefetchTimer = 0;
       if (!state.open) return;
       loadChapter(state.chIndex + 1);
     }, 400);
@@ -1839,6 +1857,7 @@
     teardownInfiniteObservers();
     clearTimeout(imgSettleTimer);
     clearTimeout(resizeTimer);
+    clearTimeout(prefetchTimer); prefetchTimer = 0;
     if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = 0; }
     state.stack = [];
     state.loaded.clear();
@@ -1901,13 +1920,21 @@
       dom.viewport.scrollTop = 0;
       lastSize = dom.measure.clientWidth + 'x' + dom.measure.clientHeight;
 
+      // Establish the top-of-chapter position and paint the chrome first, so a
+      // reader with no stored progress sees a finished screen immediately.
+      syncPosition();
+      prefetchNeighbours();
+      try { dom.root.focus({ preventScroll: true }); } catch (e) {}
+
+      // Resume is a layout operation, not a reader move: settleLayout, never
+      // syncPosition, or the restored cursor is immediately overwritten by
+      // whatever block happens to own the top of the page it landed on.
       const applyResume = function (r) {
         if (!state.open || !r) return;
         const cur = entryFor(entry.chapter.id);
         if (!cur) return;
-        const a = anchorFromResume(cur, r);
         if (state.mode === 'infinite') applyWindow();
-        settleLayout(a, false);
+        settleLayout(anchorFromResume(cur, r), false);
       };
 
       let settled;
@@ -1920,10 +1947,6 @@
           })
           .catch(function () {});
       } else settled = Promise.resolve();
-
-      syncPosition();
-      prefetchNeighbours();
-      try { dom.root.focus({ preventScroll: true }); } catch (e) {}
 
       return settled.then(function () { return true; });
     },

@@ -1,0 +1,75 @@
+{
+  "version": 2,
+  "generatedAt": "2026-08-07T17:13:25.373Z",
+  "series": [
+    {
+      "id": "fixture:lamplighter",
+      "type": "lightnovel",
+      "title": "The Lamplighter's Almanac",
+      "altTitles": [
+        "Almanac of the Long Evening"
+      ],
+      "cover": "chapters/fixture_lamplighter/cover.svg",
+      "description": "Four short chapters of original placeholder prose, written for this repository and bundled with the app. It never touches the network, so the reader always has something to open — and it exercises every text feature the reader supports: headings, scene breaks, quotations, lists, verse and translator's notes.",
+      "author": "Offline Reader sample content",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Sample",
+        "Slice of Life"
+      ],
+      "tags": [
+        "fixture",
+        "offline"
+      ],
+      "language": "en",
+      "source": "fixture",
+      "sourceUrl": null,
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 4,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "Chapter One: The Lamp at the End of the Lane",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 361,
+          "src": "chapters/fixture_lamplighter/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "Chapter Two: What the Guild Keeps",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 295,
+          "src": "chapters/fixture_lamplighter/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "Chapter Three: The Counting Song",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 312,
+          "src": "chapters/fixture_lamplighter/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": null,
+          "title": "Chapter Four: Eleven Strokes",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 248,
+          "src": "chapters/fixture_lamplighter/c-0004.json"
+        }
+      ]
+    }
+  ]
+}

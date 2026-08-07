@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" width="300" height="450" role="img" aria-label="The Lamplighter's Almanac">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#12182a"/>
+      <stop offset="55%" stop-color="#1d2540"/>
+      <stop offset="100%" stop-color="#2b2033"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffd487" stop-opacity="0.95"/>
+      <stop offset="45%" stop-color="#ffb347" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffb347" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="300" height="450" fill="url(#sky)"/>
+  <circle cx="150" cy="196" r="120" fill="url(#glow)"/>
+
+  <g stroke="#0d1120" stroke-width="6" stroke-linecap="round" fill="none">
+    <path d="M150 214 V372"/>
+    <path d="M120 372 H180"/>
+  </g>
+  <g fill="#0d1120">
+    <path d="M132 214 L150 168 L168 214 Z"/>
+    <rect x="140" y="150" width="20" height="20" rx="4"/>
+  </g>
+  <circle cx="150" cy="196" r="9" fill="#ffd487"/>
+
+  <g fill="#e8e4d9" font-family="Georgia, 'Times New Roman', serif" text-anchor="middle">
+    <text x="150" y="404" font-size="23">The Lamplighter's</text>
+    <text x="150" y="430" font-size="23">Almanac</text>
+  </g>
+  <text x="150" y="46" fill="#8fa0c4" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="3" text-anchor="middle">SAMPLE SERIES</text>
+</svg>

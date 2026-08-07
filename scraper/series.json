@@ -1,0 +1,152 @@
+{
+  "_readme": [
+    "This file is the list of series the scraper tracks. It is plain JSON —",
+    "edit it in any text editor, no programming required. See docs/CATALOGUE.md.",
+    "",
+    "Every entry needs:",
+    "  source  — where to fetch from: gutenberg | mangadex | flamecomics | fixture",
+    "  id      — the work id / manga UUID / fixture file name  (flamecomics uses slug)",
+    "  type    — manga | manhwa | lightnovel | webnovel   (we never guess this)",
+    "  enabled — true to include it in the next run, false to park it",
+    "",
+    "Everything else is optional and overrides what the source reports.",
+    "A trailing comma anywhere will break the file: JSON does not allow them."
+  ],
+
+  "defaults": {
+    "language": "en",
+    "gutenberg": { "maxChapters": 40 },
+    "mangadex": { "maxChapters": 200 },
+    "flamecomics": { "maxChapters": 24, "maxPageFetches": 24 }
+  },
+
+  "series": [
+    {
+      "source": "fixture",
+      "id": "lamplighter",
+      "type": "lightnovel",
+      "enabled": true,
+      "_note": "Hand-written placeholder prose. Never touches the network, so the app always has something to read."
+    },
+
+    {
+      "source": "gutenberg",
+      "id": "84",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Gothic", "Science Fiction", "Classic"],
+      "description": "Mary Shelley's 1818 novel, told in letters and then in Victor Frankenstein's own voice. Medium-length chapters; the epistolary opening exercises headings that are not the word \"Chapter\".",
+      "maxChapters": 30
+    },
+    {
+      "source": "gutenberg",
+      "id": "1342",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Romance", "Classic"],
+      "description": "Sixty-one short-to-medium chapters — the long multi-part novel in this sample, and the one to scroll through when testing infinite mode.",
+      "maxChapters": 61
+    },
+    {
+      "source": "gutenberg",
+      "id": "2701",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Adventure", "Classic"],
+      "description": "Moby-Dick has 135 chapters and many of them are a page or two long, which makes it the short-chapter stress test for chapter navigation.",
+      "maxChapters": 45
+    },
+    {
+      "source": "gutenberg",
+      "id": "1661",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Mystery", "Short Stories", "Classic"],
+      "description": "Twelve Sherlock Holmes stories. Each \"chapter\" is a whole short story of eight to twelve thousand words — the very-long-chapter case for paged mode and progress tracking.",
+      "maxChapters": 12
+    },
+    {
+      "source": "gutenberg",
+      "id": "11",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Fantasy", "Children's Literature", "Classic"],
+      "description": "Twelve short chapters, verse interludes and scene breaks — small enough to download over a bad connection while testing.",
+      "maxChapters": 12
+    },
+    {
+      "source": "gutenberg",
+      "id": "2600",
+      "type": "lightnovel",
+      "enabled": true,
+      "genres": ["Historical", "War", "Classic"],
+      "description": "War and Peace is organised as books within volumes, so its chapter titles carry a book prefix. Included to exercise deep chapter lists.",
+      "maxChapters": 60
+    },
+
+    {
+      "source": "mangadex",
+      "id": "32d76d19-8a05-4db0-9fc2-e0b0648fe9d0",
+      "type": "manga",
+      "enabled": true,
+      "_note": "Jujutsu Kaisen"
+    },
+    {
+      "source": "mangadex",
+      "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+      "type": "manga",
+      "enabled": true,
+      "_note": "One Punch Man"
+    },
+    {
+      "source": "mangadex",
+      "id": "c52b2ce3-7f95-469c-96b0-479524fb7a1a",
+      "type": "manga",
+      "enabled": true,
+      "_note": "Chainsaw Man"
+    },
+    {
+      "source": "mangadex",
+      "id": "e78a489b-6632-4d61-b00b-5206f5b8b22b",
+      "type": "manga",
+      "enabled": true,
+      "_note": "Boruto"
+    },
+
+    {
+      "source": "flamecomics",
+      "slug": "solo-leveling",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical"
+    },
+    {
+      "source": "flamecomics",
+      "slug": "return-of-the-mount-hua-sect",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical"
+    },
+    {
+      "source": "flamecomics",
+      "slug": "omniscient-reader",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical"
+    },
+    {
+      "source": "flamecomics",
+      "slug": "player-who-cant-level-up",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical"
+    },
+    {
+      "source": "flamecomics",
+      "slug": "volcanic-age",
+      "type": "manhwa",
+      "enabled": true,
+      "readingDirection": "vertical"
+    }
+  ]
+}

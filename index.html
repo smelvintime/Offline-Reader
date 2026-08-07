@@ -11,9 +11,6 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <title>Offline Reader</title>
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./css/catalogue.css">
-  <link rel="stylesheet" href="./css/novel.css">
-  <link rel="stylesheet" href="./css/importer.css">
 </head>
 <body>
 
@@ -213,8 +210,9 @@
   <script src="./js/store.js"></script>
   <script src="./jszip.min.js"></script>
   <script src="./js/reader.js"></script>
-  <script src="./js/novel-reader.js"></script>
-  <script src="./js/importer.js"></script>
-  <script src="./js/catalogue.js"></script>
+  <!-- online.js is the current catalogue/boot module. It is replaced by
+       js/catalogue.js once that lands; until then it stays so the online
+       library keeps working. -->
+  <script src="./js/online.js"></script>
 </body>
 </html>

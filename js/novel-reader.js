@@ -856,20 +856,74 @@
     entry.blockEls = [];
   }
 
+  // The offline reader's section ornament, rebuilt as DOM. Static and
+  // author-controlled — no catalogue data reaches these attributes.
+  const RULE_SHAPES = [
+    ['path',   { d: 'M90 0L98 8L90 16L82 8L90 0Z', opacity: '0.9' }],
+    ['circle', { cx: '60',  cy: '8', r: '2', opacity: '0.5' }],
+    ['circle', { cx: '120', cy: '8', r: '2', opacity: '0.5' }],
+    ['rect',   { x: '10',  y: '7.5', width: '30', height: '1', opacity: '0.3' }],
+    ['rect',   { x: '140', y: '7.5', width: '30', height: '1', opacity: '0.3' }],
+  ];
+
+  function geometricRule() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '180');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('viewBox', '0 0 180 16');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < RULE_SHAPES.length; i++) {
+      const tag = RULE_SHAPES[i][0], attrs = RULE_SHAPES[i][1];
+      const node = document.createElementNS(NS, tag);
+      for (const k in attrs) node.setAttribute(k, attrs[k]);
+      svg.appendChild(node);
+    }
+    return svg;
+  }
+
+  // Matches the offline reader's bottom chapter nav —  < | ◆ | >  — rather than
+  // a pair of filled buttons. Same glyphs, same monospace, same equal-width
+  // columns (which is what keeps the diamond centred), but drawn from the novel
+  // reader's own tokens so it follows the sepia/light/black themes.
   function chapterNav(entry, top) {
-    const nav = el('nav', 'nv-chnav' + (top ? ' nv-chnav-top' : ''));
-    nav.setAttribute('aria-label', 'Chapter navigation');
     const idx = chapterIndexOf(entry.chapter.id);
-    const prev = el('button', null, '← Previous');
-    const next = el('button', 'nv-primary', 'Next →');
+
+    // At the head of a chapter the ornament is decoration, not navigation: the
+    // reader has just arrived, and the footer already carries prev/next.
+    if (top) {
+      const rule = el('div', 'nv-rule nv-rule-top');
+      rule.setAttribute('aria-hidden', 'true');
+      rule.appendChild(geometricRule());
+      return rule;
+    }
+
+    const nav = el('nav', 'nv-chnav');
+    nav.setAttribute('aria-label', 'Chapter navigation');
+
+    const prev = el('button', 'nv-chnav-btn');
+    prev.append(el('span', null, '<'), el('span', 'nv-chnav-sep', '|'));
+    const mid = el('div', 'nv-chnav-mid');
+    mid.setAttribute('aria-hidden', 'true');
+    mid.appendChild(geometricRule());
+    const next = el('button', 'nv-chnav-btn');
+    next.append(el('span', 'nv-chnav-sep', '|'), el('span', null, '>'));
+
     prev.type = next.type = 'button';
+    prev.setAttribute('aria-label', 'Previous chapter');
+    next.setAttribute('aria-label', 'Next chapter');
+    prev.title = 'Previous chapter';
+    next.title = 'Next chapter';
     prev.disabled = idx <= 0;
     next.disabled = idx < 0 || idx >= state.chapters.length - 1;
+
     // An explicit "previous chapter" lands at its beginning; only *paging*
     // backwards off the first page lands at the previous chapter's end.
     prev.addEventListener('click', function () { goChapter(-1, 'start'); });
     next.addEventListener('click', function () { goChapter(1, 'start'); });
-    nav.append(prev, next);
+
+    nav.append(prev, mid, next);
     return nav;
   }
 
@@ -1213,6 +1267,59 @@
     return entryFor(state.anchor.chapterId) || currentEntry();
   }
 
+  // How far through the chapter the reader is, as a fraction.
+  //
+  // The obvious measure — the character offset of the anchor — is wrong at the
+  // end, and visibly so: the anchor is the character at the *top* of the
+  // viewport, so when the chapter's last line is on screen the anchor is still
+  // a full screenful short of the end. On a phone that caps a finished chapter
+  // at ~88%. The bar could never fill, and `completed` (which gates advancing
+  // to the next chapter on resume) could never fire.
+  //
+  // So measure the scroll position within the chapter's scrollable range, the
+  // way a scrollbar does: 0 when the chapter's first line is at the top of the
+  // viewport, 1 when its last line is at the bottom. The end mark is the last
+  // *prose* block rather than the section box, so 100% means "you can see the
+  // last line", not "you can see the next-chapter buttons".
+  //
+  // Returns null when the geometry cannot be trusted (not laid out yet, or the
+  // chapter is a collapsed spacer); the caller falls back to the character
+  // measure, which is a fine approximation everywhere except the last screen.
+  function scrollPct(entry) {
+    if (!entry || entry.collapsed || !entry.section || !dom.viewport || !dom.stage) return null;
+    const vh = dom.viewport.clientHeight;
+    if (!(vh > 0)) return null;
+
+    const secRect = entry.section.getBoundingClientRect();
+    if (!secRect.height) return null;
+
+    // The readable band is the viewport minus the chrome insets. .nv-stage
+    // carries exactly that padding, so at maximum scroll the last line comes to
+    // rest on readBottom — measuring against the raw viewport edge instead would
+    // leave the bar a footer's height short of full on every chapter.
+    const cs = getComputedStyle(dom.stage);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    const readH = vh - padTop - padBottom;
+    if (!(readH > 0)) return null;
+
+    // The end of the prose, not the end of the section box.
+    let endBottom = secRect.bottom;
+    const els = entry.blockEls;
+    if (els && els.length) {
+      for (let i = els.length - 1; i >= 0; i--) {
+        if (els[i]) { endBottom = els[i].getBoundingClientRect().bottom; break; }
+      }
+    }
+
+    const span = (endBottom - secRect.top) - readH;
+    // The whole chapter fits in one screen: there is nothing left to read.
+    if (!(span > 0)) return 1;
+
+    const readTop = dom.viewport.getBoundingClientRect().top + padTop;
+    return clamp((readTop - secRect.top) / span, 0, 1);
+  }
+
   function updateChrome() {
     if (!state.open) return;
     const entry = anchorEntry();
@@ -1232,8 +1339,13 @@
       pct = state.pageCount > 0 ? (state.page + 1) / state.pageCount : 0;
       position = 'Page ' + (state.page + 1) + ' / ' + state.pageCount;
     } else {
-      const t = entry ? totalChars(entry) : 1;
-      pct = entry ? clamp(charOffsetOf(entry, state.anchor) / t, 0, 1) : 0;
+      const geo = scrollPct(entry);
+      if (geo != null) {
+        pct = geo;
+      } else {
+        const t = entry ? totalChars(entry) : 1;
+        pct = entry ? clamp(charOffsetOf(entry, state.anchor) / t, 0, 1) : 0;
+      }
       position = Math.round(pct * 100) + '%';
     }
     state.pct = pct;

@@ -1872,10 +1872,32 @@
     loadProgress().then(function () { renderContinue(); }).catch(function () {});
   }
 
+  // Re-read the progress row the series screen was rendered from. Everything on
+  // that screen that says "where you are" — the resume button, the per-chapter
+  // read/reading marks — is drawn from `seriesProgress`, which a reading session
+  // invalidates without telling anyone: the reader writes to the store, not to
+  // this cache.
+  function refreshSeriesProgress() {
+    const s = currentSeries;
+    if (!s) return;
+    Promise.resolve(safeCall('getProgress', [s.id], null)).then(function (p) {
+      if (currentSeries !== s) return;   // navigated on while we were waiting
+      seriesProgress = p;
+      renderPrimaryAction(s);
+      renderChapterList();
+    }).catch(function () {});
+  }
+
   function goBack() {
     navStack.pop();
     const prev = navStack[navStack.length - 1];
-    if (prev === 'series-screen' && currentSeries) { window.showScreen('series-screen'); return; }
+    if (prev === 'series-screen' && currentSeries) {
+      window.showScreen('series-screen');
+      // This is the path back out of the novel reader, and the one the hardware
+      // back button takes out of either reader.
+      refreshSeriesProgress();
+      return;
+    }
     goHome();
   }
 
@@ -1919,14 +1941,7 @@
       syncImageProgress(true);
       // The close handler in reader.js shows the series screen; refresh the
       // chapter list so read-state and the resume button reflect this session.
-      setTimeout(function () {
-        if (!currentSeries) return;
-        safeCall('getProgress', [currentSeries.id], null).then(function (p) {
-          seriesProgress = p;
-          renderPrimaryAction(currentSeries);
-          renderChapterList();
-        });
-      }, 0);
+      setTimeout(refreshSeriesProgress, 0);
     });
 
     // Connectivity. Losing the network while browsing drops to the CBZ reader,

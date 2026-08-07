@@ -763,7 +763,7 @@
   padding: 0.7rem 1.1rem;
   background: var(--cat-accent);
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--cat-r);   /* buttons stay on the 10px scale, like the offline reader's CTA */
   color: #fff;
   font-size: 0.9rem;
   font-weight: 800;

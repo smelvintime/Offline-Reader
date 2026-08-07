@@ -276,30 +276,66 @@
 
 /* ── Chapter boundary affordances (chapter + infinite modes) ──────────────── */
 
+/* The offline reader's ornament — a diamond between two rules. Used at the head
+   of a chapter, where it is decoration rather than navigation. */
+.nv-rule {
+  display: flex;
+  justify-content: center;
+  color: var(--nv-muted);
+  opacity: 0.75;
+  text-indent: 0;
+}
+/* Padding, not margin: a top margin on the section's first child collapses
+   through the section box, which would shift the top the progress maths
+   measures from. */
+.nv-rule-top { padding-top: 0.8em; margin: 0 0 2.2em; }
+.nv-rule svg { max-width: 100%; height: auto; }
+
+/* The offline reader's bottom chapter nav —  < | ◆ | >  — not a pair of filled
+   buttons. No fill, no border, muted until touched; the three equal-width
+   columns are what keep the diamond centred no matter how wide the column is. */
 .nv-chnav {
   display: flex;
-  gap: 0.6rem;
-  margin: 2.2em 0 0.5em;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  align-items: center;
+  width: 100%;
+  max-width: 400px;
+  margin: 2.2em auto 0.5em;
+  text-indent: 0;
 }
-.nv-chnav.nv-chnav-top { margin: 0 0 2.2em; }
-.nv-chnav button {
+.nv-chnav-btn {
   flex: 1;
-  min-height: 48px;
-  padding: 0.8rem 1rem;
-  background: var(--nv-surf);
-  border: 1px solid var(--nv-border);
-  border-radius: 12px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--nv-muted);
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 0.9rem 1.5rem;      /* ~44 px tall tap target */
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  opacity: 0.7;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 0.15s;
 }
-.nv-chnav button:hover:not(:disabled) { background: var(--nv-surf-2); }
-.nv-chnav button:active:not(:disabled) { transform: scale(0.98); }
-.nv-chnav button:disabled { opacity: 0.3; cursor: default; }
-.nv-chnav button.nv-primary { background: var(--nv-accent); border-color: transparent; color: #fff; }
+.nv-chnav-btn:active { opacity: 0.35; }
+.nv-chnav-btn:disabled { opacity: 0.18; pointer-events: none; }
+/* Prev: right-align so | sits at the inner edge; Next: left-align the same way */
+.nv-chnav-btn:first-child { justify-content: flex-end;   padding-right: 0; }
+.nv-chnav-btn:last-child  { justify-content: flex-start; padding-left: 0; }
+.nv-chnav-sep { opacity: 0.45; }
+.nv-chnav-mid {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 1rem;             /* space between the | separators and the diamond */
+  color: var(--nv-muted);
+  opacity: 0.75;
+}
+.nv-chnav-mid svg { max-width: 100%; height: auto; }
 
 .nv-end {
   margin: 2.5em 0 1em;
@@ -371,7 +407,7 @@
 }
 .nv-btn:hover { background: var(--nv-surf); }
 .nv-btn:active { background: var(--nv-surf-2); }
-.nv-btn:disabled { opacity: 0.25; pointer-events: none; }
+.nv-btn:disabled { opacity: 0.15; pointer-events: none; }
 
 .nv-status {
   flex: 1; min-width: 0;
@@ -413,7 +449,7 @@
   display: flex; flex-direction: column;
   background: var(--nv-bg);
   border-top: 1px solid var(--nv-border);
-  border-radius: 20px 20px 0 0;
+  border-radius: 24px 24px 0 0;   /* matches the offline reader's chapter sheet */
   box-shadow: var(--nv-shadow);
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -478,7 +514,7 @@
 }
 .nv-toggle span.nv-pill {
   flex-shrink: 0;
-  padding: 0.2rem 0.6rem; border-radius: 999px;
+  padding: 0.2rem 0.6rem; border-radius: 8px;   /* squared off, not pill-shaped */
   background: var(--nv-surf-2); font-size: 0.72rem; font-weight: 700;
 }
 .nv-toggle[aria-pressed='true'] { border-color: var(--nv-accent); color: var(--nv-accent); }

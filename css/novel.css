@@ -1,0 +1,551 @@
+/* Offline Reader — light-novel reader skin. Owned by js/novel-reader.js.
+ *
+ * Everything is scoped under #novel-screen: the image reader and the catalogue
+ * share a stylesheet with hard-coded dark colours, and a novel in sepia must not
+ * drag them along with it.
+ *
+ * Every user-facing typography knob is a custom property on the root element.
+ * The settings sheet writes properties, never classes and never markup, so a
+ * font-size drag is one style write per frame instead of a re-render — and the
+ * only thing that has to run afterwards is repagination.
+ */
+
+/* ── Root & theme tokens ──────────────────────────────────────────────────── */
+
+#novel-screen {
+  /* Palette — overridden per theme below. */
+  --nv-bg:      #0a0a0a;
+  --nv-fg:      #e9e9ec;
+  --nv-muted:   #9a9aa4;
+  --nv-surf:    rgba(255, 255, 255, 0.07);
+  --nv-surf-2:  rgba(255, 255, 255, 0.12);
+  --nv-border:  rgba(255, 255, 255, 0.11);
+  --nv-accent:  #6366f1;
+  --nv-chrome:  rgba(10, 10, 10, 0.62);
+  --nv-shadow:  0 -10px 40px rgba(0, 0, 0, 0.5);
+
+  /* Typography — driven by novel.* prefs. */
+  --nv-font:    Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+  --nv-size:    19px;
+  --nv-lh:      1.65;
+  --nv-maxw:    42rem;
+  --nv-align:   left;
+  --nv-para:    0.85em;
+  --nv-indent:  0em;
+  --nv-track:   0em;
+
+  /* Layout — the chrome floats over the prose, so these paddings stay constant
+     whether the header/footer are shown or hidden. Toggling chrome must never
+     resize the text box: in paged mode that would silently repaginate. */
+  --nv-pad-top:    calc(3.25rem + env(safe-area-inset-top, 0px));
+  --nv-pad-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  --nv-pad-x:      1.25rem;
+  --nv-turn:       190ms;
+
+  display: none;               /* showScreen() flips this to block */
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--nv-bg);
+  color: var(--nv-fg);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#novel-screen[data-theme='light'] {
+  --nv-bg: #fbfaf8; --nv-fg: #1c1c1f; --nv-muted: #6a6a72;
+  --nv-surf: rgba(0, 0, 0, 0.05); --nv-surf-2: rgba(0, 0, 0, 0.09);
+  --nv-border: rgba(0, 0, 0, 0.13); --nv-accent: #4f46e5;
+  --nv-chrome: rgba(251, 250, 248, 0.72);
+  --nv-shadow: 0 -10px 40px rgba(0, 0, 0, 0.18);
+}
+#novel-screen[data-theme='sepia'] {
+  --nv-bg: #f4ecd8; --nv-fg: #43341f; --nv-muted: #8a7458;
+  --nv-surf: rgba(90, 64, 32, 0.08); --nv-surf-2: rgba(90, 64, 32, 0.15);
+  --nv-border: rgba(90, 64, 32, 0.2); --nv-accent: #9a5b1f;
+  --nv-chrome: rgba(244, 236, 216, 0.75);
+  --nv-shadow: 0 -10px 40px rgba(80, 60, 30, 0.2);
+}
+#novel-screen[data-theme='black'] {
+  --nv-bg: #000; --nv-fg: #d6d6da; --nv-muted: #83838c;
+  --nv-surf: rgba(255, 255, 255, 0.05); --nv-surf-2: rgba(255, 255, 255, 0.1);
+  --nv-border: rgba(255, 255, 255, 0.09); --nv-accent: #7c7ff5;
+  --nv-chrome: rgba(0, 0, 0, 0.72);
+}
+
+/* Typeface stacks. No webfonts: the reader has to work with the radio off, and
+   a 300 KB dyslexia font that 404s offline is worse than a good local stack. */
+#novel-screen[data-font='serif']    { --nv-font: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif; }
+#novel-screen[data-font='sans']     { --nv-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+#novel-screen[data-font='mono']     { --nv-font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
+#novel-screen[data-font='dyslexic'] {
+  --nv-font: 'OpenDyslexic', 'Open Dyslexic', 'Comic Sans MS', 'Chalkboard SE', 'Trebuchet MS', Verdana, sans-serif;
+  --nv-track: 0.02em;          /* wider tracking is the part of OpenDyslexic we can reproduce */
+}
+
+#novel-screen[data-width='narrow'] { --nv-maxw: 32rem; }
+#novel-screen[data-width='normal'] { --nv-maxw: 42rem; }
+#novel-screen[data-width='wide']   { --nv-maxw: 54rem; }
+#novel-screen[data-width='full']   { --nv-maxw: 100%; }
+
+#novel-screen[data-para='tight']  { --nv-para: 0.3em; }
+#novel-screen[data-para='normal'] { --nv-para: 0.85em; }
+#novel-screen[data-para='loose']  { --nv-para: 1.6em; }
+
+#novel-screen[data-indent='true'] { --nv-indent: 1.6em; }
+
+#novel-screen button { font: inherit; color: inherit; }
+#novel-screen :focus-visible {
+  outline: 2px solid var(--nv-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.nv-sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ── Viewport / stage / document ──────────────────────────────────────────── */
+
+.nv-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+#novel-screen[data-mode='chapter'] .nv-viewport,
+#novel-screen[data-mode='infinite'] .nv-viewport {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nv-stage {
+  padding: var(--nv-pad-top) var(--nv-pad-x) var(--nv-pad-bottom);
+}
+#novel-screen[data-mode='paged'] .nv-stage {
+  position: absolute;
+  inset: 0;
+}
+
+/* .nv-measure exists so the browser resolves --nv-maxw for us; paged mode reads
+   its clientWidth/clientHeight as the exact column box. It also clips the
+   column track, which is what keeps the next page out of sight at rest. */
+.nv-measure {
+  max-width: var(--nv-maxw);
+  margin: 0 auto;
+}
+#novel-screen[data-mode='paged'] .nv-measure {
+  height: 100%;
+  overflow: hidden;
+}
+
+.nv-doc {
+  font-family: var(--nv-font);
+  font-size: var(--nv-size);
+  line-height: var(--nv-lh);
+  letter-spacing: var(--nv-track);
+  text-align: var(--nv-align);
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  overflow-wrap: break-word;
+}
+#novel-screen[data-mode='paged'] .nv-doc {
+  column-fill: auto;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+#novel-screen[data-mode='paged'] .nv-doc.nv-animate {
+  transition: transform var(--nv-turn) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* ── Prose ────────────────────────────────────────────────────────────────── */
+
+.nv-doc p {
+  margin: 0 0 var(--nv-para);
+  text-indent: var(--nv-indent);
+}
+.nv-doc p:first-child,
+.nv-doc h2 + p, .nv-doc h3 + p, .nv-doc h4 + p,
+.nv-doc hr + p, .nv-doc blockquote + p {
+  text-indent: 0;              /* an indent right under a heading reads as a typo */
+}
+.nv-doc h2, .nv-doc h3, .nv-doc h4 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 1.6em 0 0.7em;
+  text-align: left;
+  text-wrap: balance;
+}
+.nv-doc h2 { font-size: 1.35em; }
+.nv-doc h3 { font-size: 1.15em; }
+.nv-doc h4 { font-size: 1.02em; letter-spacing: 0.04em; text-transform: uppercase; color: var(--nv-muted); }
+.nv-doc hr {
+  border: 0;
+  height: 1px;
+  background: var(--nv-border);
+  width: 40%;
+  margin: 2em auto;
+}
+.nv-doc blockquote {
+  margin: 0 0 var(--nv-para);
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--nv-border);
+  color: var(--nv-muted);
+  font-style: italic;
+}
+.nv-doc blockquote p { text-indent: 0; }
+.nv-doc pre {
+  margin: 0 0 var(--nv-para);
+  padding: 0.8em 1em;
+  background: var(--nv-surf);
+  border-radius: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.nv-doc ul, .nv-doc ol { margin: 0 0 var(--nv-para); padding-left: 1.6em; }
+.nv-doc li { margin: 0 0 0.3em; text-indent: 0; }
+.nv-note {
+  display: block;
+  margin: 0 0 var(--nv-para);
+  padding: 0.7em 0.9em;
+  background: var(--nv-surf);
+  border-left: 3px solid var(--nv-accent);
+  border-radius: 0 10px 10px 0;
+  font-size: 0.9em;
+  color: var(--nv-muted);
+  text-indent: 0;
+}
+.nv-figure { margin: 0 0 var(--nv-para); text-align: center; }
+.nv-figure img {
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 8px;
+  background: var(--nv-surf);
+}
+.nv-figure figcaption { font-size: 0.8em; color: var(--nv-muted); margin-top: 0.4em; text-indent: 0; }
+/* A dead illustration should cost zero layout, not a broken-image glyph. */
+.nv-figure.nv-img-failed { display: none; }
+
+.nv-empty { color: var(--nv-muted); font-style: italic; }
+
+/* ── Chapter sections & dividers ──────────────────────────────────────────── */
+
+.nv-section { break-after: auto; }
+.nv-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1.4em;
+  color: var(--nv-muted);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-indent: 0;
+}
+.nv-divider::before, .nv-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nv-border);
+}
+.nv-section + .nv-section .nv-divider { margin-top: 3em; }
+.nv-divider span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+
+.nv-chapter-title {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.3em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 1.2em;
+  text-align: left;
+  text-indent: 0;
+}
+
+/* Windowed-out chapter: an empty box of the exact height the prose occupied, so
+   the scrollbar and the reader's position do not lurch when it is dropped. */
+.nv-section.nv-collapsed { overflow: hidden; }
+
+/* ── Chapter boundary affordances (chapter + infinite modes) ──────────────── */
+
+.nv-chnav {
+  display: flex;
+  gap: 0.6rem;
+  margin: 2.2em 0 0.5em;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.nv-chnav.nv-chnav-top { margin: 0 0 2.2em; }
+.nv-chnav button {
+  flex: 1;
+  min-height: 48px;
+  padding: 0.8rem 1rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+}
+.nv-chnav button:hover:not(:disabled) { background: var(--nv-surf-2); }
+.nv-chnav button:active:not(:disabled) { transform: scale(0.98); }
+.nv-chnav button:disabled { opacity: 0.3; cursor: default; }
+.nv-chnav button.nv-primary { background: var(--nv-accent); border-color: transparent; color: #fff; }
+
+.nv-end {
+  margin: 2.5em 0 1em;
+  text-align: center;
+  color: var(--nv-muted);
+  font-size: 0.85rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Tap zones (paged mode) ───────────────────────────────────────────────── */
+
+.nv-zones { position: absolute; inset: 0; z-index: 5; display: none; }
+#novel-screen[data-mode='paged'] .nv-zones { display: block; }
+.nv-zone {
+  position: absolute; top: 0; bottom: 0;
+  width: 33.34%;
+}
+.nv-zone-prev { left: 0; }
+.nv-zone-mid  { left: 33.33%; }
+.nv-zone-next { right: 0; }
+
+/* ── Chrome ───────────────────────────────────────────────────────────────── */
+
+.nv-header, .nv-footer {
+  position: absolute;
+  left: 0; right: 0;
+  z-index: 30;
+  background: var(--nv-chrome);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.nv-header {
+  top: 0;
+  display: flex; align-items: center; gap: 0.35rem;
+  padding: calc(0.45rem + env(safe-area-inset-top, 0px)) 0.6rem 0.45rem;
+  border-bottom: 1px solid var(--nv-border);
+}
+.nv-footer {
+  bottom: 0;
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.4rem 0.6rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--nv-border);
+}
+#novel-screen.nv-chrome-hidden .nv-header { transform: translateY(-100%); opacity: 0; }
+#novel-screen.nv-chrome-hidden .nv-footer { transform: translateY(100%); opacity: 0; }
+
+.nv-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.nv-title {
+  font-size: 0.85rem; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nv-subtitle {
+  font-size: 0.7rem; color: var(--nv-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.nv-btn {
+  flex-shrink: 0;
+  min-width: 40px; height: 40px;
+  padding: 0 0.55rem;
+  background: none; border: none; border-radius: 10px;
+  color: var(--nv-fg);
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.78rem; font-weight: 600;
+  transition: background 0.15s;
+}
+.nv-btn:hover { background: var(--nv-surf); }
+.nv-btn:active { background: var(--nv-surf-2); }
+.nv-btn:disabled { opacity: 0.25; pointer-events: none; }
+
+.nv-status {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+}
+.nv-status-line {
+  display: flex; align-items: baseline; gap: 0.45rem;
+  font-size: 0.74rem; color: var(--nv-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.nv-status-line b { color: var(--nv-fg); font-weight: 700; }
+.nv-bar {
+  width: 100%; height: 3px;
+  background: var(--nv-surf-2);
+  border-radius: 2px; overflow: hidden;
+}
+.nv-bar > i {
+  display: block; height: 100%;
+  width: calc(var(--nv-pct, 0) * 100%);
+  background: var(--nv-accent);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+/* ── Settings sheet ───────────────────────────────────────────────────────── */
+
+.nv-scrim {
+  position: absolute; inset: 0; z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.28s ease;
+}
+.nv-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+.nv-sheet {
+  position: absolute; z-index: 50;
+  left: 0; right: 0; bottom: 0;
+  max-height: 86%;
+  display: flex; flex-direction: column;
+  background: var(--nv-bg);
+  border-top: 1px solid var(--nv-border);
+  border-radius: 20px 20px 0 0;
+  box-shadow: var(--nv-shadow);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.nv-sheet[hidden] { display: flex !important; transform: translateY(101%); pointer-events: none; }
+
+.nv-sheet-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--nv-border);
+}
+.nv-sheet-head h2 { font-size: 1rem; font-weight: 800; flex: 1; margin: 0; }
+.nv-sheet-body { overflow-y: auto; padding: 0.5rem 1rem 1rem; -webkit-overflow-scrolling: touch; }
+
+.nv-row { padding: 0.7rem 0; border-bottom: 1px solid var(--nv-border); }
+.nv-row:last-child { border-bottom: none; }
+.nv-row-label {
+  display: block;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--nv-muted);
+  margin-bottom: 0.5rem;
+}
+
+.nv-seg { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.nv-seg button {
+  flex: 1 1 auto; min-width: 4.5rem; min-height: 40px;
+  padding: 0.5rem 0.6rem;
+  background: var(--nv-surf);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 0.82rem; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.nv-seg button:hover { background: var(--nv-surf-2); }
+.nv-seg button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--nv-accent) 22%, transparent);
+  border-color: var(--nv-accent);
+  color: var(--nv-accent);
+}
+
+.nv-step { display: flex; align-items: center; gap: 0.6rem; }
+.nv-step button {
+  width: 44px; height: 40px;
+  background: var(--nv-surf); border: none; border-radius: 10px;
+  font-size: 1.1rem; font-weight: 700; cursor: pointer;
+}
+.nv-step button:hover { background: var(--nv-surf-2); }
+.nv-step output {
+  flex: 1; text-align: center;
+  font-size: 0.9rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.nv-toggle {
+  width: 100%; min-height: 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--nv-surf); border: 1px solid transparent; border-radius: 10px;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.nv-toggle span.nv-pill {
+  flex-shrink: 0;
+  padding: 0.2rem 0.6rem; border-radius: 999px;
+  background: var(--nv-surf-2); font-size: 0.72rem; font-weight: 700;
+}
+.nv-toggle[aria-pressed='true'] { border-color: var(--nv-accent); color: var(--nv-accent); }
+.nv-toggle[aria-pressed='true'] span.nv-pill { background: var(--nv-accent); color: #fff; }
+
+.nv-actions { display: flex; gap: 0.5rem; padding-top: 0.4rem; }
+.nv-actions button {
+  flex: 1; min-height: 44px;
+  background: var(--nv-surf); border: 1px solid var(--nv-border); border-radius: 10px;
+  font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.nv-actions button:hover { background: var(--nv-surf-2); }
+
+.nv-keys { margin: 0; font-size: 0.78rem; color: var(--nv-muted); }
+.nv-keys div { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; }
+.nv-keys kbd {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  background: var(--nv-surf); border: 1px solid var(--nv-border);
+  border-radius: 5px; padding: 0.1rem 0.35rem;
+  color: var(--nv-fg); white-space: nowrap;
+}
+.nv-keys-note { display: none; }
+@media (hover: none) { .nv-keys-wrap { display: none; } }
+
+/* ── Toast (degraded-resolver notices, load errors) ───────────────────────── */
+
+.nv-toast {
+  position: absolute; z-index: 60;
+  left: 50%; bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  max-width: min(90%, 26rem);
+  padding: 0.6rem 0.9rem;
+  background: var(--nv-surf-2);
+  border: 1px solid var(--nv-border);
+  border-radius: 12px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.8rem;
+  text-align: center;
+  transition: opacity 0.25s;
+}
+.nv-toast[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+/* ── Desktop: the sheet becomes a docked side panel ───────────────────────── */
+
+@media (min-width: 720px) {
+  #novel-screen { --nv-pad-x: 2rem; }
+  .nv-sheet {
+    left: auto; top: 0; bottom: 0;
+    width: 24rem;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--nv-border);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
+    max-height: none;
+  }
+  .nv-sheet[hidden] { transform: translateX(101%); }
+  .nv-keys-note { display: block; }
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #novel-screen *, #novel-screen *::before, #novel-screen *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

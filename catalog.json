@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-07T18:07:06.693Z",
+  "generatedAt": "2026-08-08T01:15:23.532Z",
   "series": [
     {
       "id": "fixture:lamplighter",
@@ -962,6 +962,3301 @@
           "src": "chapters/fixture_ashfall/c-0008.json"
         }
       ]
+    },
+    {
+      "id": "gutenberg:84",
+      "type": "lightnovel",
+      "title": "Frankenstein",
+      "altTitles": [
+        "Frankenstein; or, the modern prometheus"
+      ],
+      "cover": "https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg",
+      "description": "Mary Shelley's 1818 novel, told in letters and then in Victor Frankenstein's own voice. Medium-length chapters; the epistolary opening exercises headings that are not the word \"Chapter\".",
+      "author": "Mary Wollstonecraft Shelley",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Gothic",
+        "Science Fiction",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/84",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 28,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "Letter 1",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1200,
+          "src": "chapters/gutenberg_84/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "Letter 2",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1311,
+          "src": "chapters/gutenberg_84/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "Letter 3",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 300,
+          "src": "chapters/gutenberg_84/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": null,
+          "title": "Letter 4",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2730,
+          "src": "chapters/gutenberg_84/c-0004.json"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": null,
+          "title": "Chapter 1",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1766,
+          "src": "chapters/gutenberg_84/c-0005.json"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": null,
+          "title": "Chapter 2",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2206,
+          "src": "chapters/gutenberg_84/c-0006.json"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": null,
+          "title": "Chapter 3",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2675,
+          "src": "chapters/gutenberg_84/c-0007.json"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": null,
+          "title": "Chapter 4",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2535,
+          "src": "chapters/gutenberg_84/c-0008.json"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": null,
+          "title": "Chapter 5",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2357,
+          "src": "chapters/gutenberg_84/c-0009.json"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": null,
+          "title": "Chapter 6",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2718,
+          "src": "chapters/gutenberg_84/c-0010.json"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": null,
+          "title": "Chapter 7: On my return, I found the following letter from my father:—",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3560,
+          "src": "chapters/gutenberg_84/c-0011.json"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": null,
+          "title": "Chapter 8",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3093,
+          "src": "chapters/gutenberg_84/c-0012.json"
+        },
+        {
+          "id": "c-0013",
+          "num": 13,
+          "volume": null,
+          "title": "Chapter 9",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2212,
+          "src": "chapters/gutenberg_84/c-0013.json"
+        },
+        {
+          "id": "c-0014",
+          "num": 14,
+          "volume": null,
+          "title": "Chapter 10",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2359,
+          "src": "chapters/gutenberg_84/c-0014.json"
+        },
+        {
+          "id": "c-0015",
+          "num": 15,
+          "volume": null,
+          "title": "Chapter 11",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2907,
+          "src": "chapters/gutenberg_84/c-0015.json"
+        },
+        {
+          "id": "c-0016",
+          "num": 16,
+          "volume": null,
+          "title": "Chapter 12",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2070,
+          "src": "chapters/gutenberg_84/c-0016.json"
+        },
+        {
+          "id": "c-0017",
+          "num": 17,
+          "volume": null,
+          "title": "Chapter 13",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2032,
+          "src": "chapters/gutenberg_84/c-0017.json"
+        },
+        {
+          "id": "c-0018",
+          "num": 18,
+          "volume": null,
+          "title": "Chapter 14",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1854,
+          "src": "chapters/gutenberg_84/c-0018.json"
+        },
+        {
+          "id": "c-0019",
+          "num": 19,
+          "volume": null,
+          "title": "Chapter 15",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3013,
+          "src": "chapters/gutenberg_84/c-0019.json"
+        },
+        {
+          "id": "c-0020",
+          "num": 20,
+          "volume": null,
+          "title": "Chapter 16",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3199,
+          "src": "chapters/gutenberg_84/c-0020.json"
+        },
+        {
+          "id": "c-0021",
+          "num": 21,
+          "volume": null,
+          "title": "Chapter 17",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1917,
+          "src": "chapters/gutenberg_84/c-0021.json"
+        },
+        {
+          "id": "c-0022",
+          "num": 22,
+          "volume": null,
+          "title": "Chapter 18",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2844,
+          "src": "chapters/gutenberg_84/c-0022.json"
+        },
+        {
+          "id": "c-0023",
+          "num": 23,
+          "volume": null,
+          "title": "Chapter 19",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2611,
+          "src": "chapters/gutenberg_84/c-0023.json"
+        },
+        {
+          "id": "c-0024",
+          "num": 24,
+          "volume": null,
+          "title": "Chapter 20",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3521,
+          "src": "chapters/gutenberg_84/c-0024.json"
+        },
+        {
+          "id": "c-0025",
+          "num": 25,
+          "volume": null,
+          "title": "Chapter 21",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3738,
+          "src": "chapters/gutenberg_84/c-0025.json"
+        },
+        {
+          "id": "c-0026",
+          "num": 26,
+          "volume": null,
+          "title": "Chapter 22",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3414,
+          "src": "chapters/gutenberg_84/c-0026.json"
+        },
+        {
+          "id": "c-0027",
+          "num": 27,
+          "volume": null,
+          "title": "Chapter 23",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2594,
+          "src": "chapters/gutenberg_84/c-0027.json"
+        },
+        {
+          "id": "c-0028",
+          "num": 28,
+          "volume": null,
+          "title": "Chapter 24",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 8239,
+          "src": "chapters/gutenberg_84/c-0028.json"
+        }
+      ]
+    },
+    {
+      "id": "gutenberg:1342",
+      "type": "lightnovel",
+      "title": "Pride and Prejudice",
+      "altTitles": [],
+      "cover": "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg",
+      "description": "Sixty-one short-to-medium chapters — the long multi-part novel in this sample, and the one to scroll through when testing infinite mode. This sample ships the first 61 of 62 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
+      "author": "Jane Austen",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Romance",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/1342",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 61,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "Preface",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 4858,
+          "src": "chapters/gutenberg_1342/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "Chapter I: ]",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 879,
+          "src": "chapters/gutenberg_1342/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "Chapter II",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 805,
+          "src": "chapters/gutenberg_1342/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": null,
+          "title": "Chapter III",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1717,
+          "src": "chapters/gutenberg_1342/c-0004.json"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": null,
+          "title": "Chapter IV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1061,
+          "src": "chapters/gutenberg_1342/c-0005.json"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": null,
+          "title": "Chapter V",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 959,
+          "src": "chapters/gutenberg_1342/c-0006.json"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": null,
+          "title": "Chapter VI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2362,
+          "src": "chapters/gutenberg_1342/c-0007.json"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": null,
+          "title": "Chapter VII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2000,
+          "src": "chapters/gutenberg_1342/c-0008.json"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": null,
+          "title": "Chapter VIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1939,
+          "src": "chapters/gutenberg_1342/c-0009.json"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": null,
+          "title": "Chapter IX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1729,
+          "src": "chapters/gutenberg_1342/c-0010.json"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": null,
+          "title": "Chapter X",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2228,
+          "src": "chapters/gutenberg_1342/c-0011.json"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": null,
+          "title": "Chapter XI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1597,
+          "src": "chapters/gutenberg_1342/c-0012.json"
+        },
+        {
+          "id": "c-0013",
+          "num": 13,
+          "volume": null,
+          "title": "Chapter XII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 675,
+          "src": "chapters/gutenberg_1342/c-0013.json"
+        },
+        {
+          "id": "c-0014",
+          "num": 14,
+          "volume": null,
+          "title": "Chapter XIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1692,
+          "src": "chapters/gutenberg_1342/c-0014.json"
+        },
+        {
+          "id": "c-0015",
+          "num": 15,
+          "volume": null,
+          "title": "Chapter XIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1127,
+          "src": "chapters/gutenberg_1342/c-0015.json"
+        },
+        {
+          "id": "c-0016",
+          "num": 16,
+          "volume": null,
+          "title": "Chapter XV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1690,
+          "src": "chapters/gutenberg_1342/c-0016.json"
+        },
+        {
+          "id": "c-0017",
+          "num": 17,
+          "volume": null,
+          "title": "Chapter XVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3380,
+          "src": "chapters/gutenberg_1342/c-0017.json"
+        },
+        {
+          "id": "c-0018",
+          "num": 18,
+          "volume": null,
+          "title": "Chapter XVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1276,
+          "src": "chapters/gutenberg_1342/c-0018.json"
+        },
+        {
+          "id": "c-0019",
+          "num": 19,
+          "volume": null,
+          "title": "Chapter XVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 5191,
+          "src": "chapters/gutenberg_1342/c-0019.json"
+        },
+        {
+          "id": "c-0020",
+          "num": 20,
+          "volume": null,
+          "title": "Chapter XIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1911,
+          "src": "chapters/gutenberg_1342/c-0020.json"
+        },
+        {
+          "id": "c-0021",
+          "num": 21,
+          "volume": null,
+          "title": "Chapter XX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1651,
+          "src": "chapters/gutenberg_1342/c-0021.json"
+        },
+        {
+          "id": "c-0022",
+          "num": 22,
+          "volume": null,
+          "title": "Chapter XXI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2005,
+          "src": "chapters/gutenberg_1342/c-0022.json"
+        },
+        {
+          "id": "c-0023",
+          "num": 23,
+          "volume": null,
+          "title": "Chapter XXII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1753,
+          "src": "chapters/gutenberg_1342/c-0023.json"
+        },
+        {
+          "id": "c-0024",
+          "num": 24,
+          "volume": null,
+          "title": "Chapter XXIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1619,
+          "src": "chapters/gutenberg_1342/c-0024.json"
+        },
+        {
+          "id": "c-0025",
+          "num": 25,
+          "volume": null,
+          "title": "Chapter XXIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1928,
+          "src": "chapters/gutenberg_1342/c-0025.json"
+        },
+        {
+          "id": "c-0026",
+          "num": 26,
+          "volume": null,
+          "title": "Chapter XXV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1534,
+          "src": "chapters/gutenberg_1342/c-0026.json"
+        },
+        {
+          "id": "c-0027",
+          "num": 27,
+          "volume": null,
+          "title": "Chapter XXVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2334,
+          "src": "chapters/gutenberg_1342/c-0027.json"
+        },
+        {
+          "id": "c-0028",
+          "num": 28,
+          "volume": null,
+          "title": "Chapter XXVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1260,
+          "src": "chapters/gutenberg_1342/c-0028.json"
+        },
+        {
+          "id": "c-0029",
+          "num": 29,
+          "volume": null,
+          "title": "Chapter XXVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1475,
+          "src": "chapters/gutenberg_1342/c-0029.json"
+        },
+        {
+          "id": "c-0030",
+          "num": 30,
+          "volume": null,
+          "title": "Chapter XXIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2382,
+          "src": "chapters/gutenberg_1342/c-0030.json"
+        },
+        {
+          "id": "c-0031",
+          "num": 31,
+          "volume": null,
+          "title": "Chapter XXX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1250,
+          "src": "chapters/gutenberg_1342/c-0031.json"
+        },
+        {
+          "id": "c-0032",
+          "num": 32,
+          "volume": null,
+          "title": "Chapter XXXI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1554,
+          "src": "chapters/gutenberg_1342/c-0032.json"
+        },
+        {
+          "id": "c-0033",
+          "num": 33,
+          "volume": null,
+          "title": "Chapter XXXII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1499,
+          "src": "chapters/gutenberg_1342/c-0033.json"
+        },
+        {
+          "id": "c-0034",
+          "num": 34,
+          "volume": null,
+          "title": "Chapter XXXIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1856,
+          "src": "chapters/gutenberg_1342/c-0034.json"
+        },
+        {
+          "id": "c-0035",
+          "num": 35,
+          "volume": null,
+          "title": "Chapter XXXIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2103,
+          "src": "chapters/gutenberg_1342/c-0035.json"
+        },
+        {
+          "id": "c-0036",
+          "num": 36,
+          "volume": null,
+          "title": "Chapter XXXV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2995,
+          "src": "chapters/gutenberg_1342/c-0036.json"
+        },
+        {
+          "id": "c-0037",
+          "num": 37,
+          "volume": null,
+          "title": "Chapter XXXVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2012,
+          "src": "chapters/gutenberg_1342/c-0037.json"
+        },
+        {
+          "id": "c-0038",
+          "num": 38,
+          "volume": null,
+          "title": "Chapter XXXVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1382,
+          "src": "chapters/gutenberg_1342/c-0038.json"
+        },
+        {
+          "id": "c-0039",
+          "num": 39,
+          "volume": null,
+          "title": "Chapter XXXVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1054,
+          "src": "chapters/gutenberg_1342/c-0039.json"
+        },
+        {
+          "id": "c-0040",
+          "num": 40,
+          "volume": null,
+          "title": "Chapter XXXIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1630,
+          "src": "chapters/gutenberg_1342/c-0040.json"
+        },
+        {
+          "id": "c-0041",
+          "num": 41,
+          "volume": null,
+          "title": "Chapter XL",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1699,
+          "src": "chapters/gutenberg_1342/c-0041.json"
+        },
+        {
+          "id": "c-0042",
+          "num": 42,
+          "volume": null,
+          "title": "Chapter XLI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2278,
+          "src": "chapters/gutenberg_1342/c-0042.json"
+        },
+        {
+          "id": "c-0043",
+          "num": 43,
+          "volume": null,
+          "title": "Chapter XLII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1831,
+          "src": "chapters/gutenberg_1342/c-0043.json"
+        },
+        {
+          "id": "c-0044",
+          "num": 44,
+          "volume": null,
+          "title": "Chapter XLIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 4846,
+          "src": "chapters/gutenberg_1342/c-0044.json"
+        },
+        {
+          "id": "c-0045",
+          "num": 45,
+          "volume": null,
+          "title": "Chapter XLIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2350,
+          "src": "chapters/gutenberg_1342/c-0045.json"
+        },
+        {
+          "id": "c-0046",
+          "num": 46,
+          "volume": null,
+          "title": "Chapter XLV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1730,
+          "src": "chapters/gutenberg_1342/c-0046.json"
+        },
+        {
+          "id": "c-0047",
+          "num": 47,
+          "volume": null,
+          "title": "Chapter XLVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3027,
+          "src": "chapters/gutenberg_1342/c-0047.json"
+        },
+        {
+          "id": "c-0048",
+          "num": 48,
+          "volume": null,
+          "title": "Chapter XLVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 4082,
+          "src": "chapters/gutenberg_1342/c-0048.json"
+        },
+        {
+          "id": "c-0049",
+          "num": 49,
+          "volume": null,
+          "title": "Chapter XLVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2266,
+          "src": "chapters/gutenberg_1342/c-0049.json"
+        },
+        {
+          "id": "c-0050",
+          "num": 50,
+          "volume": null,
+          "title": "Chapter XLIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2264,
+          "src": "chapters/gutenberg_1342/c-0050.json"
+        },
+        {
+          "id": "c-0051",
+          "num": 51,
+          "volume": null,
+          "title": "Chapter L",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2209,
+          "src": "chapters/gutenberg_1342/c-0051.json"
+        },
+        {
+          "id": "c-0052",
+          "num": 52,
+          "volume": null,
+          "title": "Chapter LI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2078,
+          "src": "chapters/gutenberg_1342/c-0052.json"
+        },
+        {
+          "id": "c-0053",
+          "num": 53,
+          "volume": null,
+          "title": "Chapter LII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3034,
+          "src": "chapters/gutenberg_1342/c-0053.json"
+        },
+        {
+          "id": "c-0054",
+          "num": 54,
+          "volume": null,
+          "title": "Chapter LIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2941,
+          "src": "chapters/gutenberg_1342/c-0054.json"
+        },
+        {
+          "id": "c-0055",
+          "num": 55,
+          "volume": null,
+          "title": "Chapter LIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1610,
+          "src": "chapters/gutenberg_1342/c-0055.json"
+        },
+        {
+          "id": "c-0056",
+          "num": 56,
+          "volume": null,
+          "title": "Chapter LV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2326,
+          "src": "chapters/gutenberg_1342/c-0056.json"
+        },
+        {
+          "id": "c-0057",
+          "num": 57,
+          "volume": null,
+          "title": "Chapter LVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2739,
+          "src": "chapters/gutenberg_1342/c-0057.json"
+        },
+        {
+          "id": "c-0058",
+          "num": 58,
+          "volume": null,
+          "title": "Chapter LVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1662,
+          "src": "chapters/gutenberg_1342/c-0058.json"
+        },
+        {
+          "id": "c-0059",
+          "num": 59,
+          "volume": null,
+          "title": "Chapter LVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2443,
+          "src": "chapters/gutenberg_1342/c-0059.json"
+        },
+        {
+          "id": "c-0060",
+          "num": 60,
+          "volume": null,
+          "title": "Chapter LIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2478,
+          "src": "chapters/gutenberg_1342/c-0060.json"
+        },
+        {
+          "id": "c-0061",
+          "num": 61,
+          "volume": null,
+          "title": "Chapter LX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1588,
+          "src": "chapters/gutenberg_1342/c-0061.json"
+        }
+      ]
+    },
+    {
+      "id": "gutenberg:2701",
+      "type": "lightnovel",
+      "title": "Moby Dick",
+      "altTitles": [
+        "Moby Dick; Or, The Whale"
+      ],
+      "cover": "https://www.gutenberg.org/cache/epub/2701/pg2701.cover.medium.jpg",
+      "description": "Moby-Dick has 135 chapters and many of them are a page or two long, which makes it the short-chapter stress test for chapter navigation. This sample ships the first 45 of 149 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
+      "author": "Herman Melville",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Adventure",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/2701",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 45,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "Epilogue",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3660,
+          "src": "chapters/gutenberg_2701/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "Chapter 1: Loomings.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2193,
+          "src": "chapters/gutenberg_2701/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "Chapter 2: The Carpet-Bag.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1420,
+          "src": "chapters/gutenberg_2701/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": null,
+          "title": "Chapter 3: The Spouter-Inn.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 5787,
+          "src": "chapters/gutenberg_2701/c-0004.json"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": null,
+          "title": "Chapter 4: The Counterpane.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1644,
+          "src": "chapters/gutenberg_2701/c-0005.json"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": null,
+          "title": "Chapter 5: Breakfast.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 737,
+          "src": "chapters/gutenberg_2701/c-0006.json"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": null,
+          "title": "Chapter 6: The Street.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 811,
+          "src": "chapters/gutenberg_2701/c-0007.json"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": null,
+          "title": "Chapter 7: The Chapel.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 944,
+          "src": "chapters/gutenberg_2701/c-0008.json"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": null,
+          "title": "Chapter 8: The Pulpit.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 947,
+          "src": "chapters/gutenberg_2701/c-0009.json"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": null,
+          "title": "Chapter 9: The Sermon.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3556,
+          "src": "chapters/gutenberg_2701/c-0010.json"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": null,
+          "title": "Chapter 10: A Bosom Friend.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1549,
+          "src": "chapters/gutenberg_2701/c-0011.json"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": null,
+          "title": "Chapter 11: Nightgown.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 724,
+          "src": "chapters/gutenberg_2701/c-0012.json"
+        },
+        {
+          "id": "c-0013",
+          "num": 13,
+          "volume": null,
+          "title": "Chapter 12: Biographical.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 878,
+          "src": "chapters/gutenberg_2701/c-0013.json"
+        },
+        {
+          "id": "c-0014",
+          "num": 14,
+          "volume": null,
+          "title": "Chapter 13: Wheelbarrow.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1676,
+          "src": "chapters/gutenberg_2701/c-0014.json"
+        },
+        {
+          "id": "c-0015",
+          "num": 15,
+          "volume": null,
+          "title": "Chapter 14: Nantucket.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 755,
+          "src": "chapters/gutenberg_2701/c-0015.json"
+        },
+        {
+          "id": "c-0016",
+          "num": 16,
+          "volume": null,
+          "title": "Chapter 15: Chowder.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1181,
+          "src": "chapters/gutenberg_2701/c-0016.json"
+        },
+        {
+          "id": "c-0017",
+          "num": 17,
+          "volume": null,
+          "title": "Chapter 16: The Ship.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 5422,
+          "src": "chapters/gutenberg_2701/c-0017.json"
+        },
+        {
+          "id": "c-0018",
+          "num": 18,
+          "volume": null,
+          "title": "Chapter 17: The Ramadan.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2255,
+          "src": "chapters/gutenberg_2701/c-0018.json"
+        },
+        {
+          "id": "c-0019",
+          "num": 19,
+          "volume": null,
+          "title": "Chapter 18: His Mark.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1348,
+          "src": "chapters/gutenberg_2701/c-0019.json"
+        },
+        {
+          "id": "c-0020",
+          "num": 20,
+          "volume": null,
+          "title": "Chapter 19: The Prophet.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1199,
+          "src": "chapters/gutenberg_2701/c-0020.json"
+        },
+        {
+          "id": "c-0021",
+          "num": 21,
+          "volume": null,
+          "title": "Chapter 20: All Astir.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 921,
+          "src": "chapters/gutenberg_2701/c-0021.json"
+        },
+        {
+          "id": "c-0022",
+          "num": 22,
+          "volume": null,
+          "title": "Chapter 21: Going Aboard.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1068,
+          "src": "chapters/gutenberg_2701/c-0022.json"
+        },
+        {
+          "id": "c-0023",
+          "num": 23,
+          "volume": null,
+          "title": "Chapter 22: Merry Christmas.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1614,
+          "src": "chapters/gutenberg_2701/c-0023.json"
+        },
+        {
+          "id": "c-0024",
+          "num": 24,
+          "volume": null,
+          "title": "Chapter 23: The Lee Shore.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 364,
+          "src": "chapters/gutenberg_2701/c-0024.json"
+        },
+        {
+          "id": "c-0025",
+          "num": 25,
+          "volume": null,
+          "title": "Chapter 24: The Advocate.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1649,
+          "src": "chapters/gutenberg_2701/c-0025.json"
+        },
+        {
+          "id": "c-0026",
+          "num": 26,
+          "volume": null,
+          "title": "Chapter 25: Postscript.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 280,
+          "src": "chapters/gutenberg_2701/c-0026.json"
+        },
+        {
+          "id": "c-0027",
+          "num": 27,
+          "volume": null,
+          "title": "Chapter 26: Knights and Squires.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1221,
+          "src": "chapters/gutenberg_2701/c-0027.json"
+        },
+        {
+          "id": "c-0028",
+          "num": 28,
+          "volume": null,
+          "title": "Chapter 27: Knights and Squires.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1665,
+          "src": "chapters/gutenberg_2701/c-0028.json"
+        },
+        {
+          "id": "c-0029",
+          "num": 29,
+          "volume": null,
+          "title": "Chapter 28: Ahab.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1396,
+          "src": "chapters/gutenberg_2701/c-0029.json"
+        },
+        {
+          "id": "c-0030",
+          "num": 30,
+          "volume": null,
+          "title": "Chapter 29: Enter Ahab; to Him, Stubb.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1187,
+          "src": "chapters/gutenberg_2701/c-0030.json"
+        },
+        {
+          "id": "c-0031",
+          "num": 31,
+          "volume": null,
+          "title": "Chapter 30: The Pipe.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 291,
+          "src": "chapters/gutenberg_2701/c-0031.json"
+        },
+        {
+          "id": "c-0032",
+          "num": 32,
+          "volume": null,
+          "title": "Chapter 31: Queen Mab.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 846,
+          "src": "chapters/gutenberg_2701/c-0032.json"
+        },
+        {
+          "id": "c-0033",
+          "num": 33,
+          "volume": null,
+          "title": "Chapter 32: Cetology.",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1540,
+          "src": "chapters/gutenberg_2701/c-0033.json"
+        },
+        {
+          "id": "c-0034",
+          "num": 34,
+          "volume": null,
+          "title": "Book I: (_Folio_), CHAPTER I. (_Sperm Whale_).—This whale, among the",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 304,
+          "src": "chapters/gutenberg_2701/c-0034.json"
+        },
+        {
+          "id": "c-0035",
+          "num": 35,
+          "volume": null,
+          "title": "Book I: (_Folio_), CHAPTER II. (_Right Whale_).—In one respect this is",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 282,
+          "src": "chapters/gutenberg_2701/c-0035.json"
+        },
+        {
+          "id": "c-0036",
+          "num": 36,
+          "volume": null,
+          "title": "Book I: (_Folio_), CHAPTER III. (_Fin-Back_).—Under this head I reckon",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 744,
+          "src": "chapters/gutenberg_2701/c-0036.json"
+        },
+        {
+          "id": "c-0037",
+          "num": 37,
+          "volume": null,
+          "title": "Book I: (_Folio_) CHAPTER IV. (_Hump Back_).—This whale is often seen",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 104,
+          "src": "chapters/gutenberg_2701/c-0037.json"
+        },
+        {
+          "id": "c-0038",
+          "num": 38,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book I: (_Folio_), CHAPTER VI. (_Sulphur Bottom_).—Another retiring",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 202,
+          "src": "chapters/gutenberg_2701/c-0038.json"
+        },
+        {
+          "id": "c-0039",
+          "num": 39,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book II: (_Octavo_), CHAPTER I. (_Grampus_).—Though this fish, whose",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 126,
+          "src": "chapters/gutenberg_2701/c-0039.json"
+        },
+        {
+          "id": "c-0040",
+          "num": 40,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book II: (_Octavo_), CHAPTER II. (_Black Fish_).—I give the popular",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 206,
+          "src": "chapters/gutenberg_2701/c-0040.json"
+        },
+        {
+          "id": "c-0041",
+          "num": 41,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book II: (_Octavo_), CHAPTER III. (_Narwhale_), that is, _Nostril",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 505,
+          "src": "chapters/gutenberg_2701/c-0041.json"
+        },
+        {
+          "id": "c-0042",
+          "num": 42,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book II: (_Octavo_), CHAPTER IV. (_Killer_).—Of this whale little is",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 134,
+          "src": "chapters/gutenberg_2701/c-0042.json"
+        },
+        {
+          "id": "c-0043",
+          "num": 43,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book II: (_Octavo_), CHAPTER V. (_Thrasher_).—This gentleman is famous",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 180,
+          "src": "chapters/gutenberg_2701/c-0043.json"
+        },
+        {
+          "id": "c-0044",
+          "num": 44,
+          "volume": 1,
+          "title": "Book I: (_Folio_), CHAPTER V. (_Razor Back_).—Of this whale little is · Book III: (_Duodecimo_), CHAPTER 1. (_Huzza Porpoise_).—This is the",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 238,
+          "src": "chapters/gutenberg_2701/c-0044.json"
+        },
+        {
+          "id": "c-0045",
+          "num": 45,
+          "volume": 3,
+          "title": "Book III: (_Duodecimo_), CHAPTER II. (_Algerine Porpoise_).—A pirate. · Book III: (_Duodecimo_), CHAPTER III. (_Mealy-mouthed Porpoise_).—The",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 506,
+          "src": "chapters/gutenberg_2701/c-0045.json"
+        }
+      ]
+    },
+    {
+      "id": "gutenberg:1661",
+      "type": "lightnovel",
+      "title": "The Adventures of Sherlock Holmes",
+      "altTitles": [],
+      "cover": "https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg",
+      "description": "Twelve Sherlock Holmes stories. Each \"chapter\" is a whole short story of eight to twelve thousand words — the very-long-chapter case for paged mode and progress tracking.",
+      "author": "Arthur Conan Doyle",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Mystery",
+        "Short Stories",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/1661",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 3,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "I",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3434,
+          "src": "chapters/gutenberg_1661/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "II",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 4005,
+          "src": "chapters/gutenberg_1661/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "III",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 96979,
+          "src": "chapters/gutenberg_1661/c-0003.json"
+        }
+      ]
+    },
+    {
+      "id": "gutenberg:11",
+      "type": "lightnovel",
+      "title": "Alice's Adventures in Wonderland",
+      "altTitles": [],
+      "cover": "https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg",
+      "description": "Twelve short chapters, verse interludes and scene breaks — small enough to download over a bad connection while testing. This sample ships the first 12 of 13 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
+      "author": "Lewis Carroll",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Fantasy",
+        "Children's Literature",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/11",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 12,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": null,
+          "title": "Chapter I: Down the Rabbit-Hole",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 70,
+          "src": "chapters/gutenberg_11/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": null,
+          "title": "Chapter I: Down the Rabbit-Hole",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2146,
+          "src": "chapters/gutenberg_11/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": null,
+          "title": "Chapter II: The Pool of Tears",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2099,
+          "src": "chapters/gutenberg_11/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": null,
+          "title": "Chapter III: A Caucus-Race and a Long Tale",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1702,
+          "src": "chapters/gutenberg_11/c-0004.json"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": null,
+          "title": "Chapter IV: The Rabbit Sends in a Little Bill",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2616,
+          "src": "chapters/gutenberg_11/c-0005.json"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": null,
+          "title": "Chapter V: Advice from a Caterpillar",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2166,
+          "src": "chapters/gutenberg_11/c-0006.json"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": null,
+          "title": "Chapter VI: Pig and Pepper",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2593,
+          "src": "chapters/gutenberg_11/c-0007.json"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": null,
+          "title": "Chapter VII: A Mad Tea-Party",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2287,
+          "src": "chapters/gutenberg_11/c-0008.json"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": null,
+          "title": "Chapter VIII: The Queen’s Croquet-Ground",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2487,
+          "src": "chapters/gutenberg_11/c-0009.json"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": null,
+          "title": "Chapter IX: The Mock Turtle’s Story",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2272,
+          "src": "chapters/gutenberg_11/c-0010.json"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": null,
+          "title": "Chapter X: The Lobster Quadrille",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2030,
+          "src": "chapters/gutenberg_11/c-0011.json"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": null,
+          "title": "Chapter XI: Who Stole the Tarts?",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1878,
+          "src": "chapters/gutenberg_11/c-0012.json"
+        }
+      ]
+    },
+    {
+      "id": "gutenberg:2600",
+      "type": "lightnovel",
+      "title": "War and Peace",
+      "altTitles": [],
+      "cover": "https://www.gutenberg.org/cache/epub/2600/pg2600.cover.medium.jpg",
+      "description": "War and Peace is organised as books within volumes, so its chapter titles carry a book prefix. Included to exercise deep chapter lists. This sample ships the first 60 of 365 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
+      "author": "graf Leo Tolstoy",
+      "artist": null,
+      "status": "completed",
+      "genres": [
+        "Historical",
+        "War",
+        "Classic"
+      ],
+      "tags": [
+        "public-domain",
+        "project-gutenberg"
+      ],
+      "language": "en",
+      "source": "gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/2600",
+      "readingDirection": null,
+      "updatedAt": null,
+      "chapterCount": 60,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter I",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2021,
+          "src": "chapters/gutenberg_2600/c-0001.json"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter II",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1383,
+          "src": "chapters/gutenberg_2600/c-0002.json"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter III",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1471,
+          "src": "chapters/gutenberg_2600/c-0003.json"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter IV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1421,
+          "src": "chapters/gutenberg_2600/c-0004.json"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter V",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1876,
+          "src": "chapters/gutenberg_2600/c-0005.json"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter VI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1363,
+          "src": "chapters/gutenberg_2600/c-0006.json"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter VII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1023,
+          "src": "chapters/gutenberg_2600/c-0007.json"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter VIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1201,
+          "src": "chapters/gutenberg_2600/c-0008.json"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter IX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2102,
+          "src": "chapters/gutenberg_2600/c-0009.json"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter X",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1711,
+          "src": "chapters/gutenberg_2600/c-0010.json"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 877,
+          "src": "chapters/gutenberg_2600/c-0011.json"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1361,
+          "src": "chapters/gutenberg_2600/c-0012.json"
+        },
+        {
+          "id": "c-0013",
+          "num": 13,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 732,
+          "src": "chapters/gutenberg_2600/c-0013.json"
+        },
+        {
+          "id": "c-0014",
+          "num": 14,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1533,
+          "src": "chapters/gutenberg_2600/c-0014.json"
+        },
+        {
+          "id": "c-0015",
+          "num": 15,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1487,
+          "src": "chapters/gutenberg_2600/c-0015.json"
+        },
+        {
+          "id": "c-0016",
+          "num": 16,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1854,
+          "src": "chapters/gutenberg_2600/c-0016.json"
+        },
+        {
+          "id": "c-0017",
+          "num": 17,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 712,
+          "src": "chapters/gutenberg_2600/c-0017.json"
+        },
+        {
+          "id": "c-0018",
+          "num": 18,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2360,
+          "src": "chapters/gutenberg_2600/c-0018.json"
+        },
+        {
+          "id": "c-0019",
+          "num": 19,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1129,
+          "src": "chapters/gutenberg_2600/c-0019.json"
+        },
+        {
+          "id": "c-0020",
+          "num": 20,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2053,
+          "src": "chapters/gutenberg_2600/c-0020.json"
+        },
+        {
+          "id": "c-0021",
+          "num": 21,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2721,
+          "src": "chapters/gutenberg_2600/c-0021.json"
+        },
+        {
+          "id": "c-0022",
+          "num": 22,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1800,
+          "src": "chapters/gutenberg_2600/c-0022.json"
+        },
+        {
+          "id": "c-0023",
+          "num": 23,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1788,
+          "src": "chapters/gutenberg_2600/c-0023.json"
+        },
+        {
+          "id": "c-0024",
+          "num": 24,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1662,
+          "src": "chapters/gutenberg_2600/c-0024.json"
+        },
+        {
+          "id": "c-0025",
+          "num": 25,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3601,
+          "src": "chapters/gutenberg_2600/c-0025.json"
+        },
+        {
+          "id": "c-0026",
+          "num": 26,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1957,
+          "src": "chapters/gutenberg_2600/c-0026.json"
+        },
+        {
+          "id": "c-0027",
+          "num": 27,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1567,
+          "src": "chapters/gutenberg_2600/c-0027.json"
+        },
+        {
+          "id": "c-0028",
+          "num": 28,
+          "volume": 1,
+          "title": "Book One: 1805 · Chapter XXVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3286,
+          "src": "chapters/gutenberg_2600/c-0028.json"
+        },
+        {
+          "id": "c-0029",
+          "num": 29,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter I",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1686,
+          "src": "chapters/gutenberg_2600/c-0029.json"
+        },
+        {
+          "id": "c-0030",
+          "num": 30,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter II",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2625,
+          "src": "chapters/gutenberg_2600/c-0030.json"
+        },
+        {
+          "id": "c-0031",
+          "num": 31,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter III",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2412,
+          "src": "chapters/gutenberg_2600/c-0031.json"
+        },
+        {
+          "id": "c-0032",
+          "num": 32,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter IV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3043,
+          "src": "chapters/gutenberg_2600/c-0032.json"
+        },
+        {
+          "id": "c-0033",
+          "num": 33,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter V",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1175,
+          "src": "chapters/gutenberg_2600/c-0033.json"
+        },
+        {
+          "id": "c-0034",
+          "num": 34,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter VI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 949,
+          "src": "chapters/gutenberg_2600/c-0034.json"
+        },
+        {
+          "id": "c-0035",
+          "num": 35,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter VII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1766,
+          "src": "chapters/gutenberg_2600/c-0035.json"
+        },
+        {
+          "id": "c-0036",
+          "num": 36,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter VIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3296,
+          "src": "chapters/gutenberg_2600/c-0036.json"
+        },
+        {
+          "id": "c-0037",
+          "num": 37,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter IX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1836,
+          "src": "chapters/gutenberg_2600/c-0037.json"
+        },
+        {
+          "id": "c-0038",
+          "num": 38,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter X",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2135,
+          "src": "chapters/gutenberg_2600/c-0038.json"
+        },
+        {
+          "id": "c-0039",
+          "num": 39,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 877,
+          "src": "chapters/gutenberg_2600/c-0039.json"
+        },
+        {
+          "id": "c-0040",
+          "num": 40,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1980,
+          "src": "chapters/gutenberg_2600/c-0040.json"
+        },
+        {
+          "id": "c-0041",
+          "num": 41,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2132,
+          "src": "chapters/gutenberg_2600/c-0041.json"
+        },
+        {
+          "id": "c-0042",
+          "num": 42,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XIV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1129,
+          "src": "chapters/gutenberg_2600/c-0042.json"
+        },
+        {
+          "id": "c-0043",
+          "num": 43,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2066,
+          "src": "chapters/gutenberg_2600/c-0043.json"
+        },
+        {
+          "id": "c-0044",
+          "num": 44,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XVI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 885,
+          "src": "chapters/gutenberg_2600/c-0044.json"
+        },
+        {
+          "id": "c-0045",
+          "num": 45,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XVII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1811,
+          "src": "chapters/gutenberg_2600/c-0045.json"
+        },
+        {
+          "id": "c-0046",
+          "num": 46,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XVIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1682,
+          "src": "chapters/gutenberg_2600/c-0046.json"
+        },
+        {
+          "id": "c-0047",
+          "num": 47,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XIX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2077,
+          "src": "chapters/gutenberg_2600/c-0047.json"
+        },
+        {
+          "id": "c-0048",
+          "num": 48,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2181,
+          "src": "chapters/gutenberg_2600/c-0048.json"
+        },
+        {
+          "id": "c-0049",
+          "num": 49,
+          "volume": 2,
+          "title": "Book Two: 1805 · Chapter XXI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2870,
+          "src": "chapters/gutenberg_2600/c-0049.json"
+        },
+        {
+          "id": "c-0050",
+          "num": 50,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter I",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3435,
+          "src": "chapters/gutenberg_2600/c-0050.json"
+        },
+        {
+          "id": "c-0051",
+          "num": 51,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter II",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3359,
+          "src": "chapters/gutenberg_2600/c-0051.json"
+        },
+        {
+          "id": "c-0052",
+          "num": 52,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter III",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3115,
+          "src": "chapters/gutenberg_2600/c-0052.json"
+        },
+        {
+          "id": "c-0053",
+          "num": 53,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter IV",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2925,
+          "src": "chapters/gutenberg_2600/c-0053.json"
+        },
+        {
+          "id": "c-0054",
+          "num": 54,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter V",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2181,
+          "src": "chapters/gutenberg_2600/c-0054.json"
+        },
+        {
+          "id": "c-0055",
+          "num": 55,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter VI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2176,
+          "src": "chapters/gutenberg_2600/c-0055.json"
+        },
+        {
+          "id": "c-0056",
+          "num": 56,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter VII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 3322,
+          "src": "chapters/gutenberg_2600/c-0056.json"
+        },
+        {
+          "id": "c-0057",
+          "num": 57,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter VIII",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1721,
+          "src": "chapters/gutenberg_2600/c-0057.json"
+        },
+        {
+          "id": "c-0058",
+          "num": 58,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter IX",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 2323,
+          "src": "chapters/gutenberg_2600/c-0058.json"
+        },
+        {
+          "id": "c-0059",
+          "num": 59,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter X",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1893,
+          "src": "chapters/gutenberg_2600/c-0059.json"
+        },
+        {
+          "id": "c-0060",
+          "num": 60,
+          "volume": 3,
+          "title": "Book Three: 1805 · Chapter XI",
+          "updatedAt": null,
+          "lang": "en",
+          "wordCount": 1540,
+          "src": "chapters/gutenberg_2600/c-0060.json"
+        }
+      ]
+    },
+    {
+      "id": "md:32d76d19-8a05-4db0-9fc2-e0b0648fe9d0",
+      "type": "manga",
+      "title": "Na Honjaman Level-Up",
+      "altTitles": [
+        "나 혼자만 레벨업",
+        "Solo Leveling",
+        "Na Honjaman Lebel-eob",
+        "I level up alone",
+        "Ore Dake Level Up na Ken",
+        "Поднятие уровня в одиночку",
+        "俺だけレベルアップな件",
+        "我独自升级"
+      ],
+      "cover": "https://uploads.mangadex.org/covers/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0/e90bdc47-c8b9-4df7-b2c0-17641b645ee1.jpg.512.jpg",
+      "description": "10 years ago, after “the Gate” that connected the real world with the monster world opened, some of the ordinary, everyday people received the power to hunt monsters within the Gate. They are known as “Hunters”. However, not all Hunters are powerful. My name is Sung Jin-Woo, an E-rank Hunter. I’m someone who has to risk his life in the lowliest of dungeons, the “World’s Weakest”. Having no skills whatsoever to display, I barely earned the required money by fighting in low-leveled dungeons… at least until I found a hidden dungeon with the hardest difficulty within the D-rank dungeons! In the end, as I was accepting death, I suddenly received a strange power, a quest log that only I could see, a secret to leveling up that only I know about! If I trained in accordance with my quests and hunted monsters, my level would rise. Changing from the weakest Hunter to the strongest S-rank Hunter!",
+      "author": "h-goon (현군)",
+      "artist": "REDICE Studio (레드아이스 스튜디오)",
+      "status": "completed",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Drama",
+        "Fantasy"
+      ],
+      "tags": [
+        "Award Winning",
+        "Monsters",
+        "Long Strip",
+        "Magic",
+        "Web Comic",
+        "Supernatural",
+        "Adaptation",
+        "Full Color"
+      ],
+      "language": "en",
+      "source": "mangadex",
+      "sourceUrl": "https://mangadex.org/title/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0",
+      "readingDirection": "vertical",
+      "updatedAt": "2025-12-26T14:07:52.000Z",
+      "chapterCount": 0,
+      "chapters": []
+    },
+    {
+      "id": "md:a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+      "type": "manga",
+      "title": "Chainsaw Man",
+      "altTitles": [
+        "Людина-бензопила",
+        "Человек-бензопила",
+        "チェンソーマン",
+        "电锯人",
+        "鏈鋸人",
+        "電鋸人",
+        "Testere Adam",
+        "Шынжырлы ара адам"
+      ],
+      "cover": "https://uploads.mangadex.org/covers/a77742b1-befd-49a4-bff5-1ad4e6b0ef7b/6e518bd1-5f60-446b-8832-bfe6bf74834b.jpg.512.jpg",
+      "description": "Broke young man + chainsaw dog demon = Chainsaw Man!  \n  \nThe name says it all! Denji's life of poverty is changed forever when he merges with his pet chainsaw dog, Pochita! Now he's living in the big city and an official Devil Hunter. But he's got a lot to learn about his new job and chainsaw powers!",
+      "author": "Fujimoto Tatsuki",
+      "artist": "Fujimoto Tatsuki",
+      "status": "completed",
+      "genres": [
+        "Action",
+        "Comedy",
+        "Horror"
+      ],
+      "tags": [
+        "Award Winning",
+        "Monsters",
+        "Demons",
+        "Gore",
+        "Supernatural"
+      ],
+      "language": "en",
+      "source": "mangadex",
+      "sourceUrl": "https://mangadex.org/title/a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+      "readingDirection": "rtl",
+      "updatedAt": "2026-03-24T15:18:24.000Z",
+      "chapterCount": 97,
+      "chapters": [
+        {
+          "id": "c-0001",
+          "num": 1,
+          "volume": 1,
+          "title": "A Dog and a Chainsaw",
+          "updatedAt": "2020-06-30T00:05:51.000Z",
+          "lang": "en",
+          "mdChapterId": "73af4d8d-1532-4a72-b1b9-8f4e5cd295c9"
+        },
+        {
+          "id": "c-0002",
+          "num": 2,
+          "volume": 1,
+          "title": "Pochita's Whereabouts",
+          "updatedAt": "2020-06-30T00:06:19.000Z",
+          "lang": "en",
+          "mdChapterId": "deea3463-a37e-46bc-bf88-4a7899c02c20"
+        },
+        {
+          "id": "c-0003",
+          "num": 3,
+          "volume": 1,
+          "title": "Arrival in Tokyo",
+          "updatedAt": "2020-06-30T00:06:48.000Z",
+          "lang": "en",
+          "mdChapterId": "139f4a2c-5b1a-4b43-9c6c-df1f26b1f5e3"
+        },
+        {
+          "id": "c-0004",
+          "num": 4,
+          "volume": 1,
+          "title": "Power",
+          "updatedAt": "2020-06-30T00:07:08.000Z",
+          "lang": "en",
+          "mdChapterId": "44807a16-784f-4016-872b-305f7c79d12a"
+        },
+        {
+          "id": "c-0005",
+          "num": 5,
+          "volume": 1,
+          "title": "The Way to Feel Breasts",
+          "updatedAt": "2020-06-30T00:07:28.000Z",
+          "lang": "en",
+          "mdChapterId": "71acf13d-17c0-4ea2-99d5-49ffbd43da68"
+        },
+        {
+          "id": "c-0006",
+          "num": 6,
+          "volume": 1,
+          "title": "Setting to Work",
+          "updatedAt": "2020-06-30T00:07:52.000Z",
+          "lang": "en",
+          "mdChapterId": "abf061de-c10a-447a-a721-1df245528990"
+        },
+        {
+          "id": "c-0007",
+          "num": 7,
+          "volume": 1,
+          "title": "Nyako's Whereabouts",
+          "updatedAt": "2020-06-30T00:08:16.000Z",
+          "lang": "en",
+          "mdChapterId": "1c18742f-874a-464b-8920-d7f823f57f45"
+        },
+        {
+          "id": "c-0008",
+          "num": 8,
+          "volume": 2,
+          "title": "Chainsaw Vs Bat",
+          "updatedAt": "2020-06-30T00:08:43.000Z",
+          "lang": "en",
+          "mdChapterId": "002e53cd-0586-4315-82ac-5dc01831155d"
+        },
+        {
+          "id": "c-0009",
+          "num": 9,
+          "volume": 2,
+          "title": "Rescue",
+          "updatedAt": "2020-06-30T00:09:05.000Z",
+          "lang": "en",
+          "mdChapterId": "205470cb-5007-4a3e-9665-7a0481b264a0"
+        },
+        {
+          "id": "c-0010",
+          "num": 10,
+          "volume": 2,
+          "title": "Kon",
+          "updatedAt": "2020-06-30T00:09:24.000Z",
+          "lang": "en",
+          "mdChapterId": "5af61aee-ee73-4768-b705-add1f64fd86e"
+        },
+        {
+          "id": "c-0011",
+          "num": 11,
+          "volume": 2,
+          "title": "Compromise",
+          "updatedAt": "2020-06-30T00:09:40.000Z",
+          "lang": "en",
+          "mdChapterId": "888d64c5-043a-485e-9e0e-4141a6d7f356"
+        },
+        {
+          "id": "c-0012",
+          "num": 12,
+          "volume": 2,
+          "title": "Squeeze",
+          "updatedAt": "2020-06-30T00:10:03.000Z",
+          "lang": "en",
+          "mdChapterId": "ac89fc5f-9b80-4a5c-bd17-c33578cf892a"
+        },
+        {
+          "id": "c-0013",
+          "num": 13,
+          "volume": 2,
+          "title": "The Gun Devil",
+          "updatedAt": "2020-06-30T00:10:23.000Z",
+          "lang": "en",
+          "mdChapterId": "86983846-64a7-4257-b8d4-1eb7bbb87735"
+        },
+        {
+          "id": "c-0014",
+          "num": 14,
+          "volume": 2,
+          "title": "Sexy Kiss",
+          "updatedAt": "2020-06-30T00:10:35.000Z",
+          "lang": "en",
+          "mdChapterId": "9aad14f4-2d71-4311-a7bb-455ba422e1cf"
+        },
+        {
+          "id": "c-0015",
+          "num": 15,
+          "volume": 2,
+          "title": "Endless 8th Floor",
+          "updatedAt": "2020-06-30T00:10:52.000Z",
+          "lang": "en",
+          "mdChapterId": "7f7b4407-3ae3-4e6b-972c-5ea1e4804902"
+        },
+        {
+          "id": "c-0016",
+          "num": 16,
+          "volume": 2,
+          "title": "The First Taste",
+          "updatedAt": "2020-06-30T00:11:05.000Z",
+          "lang": "en",
+          "mdChapterId": "70a7322b-bf74-43ba-ba47-e784e01b6d1e"
+        },
+        {
+          "id": "c-0017",
+          "num": 17,
+          "volume": 3,
+          "title": "Kill Denji",
+          "updatedAt": "2020-06-30T00:11:21.000Z",
+          "lang": "en",
+          "mdChapterId": "ef4c35d9-686b-4610-9ae8-35e875ae0bad"
+        },
+        {
+          "id": "c-0018",
+          "num": 18,
+          "volume": 3,
+          "title": "Chainsaw Vs Eternity",
+          "updatedAt": "2020-06-30T00:11:37.000Z",
+          "lang": "en",
+          "mdChapterId": "eacc3411-23d4-4fc2-aa2e-1c6f875ae1f0"
+        },
+        {
+          "id": "c-0019",
+          "num": 19,
+          "volume": 3,
+          "title": "Nobel Prize",
+          "updatedAt": "2020-06-30T00:11:53.000Z",
+          "lang": "en",
+          "mdChapterId": "c326aad0-d752-49fd-bdb2-e6767e56ec2a"
+        },
+        {
+          "id": "c-0020",
+          "num": 20,
+          "volume": 3,
+          "title": "Drinking",
+          "updatedAt": "2020-06-30T00:12:08.000Z",
+          "lang": "en",
+          "mdChapterId": "b021c434-6744-48d5-907d-fcc2fcb495f9"
+        },
+        {
+          "id": "c-0021",
+          "num": 21,
+          "volume": 3,
+          "title": "The Taste of a Kiss",
+          "updatedAt": "2020-06-30T00:12:27.000Z",
+          "lang": "en",
+          "mdChapterId": "36b8b7c5-28dc-4395-996e-83f8fd03b924"
+        },
+        {
+          "id": "c-0022",
+          "num": 22,
+          "volume": 3,
+          "title": "Chupa Chups Cola Flavor",
+          "updatedAt": "2020-06-30T00:30:53.000Z",
+          "lang": "en",
+          "mdChapterId": "78e8c9aa-fd39-40a2-938f-56b12f4301bc"
+        },
+        {
+          "id": "c-0023",
+          "num": 23,
+          "volume": 3,
+          "title": "Gunshot",
+          "updatedAt": "2020-06-30T00:31:06.000Z",
+          "lang": "en",
+          "mdChapterId": "3a2a5447-9677-4aa2-8589-7d0b039b80da"
+        },
+        {
+          "id": "c-0024",
+          "num": 24,
+          "volume": 3,
+          "title": "Curse",
+          "updatedAt": "2020-06-30T00:31:18.000Z",
+          "lang": "en",
+          "mdChapterId": "54b3d975-60fb-4e03-b730-a6a982c80da3"
+        },
+        {
+          "id": "c-0025",
+          "num": 25,
+          "volume": 3,
+          "title": "Ghost, Snake, Chainsaw",
+          "updatedAt": "2020-06-30T00:31:30.000Z",
+          "lang": "en",
+          "mdChapterId": "4aa01900-6f11-4441-a749-1ca0b4f19977"
+        },
+        {
+          "id": "c-0026",
+          "num": 26,
+          "volume": 4,
+          "title": "Guns Are Powerful",
+          "updatedAt": "2020-06-30T00:31:42.000Z",
+          "lang": "en",
+          "mdChapterId": "6aaf985f-82e1-4cb9-a295-9b27f448abe4"
+        },
+        {
+          "id": "c-0027",
+          "num": 27,
+          "volume": 4,
+          "title": "From Kyoto",
+          "updatedAt": "2020-06-30T00:31:54.000Z",
+          "lang": "en",
+          "mdChapterId": "1022a837-bacd-47eb-a6e0-e94686487f90"
+        },
+        {
+          "id": "c-0028",
+          "num": 28,
+          "volume": 4,
+          "title": "Secrets and Lies",
+          "updatedAt": "2020-06-30T00:32:04.000Z",
+          "lang": "en",
+          "mdChapterId": "c192686b-513e-4709-a5a5-9966b3e12b83"
+        },
+        {
+          "id": "c-0029",
+          "num": 29,
+          "volume": 4,
+          "title": "A Perfect 100",
+          "updatedAt": "2020-06-30T00:32:16.000Z",
+          "lang": "en",
+          "mdChapterId": "3f6df2f4-246e-449c-a65c-84e4473c8fa9"
+        },
+        {
+          "id": "c-0030",
+          "num": 30,
+          "volume": 4,
+          "title": "Even More Battered",
+          "updatedAt": "2020-06-30T00:32:26.000Z",
+          "lang": "en",
+          "mdChapterId": "88b14824-5bca-4961-9d36-7174a0009654"
+        },
+        {
+          "id": "c-0031",
+          "num": 31,
+          "volume": 4,
+          "title": "The Future is Best",
+          "updatedAt": "2020-06-30T00:32:36.000Z",
+          "lang": "en",
+          "mdChapterId": "8ceec713-8ca9-4308-9798-796def6a96fc"
+        },
+        {
+          "id": "c-0032",
+          "num": 32,
+          "volume": 4,
+          "title": "Over and Over and Over and Over",
+          "updatedAt": "2020-06-30T00:32:48.000Z",
+          "lang": "en",
+          "mdChapterId": "4fae801e-e4f2-43fa-b1fa-de713467eb4f"
+        },
+        {
+          "id": "c-0033",
+          "num": 33,
+          "volume": 4,
+          "title": "The Operation Begins",
+          "updatedAt": "2020-06-30T00:32:58.000Z",
+          "lang": "en",
+          "mdChapterId": "26978019-3a9a-429b-9eaa-e310859d5fef"
+        },
+        {
+          "id": "c-0034",
+          "num": 34,
+          "volume": 4,
+          "title": "All Members Assemble",
+          "updatedAt": "2020-06-30T00:33:10.000Z",
+          "lang": "en",
+          "mdChapterId": "dc9b4e68-0837-4931-b08f-e0c1b1a86610"
+        },
+        {
+          "id": "c-0035",
+          "num": 35,
+          "volume": 5,
+          "title": "Minor",
+          "updatedAt": "2020-06-30T00:33:20.000Z",
+          "lang": "en",
+          "mdChapterId": "01ec33a8-f474-4d8e-9801-e8a2aa4a59cd"
+        },
+        {
+          "id": "c-0036",
+          "num": 36,
+          "volume": 5,
+          "title": "Katana Vs Chainsaw",
+          "updatedAt": "2020-06-30T00:33:32.000Z",
+          "lang": "en",
+          "mdChapterId": "a30022a3-2f05-4469-9d69-3fd789108a46"
+        },
+        {
+          "id": "c-0037",
+          "num": 37,
+          "volume": 5,
+          "title": "Train, Head, Chainsaw",
+          "updatedAt": "2020-06-30T00:33:45.000Z",
+          "lang": "en",
+          "mdChapterId": "a25afd69-ed07-46cf-bcb4-7dced06733ca"
+        },
+        {
+          "id": "c-0038",
+          "num": 38,
+          "volume": 5,
+          "title": "For an Easy Revenge!",
+          "updatedAt": "2020-06-30T00:33:58.000Z",
+          "lang": "en",
+          "mdChapterId": "0c8cd734-0c67-4efb-b88a-b4933f8b9a2a"
+        },
+        {
+          "id": "c-0039",
+          "num": 39,
+          "volume": 5,
+          "title": "Sudden Tears",
+          "updatedAt": "2020-06-30T00:34:12.000Z",
+          "lang": "en",
+          "mdChapterId": "0f79faef-a7af-4721-b981-b73c2d74bd64"
+        },
+        {
+          "id": "c-0040",
+          "num": 40,
+          "volume": 5,
+          "title": "Love, Flower, Chainsaw",
+          "updatedAt": "2020-06-30T00:34:22.000Z",
+          "lang": "en",
+          "mdChapterId": "3d95440b-7afd-43f3-934c-2bf25d6881f6"
+        },
+        {
+          "id": "c-0041",
+          "num": 41,
+          "volume": 5,
+          "title": "Before the Storm",
+          "updatedAt": "2020-06-30T00:34:34.000Z",
+          "lang": "en",
+          "mdChapterId": "05befff8-854b-46c2-84da-52d74099dde8"
+        },
+        {
+          "id": "c-0042",
+          "num": 42,
+          "volume": 5,
+          "title": "Learning How to Swim",
+          "updatedAt": "2020-06-30T00:34:48.000Z",
+          "lang": "en",
+          "mdChapterId": "9526afe4-9f9e-478c-81d3-bdb3b94e3f28"
+        },
+        {
+          "id": "c-0043",
+          "num": 43,
+          "volume": 5,
+          "title": "Jane Slept in the Church",
+          "updatedAt": "2020-06-30T00:35:11.000Z",
+          "lang": "en",
+          "mdChapterId": "7ebce67b-a1c0-4176-9c5d-3dce9e193a26"
+        },
+        {
+          "id": "c-0044",
+          "num": 44,
+          "volume": 6,
+          "title": "Bang Bang Bang",
+          "updatedAt": "2020-06-30T00:35:27.000Z",
+          "lang": "en",
+          "mdChapterId": "674ecfb6-83f0-4a0c-99c9-797b9a13750d"
+        },
+        {
+          "id": "c-0045",
+          "num": 45,
+          "volume": 6,
+          "title": "An Explosive State of Affairs",
+          "updatedAt": "2020-06-30T00:35:38.000Z",
+          "lang": "en",
+          "mdChapterId": "c80f5496-6aa9-4454-81aa-808ad4a7883b"
+        },
+        {
+          "id": "c-0046",
+          "num": 46,
+          "volume": 6,
+          "title": "The Melody of a Massacre",
+          "updatedAt": "2020-06-30T00:35:52.000Z",
+          "lang": "en",
+          "mdChapterId": "336d15ad-c0c9-4ba8-b969-6f9852c5ce8c"
+        },
+        {
+          "id": "c-0047",
+          "num": 47,
+          "volume": 6,
+          "title": "Luck With Women",
+          "updatedAt": "2020-06-30T00:36:05.000Z",
+          "lang": "en",
+          "mdChapterId": "ec429427-7c65-47b0-916e-2b4f67c0a52e"
+        },
+        {
+          "id": "c-0048",
+          "num": 48,
+          "volume": 6,
+          "title": "Boom Boom Boom",
+          "updatedAt": "2020-06-30T00:36:20.000Z",
+          "lang": "en",
+          "mdChapterId": "a26a3c41-6602-412b-90de-51888c28af12"
+        },
+        {
+          "id": "c-0049",
+          "num": 49,
+          "volume": 6,
+          "title": "Sharknado",
+          "updatedAt": "2020-06-30T00:36:35.000Z",
+          "lang": "en",
+          "mdChapterId": "d6adf2f5-cd23-4c2f-a1ae-b149e702f87e"
+        },
+        {
+          "id": "c-0050",
+          "num": 50,
+          "volume": 6,
+          "title": "Sharknado Pt. 2",
+          "updatedAt": "2020-06-30T00:36:50.000Z",
+          "lang": "en",
+          "mdChapterId": "81d7ce42-96d0-4eb4-b20f-089a4681228f"
+        },
+        {
+          "id": "c-0051",
+          "num": 51,
+          "volume": 6,
+          "title": "Dark Diving",
+          "updatedAt": "2020-06-30T00:37:00.000Z",
+          "lang": "en",
+          "mdChapterId": "6ff758f4-9a70-4fcc-b34b-881f93503aa8"
+        },
+        {
+          "id": "c-0052",
+          "num": 52,
+          "volume": 6,
+          "title": "Broken Heart, Flower, Chainsaw",
+          "updatedAt": "2020-01-01T14:41:06.000Z",
+          "lang": "en",
+          "mdChapterId": "e1bdc8ef-54fa-499f-8553-0aef745e1230"
+        },
+        {
+          "id": "c-0053",
+          "num": 53,
+          "volume": 7,
+          "title": "Inside A Dream",
+          "updatedAt": "2020-01-22T21:37:28.000Z",
+          "lang": "en",
+          "mdChapterId": "1894ac19-7ed4-4e62-aca6-c6b4b0bf5556"
+        },
+        {
+          "id": "c-0054",
+          "num": 54,
+          "volume": 7,
+          "title": "In Order to go to Enoshima",
+          "updatedAt": "2020-01-22T21:38:36.000Z",
+          "lang": "en",
+          "mdChapterId": "0c9cbe9c-74b3-4019-bbde-dd783ce9f312"
+        },
+        {
+          "id": "c-0055",
+          "num": 55,
+          "volume": 7,
+          "title": "Let's Go",
+          "updatedAt": "2020-01-26T22:34:30.000Z",
+          "lang": "en",
+          "mdChapterId": "c214503e-c400-4fc4-b06e-0cba959199ca"
+        },
+        {
+          "id": "c-0056",
+          "num": 56,
+          "volume": 7,
+          "title": "Curse and First",
+          "updatedAt": "2020-02-03T19:26:14.000Z",
+          "lang": "en",
+          "mdChapterId": "9a4d2fa7-ecd9-49e4-a658-9a12a34f03f8"
+        },
+        {
+          "id": "c-0057",
+          "num": 57,
+          "volume": 7,
+          "title": "All of a Sudden",
+          "updatedAt": "2020-02-10T04:36:52.000Z",
+          "lang": "en",
+          "mdChapterId": "c89a7c23-e075-4523-a1c0-4235c651d3fd"
+        },
+        {
+          "id": "c-0058",
+          "num": 58,
+          "volume": 7,
+          "title": "Kurose Yuutarou",
+          "updatedAt": "2020-02-18T11:40:32.000Z",
+          "lang": "en",
+          "mdChapterId": "bfae7fdf-f81d-4910-ab60-1a988cbbee4e"
+        },
+        {
+          "id": "c-0059",
+          "num": 59,
+          "volume": 7,
+          "title": "A Mess",
+          "updatedAt": "2020-02-27T03:33:13.000Z",
+          "lang": "en",
+          "mdChapterId": "56aec1cb-f0a7-4801-9101-8b1bd7c32140"
+        },
+        {
+          "id": "c-0060",
+          "num": 60,
+          "volume": 7,
+          "title": "Guanxi and The Fiends' Forty-Nine Man Slash",
+          "updatedAt": "2020-03-11T03:03:52.000Z",
+          "lang": "en",
+          "mdChapterId": "990fd851-6617-40c3-8b46-e60801c4d865"
+        },
+        {
+          "id": "c-0061",
+          "num": 61,
+          "volume": 7,
+          "title": "News Reporter",
+          "updatedAt": "2020-03-11T03:07:20.000Z",
+          "lang": "en",
+          "mdChapterId": "53488629-9949-4e04-95ed-6c5ae5acdaa4"
+        },
+        {
+          "id": "c-0062",
+          "num": 62,
+          "volume": 8,
+          "title": "An Even Bigger Mess",
+          "updatedAt": "2020-03-19T00:17:59.000Z",
+          "lang": "en",
+          "mdChapterId": "b034dfd5-fb9c-41bd-93ba-4496096ef0d1"
+        },
+        {
+          "id": "c-0063",
+          "num": 63,
+          "volume": 8,
+          "title": "A Trip To Hell",
+          "updatedAt": "2020-03-24T23:03:53.000Z",
+          "lang": "en",
+          "mdChapterId": "6297705c-02b5-4530-a936-f93ab610843f"
+        },
+        {
+          "id": "c-0064",
+          "num": 64,
+          "volume": 8,
+          "title": "Welcome to Hell",
+          "updatedAt": "2020-03-31T01:28:24.000Z",
+          "lang": "en",
+          "mdChapterId": "05e61e3f-7201-4e3e-ab0a-07e0a83c9f93"
+        },
+        {
+          "id": "c-0065",
+          "num": 65,
+          "volume": 8,
+          "title": "The Devil of the Dark",
+          "updatedAt": "2020-04-06T22:44:41.000Z",
+          "lang": "en",
+          "mdChapterId": "daa6df76-5c06-494a-9672-4326d3c9093d"
+        },
+        {
+          "id": "c-0066",
+          "num": 66,
+          "volume": 8,
+          "title": "Woof!",
+          "updatedAt": "2020-04-13T16:24:47.000Z",
+          "lang": "en",
+          "mdChapterId": "de5bb263-a5c1-44d6-b276-a34b344887a7"
+        },
+        {
+          "id": "c-0067",
+          "num": 67,
+          "volume": 8,
+          "title": "The first devil hunter",
+          "updatedAt": "2020-04-28T14:20:48.000Z",
+          "lang": "en",
+          "mdChapterId": "0bc54881-1e30-4245-a88a-54497498b6a1"
+        },
+        {
+          "id": "c-0068",
+          "num": 68,
+          "volume": 8,
+          "title": "Dark Power",
+          "updatedAt": "2020-05-14T15:05:20.000Z",
+          "lang": "en",
+          "mdChapterId": "375c96f4-0687-4f71-ae55-7f66cc7302e3"
+        },
+        {
+          "id": "c-0069",
+          "num": 69,
+          "volume": 8,
+          "title": "Shining Power",
+          "updatedAt": "2020-05-21T19:45:23.000Z",
+          "lang": "en",
+          "mdChapterId": "4f4ef084-c2c7-48a6-b2a7-bc5ee96ecb15"
+        },
+        {
+          "id": "c-0070",
+          "num": 70,
+          "volume": 8,
+          "title": "Pluck",
+          "updatedAt": "2020-05-27T12:02:37.000Z",
+          "lang": "en",
+          "mdChapterId": "c11d1634-8c2d-4225-8261-ca8f75194e4b"
+        },
+        {
+          "id": "c-0071",
+          "num": 71,
+          "volume": 9,
+          "title": "Bath",
+          "updatedAt": "2020-06-03T21:46:49.000Z",
+          "lang": "en",
+          "mdChapterId": "56dfba01-63dd-4256-9133-847c16b3eb6a"
+        },
+        {
+          "id": "c-0072",
+          "num": 72,
+          "volume": 9,
+          "title": "Everyone Together",
+          "updatedAt": "2020-06-09T22:27:50.000Z",
+          "lang": "en",
+          "mdChapterId": "e976e735-d873-4654-bcee-69203e8fd038"
+        },
+        {
+          "id": "c-0073",
+          "num": 73,
+          "volume": 9,
+          "title": "The Everyday Comes To An End",
+          "updatedAt": "2020-06-16T19:51:57.000Z",
+          "lang": "en",
+          "mdChapterId": "8a264bf6-df07-490c-8a32-1f032f4b8fed"
+        },
+        {
+          "id": "c-0074",
+          "num": 74,
+          "volume": 9,
+          "title": "The Whispering of the Waves",
+          "updatedAt": "2020-06-23T16:18:09.000Z",
+          "lang": "en",
+          "mdChapterId": "37ac0970-a3ee-4dda-baac-8bff9dfe469c"
+        },
+        {
+          "id": "c-0075",
+          "num": 75,
+          "volume": 9,
+          "title": "9/12",
+          "updatedAt": "2020-06-27T15:36:36.000Z",
+          "lang": "en",
+          "mdChapterId": "1d9b99cc-ef5f-4718-bf75-5e1aaf432a5e"
+        },
+        {
+          "id": "c-0076",
+          "num": 76,
+          "volume": 9,
+          "title": "Don't Open It",
+          "updatedAt": "2020-07-11T04:13:54.000Z",
+          "lang": "en",
+          "mdChapterId": "715c9b1c-ea8f-4b2e-a7d8-0d8617083180"
+        },
+        {
+          "id": "c-0077",
+          "num": 77,
+          "volume": 9,
+          "title": "Ding Dong Ding Dong",
+          "updatedAt": "2020-07-15T22:43:52.000Z",
+          "lang": "en",
+          "mdChapterId": "f13132b0-66ee-4fe7-975d-87e5b24c2f29"
+        },
+        {
+          "id": "c-0078",
+          "num": 78,
+          "volume": 9,
+          "title": "Snowball Fight",
+          "updatedAt": "2020-07-20T21:52:35.000Z",
+          "lang": "en",
+          "mdChapterId": "0ad74d10-4e4a-4821-b846-2013903d1c1f"
+        },
+        {
+          "id": "c-0079",
+          "num": 79,
+          "volume": 9,
+          "title": "Catch",
+          "updatedAt": "2020-08-06T21:08:29.000Z",
+          "lang": "en",
+          "mdChapterId": "da550ea8-1939-446b-bab1-87f956a995ed"
+        },
+        {
+          "id": "c-0080",
+          "num": 80,
+          "volume": 10,
+          "title": "How A Dog Feels",
+          "updatedAt": "2020-08-11T22:22:29.000Z",
+          "lang": "en",
+          "mdChapterId": "fe85cd06-0f6c-4411-b02f-73cb15c6e379"
+        },
+        {
+          "id": "c-0081",
+          "num": 81,
+          "volume": 10,
+          "title": "Paw",
+          "updatedAt": "2020-08-25T14:35:00.000Z",
+          "lang": "en",
+          "mdChapterId": "44f8e69d-394f-4db4-a4b8-6f333acb27f1"
+        },
+        {
+          "id": "c-0082",
+          "num": 82,
+          "volume": 10,
+          "title": "A Balanced Breakfast",
+          "updatedAt": "2020-09-01T15:38:44.000Z",
+          "lang": "en",
+          "mdChapterId": "eb16a43a-21f5-4c97-b890-7e209f953528"
+        },
+        {
+          "id": "c-0083",
+          "num": 83,
+          "volume": 10,
+          "title": "Death, Resurrection, Chainsaw",
+          "updatedAt": "2020-09-10T20:51:54.000Z",
+          "lang": "en",
+          "mdChapterId": "eb48c353-0235-4d9d-a3e5-9bc942e83730"
+        },
+        {
+          "id": "c-0084",
+          "num": 84,
+          "volume": 10,
+          "title": "The Hero of Hell",
+          "updatedAt": "2020-09-13T17:03:21.000Z",
+          "lang": "en",
+          "mdChapterId": "9e372e43-32e7-4761-bdda-efc9d21dcc59"
+        },
+        {
+          "id": "c-0085",
+          "num": 85,
+          "volume": 10,
+          "title": "Blood and Guts Feelin' So Good",
+          "updatedAt": "2020-09-22T21:00:31.000Z",
+          "lang": "en",
+          "mdChapterId": "80f38b74-62ba-44a0-bc29-cf03aa27af9d"
+        },
+        {
+          "id": "c-0086",
+          "num": 86,
+          "volume": 10,
+          "title": "Chainsaw Date",
+          "updatedAt": "2020-09-28T16:03:26.000Z",
+          "lang": "en",
+          "mdChapterId": "cff31d76-bf9e-442b-a573-fc4d42ad83b5"
+        },
+        {
+          "id": "c-0087",
+          "num": 87,
+          "volume": 10,
+          "title": "Chainsawman vs The Weaponmasters of Terror",
+          "updatedAt": "2020-10-09T14:43:26.000Z",
+          "lang": "en",
+          "mdChapterId": "aa3b2319-b460-4cab-a2d5-f2471cb19215"
+        },
+        {
+          "id": "c-0088",
+          "num": 88,
+          "volume": 10,
+          "title": "Chainsaw Star",
+          "updatedAt": "2020-10-14T14:01:11.000Z",
+          "lang": "en",
+          "mdChapterId": "40f7d9ef-05d8-48fc-96d1-cb53513f7e13"
+        },
+        {
+          "id": "c-0089",
+          "num": 89,
+          "volume": 11,
+          "title": "Go Chainsawman",
+          "updatedAt": "2020-10-19T19:54:16.000Z",
+          "lang": "en",
+          "mdChapterId": "19086fe2-d9c2-47ea-b8e6-f62f0d60a713"
+        },
+        {
+          "id": "c-0090",
+          "num": 90,
+          "volume": 11,
+          "title": "Super Power",
+          "updatedAt": "2020-10-29T21:41:27.000Z",
+          "lang": "en",
+          "mdChapterId": "65562e93-3ab7-44b7-b64d-8cd22ea0bda5"
+        },
+        {
+          "id": "c-0091",
+          "num": 91,
+          "volume": 11,
+          "title": "Power, Power, Power",
+          "updatedAt": "2020-11-02T20:55:05.000Z",
+          "lang": "en",
+          "mdChapterId": "78b59bea-4154-4f00-a58f-cf0a2dc7282d"
+        },
+        {
+          "id": "c-0092",
+          "num": 92,
+          "volume": 11,
+          "title": "Zombie, Blood, and Chainsaw",
+          "updatedAt": "2020-11-12T23:25:58.000Z",
+          "lang": "en",
+          "mdChapterId": "d70dc082-7b8c-48ea-87bd-2fa8beaf6fb6"
+        },
+        {
+          "id": "c-0093",
+          "num": 93,
+          "volume": 11,
+          "title": "You and Crappy Movies",
+          "updatedAt": "2020-11-17T02:39:52.000Z",
+          "lang": "en",
+          "mdChapterId": "5effe43c-3cba-45a3-b8b9-7a1f7bb7d8ff"
+        },
+        {
+          "id": "c-0094",
+          "num": 94,
+          "volume": 11,
+          "title": "Chainsawman vs The Weapon People",
+          "updatedAt": "2020-11-23T21:21:45.000Z",
+          "lang": "en",
+          "mdChapterId": "33d106dd-7500-473a-9330-cd6bb75f8d8b"
+        },
+        {
+          "id": "c-0095",
+          "num": 95,
+          "volume": 11,
+          "title": "Chainsawman vs The Devil of Domination",
+          "updatedAt": "2020-11-30T16:00:49.000Z",
+          "lang": "en",
+          "mdChapterId": "bf3dd196-c301-40c9-9338-109159c4fa41"
+        },
+        {
+          "id": "c-0096",
+          "num": 96,
+          "volume": 11,
+          "title": "This Flavor",
+          "updatedAt": "2020-12-09T13:09:41.000Z",
+          "lang": "en",
+          "mdChapterId": "7259bb55-bb83-4dd8-ac7e-f9c4d7472ce6"
+        },
+        {
+          "id": "c-0097",
+          "num": 97,
+          "volume": 11,
+          "title": "Love, Love, Chainsaw.",
+          "updatedAt": "2020-12-13T20:18:59.000Z",
+          "lang": "en",
+          "mdChapterId": "77fc6e02-a381-411d-ace6-4c00deacadb4"
+        }
+      ]
+    },
+    {
+      "id": "md:c52b2ce3-7f95-469c-96b0-479524fb7a1a",
+      "type": "manga",
+      "title": "Jujutsu Kaisen",
+      "altTitles": [
+        "呪術廻戦",
+        "Revolving Battles Of Sorcery",
+        "Revolving Battles Of Curse Arts",
+        "Sorcery Fight",
+        "Магічна битва",
+        "Магическая битва",
+        "جوجوتسو کایسن",
+        "ججك"
+      ],
+      "cover": "https://uploads.mangadex.org/covers/c52b2ce3-7f95-469c-96b0-479524fb7a1a/6d9134b2-21ea-4d02-ac2b-7c0d1c6a2aaa.jpg.512.jpg",
+      "description": "For some strange reason, Itadori Yuuji, despite his insane athleticism, would rather just hang out with the Occult Club. However, he soon finds out that the occult is as real as it gets when his fellow club members are attacked!\n\nMeanwhile, the mysterious Fushiguro Megumi is tracking down a special-grade cursed object, and his search leads him to Itadori…\n_\nOfficial English Volumes: VIZ",
+      "author": "Akutami Gege",
+      "artist": "Akutami Gege",
+      "status": "completed",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Horror"
+      ],
+      "tags": [
+        "Award Winning",
+        "Ghosts",
+        "Gore",
+        "School Life",
+        "Supernatural"
+      ],
+      "language": "en",
+      "source": "mangadex",
+      "sourceUrl": "https://mangadex.org/title/c52b2ce3-7f95-469c-96b0-479524fb7a1a",
+      "readingDirection": "rtl",
+      "updatedAt": "2026-08-07T20:45:35.000Z",
+      "chapterCount": 0,
+      "chapters": []
+    },
+    {
+      "id": "md:e78a489b-6632-4d61-b00b-5206f5b8b22b",
+      "type": "manga",
+      "title": "Tensei Shitara Slime datta Ken",
+      "altTitles": [
+        "That Time I Got Reincarnated as a Slime",
+        "Moi, quand je me réincarne en Slime",
+        "Odrodzony jako galareta",
+        "Regarding Reincarnated to Slime",
+        "Tensei Slime",
+        "TenSli",
+        "TenSura",
+        "In Regards to My Reincarnation as a Slime"
+      ],
+      "cover": "https://uploads.mangadex.org/covers/e78a489b-6632-4d61-b00b-5206f5b8b22b/420ec3c0-2dab-47f2-8f9e-a9e0c3faf16d.jpg.512.jpg",
+      "description": "The ordinary Mikami Satoru found himself dying after being stabbed by a slasher. It should have been the end of his meager 37 years, but he found himself deaf and blind after hearing a mysterious voice.  \nHe had been reincarnated into a slime!  \n  \nWhile complaining about becoming the weak but famous slime and enjoying the life of a slime at the same time, Mikami Satoru met with the Catastrophe-level monster “Storm Dragon Veldora”, and his fate began to move.",
+      "author": "Fuse",
+      "artist": "Kawakami Taiki",
+      "status": "ongoing",
+      "genres": [
+        "Action",
+        "Comedy",
+        "Isekai",
+        "Fantasy"
+      ],
+      "tags": [
+        "Reincarnation",
+        "Monsters",
+        "Demons",
+        "Samurai",
+        "Adaptation"
+      ],
+      "language": "en",
+      "source": "mangadex",
+      "sourceUrl": "https://mangadex.org/title/e78a489b-6632-4d61-b00b-5206f5b8b22b",
+      "readingDirection": "rtl",
+      "updatedAt": "2026-07-22T21:52:10.000Z",
+      "chapterCount": 0,
+      "chapters": []
     }
   ]
 }

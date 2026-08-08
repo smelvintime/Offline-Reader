@@ -38,11 +38,28 @@ Switching modes keeps you on the same sentence. So does changing the font size,
 rotating the phone, or resizing the window — position is tracked as a place in
 the text, not a pixel offset.
 
-**Typography that is actually yours.** Four themes (dark, light, sepia, OLED
-black), four typefaces including a dyslexia-friendly stack, text size, line
-height, line width, alignment, paragraph spacing, first-line indent. Every
-setting is remembered **per series**, because the way you want to read a dense
-translated novel is not the way you want to read a breezy web serial.
+**Typography that is actually yours.** Nine themes — dark, dim, OLED black,
+nord, forest, light, cream, sepia, tan — plus a **custom** one where you pick
+the background and text colours and the rest of the palette is mixed to match.
+
+Six typefaces, three of which ship with the app rather than hoping your device
+has something suitable:
+
+| Typeface | Why it is there |
+| --- | --- |
+| **OpenDyslexic** | Weighted letter bottoms make rotation and mirroring harder to confuse. The real font, not a Comic Sans fallback. |
+| **Atkinson Hyperlegible** | Drawn by the Braille Institute to pull apart the characters most easily mistaken for each other — `I l 1`, `O 0`, `b d p q`. |
+| **Literata** | A serif designed for long-form screen reading, and a real upgrade over the default system serif on Android. |
+| Serif · Sans · Mono | System stacks. They download nothing. |
+
+Bundled fonts are cached the first time you pick one, so the choice survives
+going offline. They are not precached — nobody pays for a face they never chose.
+
+Then text size, line height, line width, alignment, paragraph spacing,
+first-line indent, and **letter and word spacing** (both evidence-based reading
+aids, and useful to anyone at small sizes). Every setting is remembered **per
+series**, because the way you want to read a dense translated novel is not the
+way you want to read a breezy web serial.
 
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.
@@ -133,6 +150,7 @@ js/reader.js        image reader (CBZ, manga, manhwa)
 js/novel-reader.js  text reader — the three reading modes
 js/importer.js      add by link, and EPUB/TXT/CBZ import
 js/catalogue.js     browsing, routing, chapter resolution
+fonts/              bundled reading faces (SIL OFL — see fonts/LICENSE.md)
 worker/             Cloudflare Worker content gateway
 scraper/            catalogue builder
 ```

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cbz-reader-v5.02';
+const CACHE_NAME = 'cbz-reader-v5.03';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [
@@ -56,6 +56,14 @@ function isData(url) {
   return url.pathname.endsWith('/catalog.json') || url.pathname.includes('/chapters/');
 }
 
+// Typefaces ship with the app but are deliberately left out of SHELL_ASSETS:
+// half a megabyte of fonts nobody selected is half a megabyte wasted. They are
+// kept the first time one is actually used, so choosing OpenDyslexic once is
+// enough for it to still be there with the radio off.
+function isFont(url) {
+  return url.pathname.includes('/fonts/') && url.pathname.endsWith('.woff2');
+}
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -79,6 +87,23 @@ self.addEventListener('fetch', event => {
             status: 503, headers: { 'Content-Type': 'application/json' },
           })
         ))
+    );
+    return;
+  }
+
+  if (isFont(url)) {
+    event.respondWith(
+      caches.match(request)
+        .then(cached => cached || fetch(request).then(res => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then(c => c.put(request, copy)).catch(() => {});
+          }
+          return res;
+        }))
+        // A missing font is cosmetic: the stack in css/novel.css falls through
+        // to a system face, so failing here costs nothing but the specimen.
+        .catch(() => new Response('', { status: 503, statusText: 'Service Unavailable' }))
     );
     return;
   }

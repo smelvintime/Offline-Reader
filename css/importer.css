@@ -2,6 +2,9 @@
  *
  * Everything is scoped under #import-screen so it cannot leak into the reader
  * or the catalogue, which share a stylesheet with hard-coded dark colours.
+ * The one exception is the backup-restore offer (.imp-restore), which parks
+ * on <body> — the .cat-toast precedent — because it appears at boot while
+ * every screen, this one included, is hidden.
  * Tokens mirror styles.css (--bg/--surf/--border/--accent/--text/--muted) but
  * are re-declared locally with fallbacks: this screen has to look right even if
  * it is loaded on a page that never defined them (the test harness does that).
@@ -97,7 +100,11 @@
   padding: 1rem .875rem;
   padding-left: calc(.875rem + env(safe-area-inset-left, 0px));
   padding-right: calc(.875rem + env(safe-area-inset-right, 0px));
-  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  /* keyboard-inset-height keeps the URL field scrollable above an overlaid
+     software keyboard where the VirtualKeyboard API reports one (Android
+     WebView). On iOS the Capacitor Keyboard plugin resizes the webview
+     natively, the inset stays 0, and this collapses to the safe-area sum. */
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px) + env(keyboard-inset-height, 0px));
 }
 
 #import-screen .imp-view {
@@ -460,6 +467,11 @@
   color: var(--imp-text);
 }
 
+/* The manage view's Performance picker gets the full 44px finger floor: it is
+   a settings control someone reaches for exactly once, usually on the device
+   that is struggling, so a mis-tap costs a real round trip. */
+#import-screen .imp-perf-seg .imp-seg { min-height: 44px; }
+
 #import-screen .imp-section-label {
   font-size: .75rem;
   font-weight: 700;
@@ -584,6 +596,72 @@
 }
 #import-screen .imp-empty-title { font-size: .9375rem; font-weight: 700; }
 #import-screen .imp-empty-body { font-size: .8125rem; color: var(--imp-muted); max-width: 24rem; line-height: 1.5; }
+
+/* ── Backup-restore offer ─────────────────────────────────────────────────── */
+
+/* Parked on <body> like .cat-toast, because it appears at boot while every
+   screen (including this one) is hidden. Self-contained tokens for the same
+   reason the screen re-declares them. Solid background, no backdrop-filter —
+   the blur budget is already spent on the app's fixed chrome. */
+.imp-restore {
+  position: fixed;
+  z-index: 400;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  /* Centered, so the width budget shrinks by both side insets instead of
+     padding — keeps it clear of a landscape notch. */
+  width: min(calc(92vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 26rem);
+  display: flex;
+  flex-direction: column;
+  gap: .625rem;
+  padding: .8rem .9rem;
+  background: rgba(18, 18, 18, .96);
+  border: 1px solid var(--border, rgba(255, 255, 255, .1));
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  color: var(--text, #f0f0f0);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: .82rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.imp-restore-msg { margin: 0; }
+
+.imp-restore-actions {
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+}
+
+.imp-restore-btn {
+  min-height: 44px;
+  padding: .5rem .9rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, .1));
+  border-radius: 10px;
+  background: var(--surf, rgba(255, 255, 255, .08));
+  color: var(--text, #f0f0f0);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.imp-restore-btn:active { transform: scale(.98); }
+.imp-restore-btn:disabled { opacity: .45; cursor: default; transform: none; }
+.imp-restore-btn--accent {
+  background: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1);
+  color: #fff;
+}
+.imp-restore-btn:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imp-restore-btn:active { transform: none; }
+}
 
 /* ── Wider screens ────────────────────────────────────────────────────────── */
 

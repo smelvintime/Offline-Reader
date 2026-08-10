@@ -19,7 +19,19 @@
 // a detached document that is never attached to the live DOM, and walked to
 // emit typed Blocks (§1.3). We never call innerHTML with it, never copy an
 // event-handler attribute, and never let a non-http(s)/data:image URL reach an
-// <img src>. `<script>`/`<style>` subtrees are dropped outright.
+// <img src>. `<script>`/`<style>` subtrees are dropped outright. Files opened
+// from native disk get the exact same treatment — native access changes where
+// bytes live, never how much we trust them.
+//
+// Under Capacitor the same pipelines run with native plumbing behind
+// window.Platform: archives are picked by URI and moved into app storage
+// without their bytes ever entering JS, pages are extracted natively on
+// demand, and a small JSON backup of the library rides in Documents/ as
+// eviction insurance. Every Platform call is guarded — on the plain web this
+// file behaves exactly as it always has. CBZ chapters are no longer
+// decompressed at boot: stored rows keep `entries` + `archiveKey` as the
+// durable truth with `pages: []`, and `hydrateChapter` below yields live,
+// session-local page URLs one chapter at a time.
 
 (function () {
   'use strict';
@@ -158,9 +170,18 @@
   }
 
   // Mirrors the catalogue's rule: only these schemes may reach an <img src>.
+  //
+  // Capacitor's local-file origins are the one addition: iOS serves extracted
+  // pages from capacitor://localhost, Android re-serves them under
+  // https://localhost with a /_capacitor_file_/ path. Both are pinned as
+  // EXACT prefixes — origin plus path start, never a substring — so a
+  // lookalike (capacitor://localhost.evil, some capacitor-evil scheme) still
+  // falls through to the refusal at the bottom.
   function safeImageUrl(url) {
     if (!url || typeof url !== 'string') return '';
     const u = url.trim();
+    if (/^capacitor:\/\/localhost\//i.test(u)) return u;
+    if (/^https:\/\/localhost\/_capacitor_file_\//i.test(u)) return u;
     if (/^https?:/i.test(u)) return u;
     if (/^data:image\//i.test(u)) return u;
     if (/^blob:/i.test(u)) return u;
@@ -181,11 +202,68 @@
   function displayImageUrl(url) {
     const safe = safeImageUrl(url);
     if (!safe) return '';
-    // Hotlink-protected covers need the gateway; data/blob URLs never do.
-    if (/^https?:/i.test(safe) && typeof window.proxyImageUrl === 'function') {
+    // Hotlink-protected covers need the gateway; data/blob URLs never do —
+    // and neither does Android's https://localhost local-file form, which
+    // only dresses like a remote URL.
+    if (/^https?:/i.test(safe) && !/^https:\/\/localhost\/_capacitor_file_\//i.test(safe)
+        && typeof window.proxyImageUrl === 'function') {
       try { return window.proxyImageUrl(safe); } catch (e) { return safe; }
     }
     return safe;
+  }
+
+  // ── Platform seam (Capacitor, always via window.Platform) ─────────────────
+  //
+  // The bridge is the only module allowed to touch Capacitor; this module only
+  // ever asks it. Every helper here is guarded for absence so the plain web
+  // build runs exactly as it did before the bridge existed.
+
+  function platform() { return window.Platform || null; }
+
+  // A PickedFile ({name, size, uri}) from Platform.pickFiles. It carries the
+  // ORIGINAL name and size — file identity hashes them — but no bytes, and a
+  // real File never has a uri.
+  function isPickedUri(file) {
+    return !!(file && typeof file.uri === 'string' && file.uri && typeof file.arrayBuffer !== 'function');
+  }
+
+  // Materialize a picked file into a real File; the bridge stamps the ORIGINAL
+  // name back on. For EPUB/TXT sources and library JSON only — large archives
+  // stay on disk and are read by URI, never through this.
+  async function readPicked(picked) {
+    const P = platform();
+    if (!P || typeof P.readPickedFile !== 'function') return null;
+    try { return await P.readPickedFile(picked); } catch (e) { return null; }
+  }
+
+  // Platform.pickFiles contract: null = no native picker exists (fall back to
+  // the hidden <input>); [] = the user cancelled the native sheet (do nothing
+  // — opening the <input> over a dialog they just dismissed would be hostile).
+  async function nativePick(accept, multiple) {
+    const P = platform();
+    if (!P || typeof P.pickFiles !== 'function') return null;
+    try { return await P.pickFiles({ accept: accept, multiple: !!multiple }); }
+    catch (e) { return null; }
+  }
+
+  // blob: object URLs die with the document; Capacitor page URLs die with the
+  // next app update (the iOS container path embeds a per-build UUID). Neither
+  // may ever be persisted — finding one in a stored row means an earlier build
+  // wrote it, and the row must be scrubbed back to entries-only.
+  function isSessionLocalPageUrl(u) {
+    return typeof u === 'string' && (
+      /^blob:/i.test(u) ||
+      /^capacitor:\/\//i.test(u) ||
+      u.indexOf('_capacitor_file_') !== -1
+    );
+  }
+
+  // Local calendar date, because backups and day logs follow the reader's
+  // clock, not UTC's.
+  function localDayStr() {
+    const d = new Date();
+    const pad = function (n) { return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
   // ── Errors ────────────────────────────────────────────────────────────────
@@ -667,6 +745,21 @@
   async function entryToDataUrl(entry, path) {
     const b64 = await entry.async('base64');
     return 'data:' + mimeForPath(path) + ';base64,' + b64;
+  }
+
+  // FileReader route for blobs that did not come from a zip entry — native
+  // cover extraction hands us a fetch()ed Blob. Re-wrapping fixes a missing
+  // MIME before encoding so the data URL is well-formed.
+  function blobToDataUrl(blob, fallbackMime) {
+    const typed = blob.type ? blob : new Blob([blob], { type: fallbackMime || 'application/octet-stream' });
+    return new Promise(function (resolve) {
+      try {
+        const r = new FileReader();
+        r.onload = function () { resolve(String(r.result || '')); };
+        r.onerror = function () { resolve(''); };
+        r.readAsDataURL(typed);
+      } catch (e) { resolve(''); }
+    });
   }
 
   // Covers get re-encoded down to a thumbnail. Failing that (no canvas, exotic
@@ -1392,11 +1485,13 @@
 
   // ── CBZ / ZIP ─────────────────────────────────────────────────────────────
   //
-  // The archive itself is the payload: it is kept in Store so the series
-  // reopens without another file pick (§5). Page URLs are *not* baked in —
-  // inlining 40 MB of base64 would double the storage cost of every archive.
-  // Instead each session rehydrates blob: URLs from the stored archive, which
-  // is what `rehydrateArchive` below does at boot and after every import.
+  // The archive itself is the payload: it is kept — as a Store blob on the
+  // web, as a native file under Data/archives/ on device — so the series
+  // reopens without another file pick (§5). Page URLs are *not* baked in:
+  // inlining 40 MB of base64 would double the storage cost of every archive,
+  // and live URLs are session-local anyway. Stored chapter rows carry only
+  // `entries` + `archiveKey`; `hydrateChapter` further down turns them into
+  // pages the moment a chapter is actually opened, and not before.
 
   function naturalCompare(a, b) {
     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
@@ -1413,6 +1508,27 @@
       const ext = extOf(f.name);
       if (!MIME_BY_EXT[ext] || ext === 'svg') continue;
       out.push(f.name);
+    }
+    out.sort(naturalCompare);
+    return out;
+  }
+
+  // Same rules as imageEntries, applied to a native central-directory listing
+  // ({name, size} rows from Platform.zip.list) — directory rows end in '/',
+  // which the empty-basename check already drops. The two filters MUST agree:
+  // an archive indexed natively and one indexed by JSZip must yield the same
+  // chapter shapes, or re-importing on another platform would fork content.
+  function imageNamesFromList(entries) {
+    const out = [];
+    for (const e of (entries || [])) {
+      const name = e && typeof e.name === 'string' ? e.name : '';
+      if (!name) continue;
+      const base = name.split('/').pop();
+      if (!base || base.charAt(0) === '.') continue;
+      if (name.indexOf('__MACOSX/') === 0) continue;
+      const ext = extOf(name);
+      if (!MIME_BY_EXT[ext] || ext === 'svg') continue;
+      out.push(name);
     }
     out.sort(naturalCompare);
     return out;
@@ -1435,9 +1551,125 @@
     });
   }
 
+  // The confirmation cover on the native path: extract the one chosen entry to
+  // a throwaway page dir, fetch it back through the local origin, shrink it,
+  // and delete the dir. One image crosses into JS — never the archive.
+  async function coverFromNativeEntry(uri, entryName) {
+    const P = platform();
+    if (!P || !P.zip || typeof P.zip.extract !== 'function' || typeof P.pageUrl !== 'function') return '';
+    let out = '';
+    try {
+      const rels = await P.zip.extract({ uri: uri }, [entryName], 'import-tmp');
+      const pageUrl = rels && rels.length ? P.pageUrl(rels[0]) : null;
+      if (pageUrl) {
+        const res = await fetch(pageUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          const shrunk = await shrinkToDataUrl(blob, COVER_MAX_EDGE);
+          if (shrunk) out = shrunk;
+          else if (blob.size <= COVER_RAW_LIMIT) out = await blobToDataUrl(blob, mimeForPath(entryName));
+        }
+      }
+    } catch (e) { out = ''; }
+    if (P.archives && typeof P.archives.releasePages === 'function') {
+      try { P.archives.releasePages('import-tmp'); } catch (e) { /* the page-cache prune sweeps strays */ }
+    }
+    return out;
+  }
+
+  // Native URI indexing: the central directory is read natively, so a 2 GB
+  // archive costs the webview a list of names — no JSZip, no ArrayBuffer.
+  // Returns null when the native lister is unavailable (no or-zip plugin);
+  // real content problems (no images) throw the same errors as the web path.
+  async function prepareArchiveFromUri(picked, opts) {
+    const options = opts || {};
+    const onProgress = options.onProgress || function () {};
+    const P = platform();
+    if (!P || !P.zip || typeof P.zip.list !== 'function') return null;
+
+    onProgress({ phase: 'reading', message: 'Opening ' + picked.name + '…' });
+    const listed = await P.zip.list({ uri: picked.uri });
+    if (!listed) return null;
+
+    onProgress({ phase: 'parsing', message: 'Indexing pages…' });
+    const names = imageNamesFromList(listed);
+    if (!names.length) {
+      throw impErr('empty_archive', 'That archive has no images in it. CBZ files hold one image per page — if this is a book, try the EPUB or TXT version.');
+    }
+
+    // Identity comes from the ORIGINAL picker name and size, exactly like the
+    // web path — re-importing the same file must resume, not duplicate.
+    const id = await seriesIdForFile(picked);
+    const existing = await safeStore('getUserSeries', [id], null);
+    const groups = groupPages(names);
+
+    let cover = '';
+    try { cover = await coverFromNativeEntry(picked.uri, names[0]); } catch (e) { cover = ''; }
+
+    const chapters = [];
+    const files = [];
+    groups.forEach(function (g, i) {
+      const num = i + 1;
+      const chapterId = 'c-' + pad4(num);
+      const title = g.title || (groups.length === 1 ? collapse(picked.name.replace(/\.(cbz|zip)$/i, '')) : 'Chapter ' + num);
+      chapters.push({
+        id: chapterId, num: num, volume: null, title: title.slice(0, 200),
+        seriesId: id, updatedAt: null, pageCount: g.pages.length,
+      });
+      files.push([chapterId, {
+        seriesId: id, id: chapterId, num: num, title: title.slice(0, 200),
+        kind: 'image', pages: [], entries: g.pages, archiveKey: 'file:' + id,
+      }]);
+    });
+
+    const series = baseSeries(id, {
+      type: 'manga',
+      title: collapse(picked.name.replace(/\.(cbz|zip)$/i, '').replace(/[-_]+/g, ' ')).slice(0, 300) || 'Archive',
+      cover: cover,
+      status: 'completed',
+      readingDirection: 'rtl',
+      importKind: 'cbz',
+      archiveKey: 'file:' + id,
+      fileName: picked.name,
+      fileSize: picked.size,
+      chapters: chapters,
+      chapterCount: chapters.length,
+    });
+
+    const draft = emptyDraft(series);
+    draft.files = files;
+    // No blob: the payload is the picked file itself, still sitting in the
+    // picker cache. commitDraft moves it into Data/archives/ natively.
+    draft.nativeArchive = { archiveKey: 'file:' + id, nativeUri: picked.uri };
+    draft.meta = {
+      kind: 'cbz', existing: !!existing, chapterCount: chapters.length,
+      pageCount: names.length, fileName: picked.name, fileSize: picked.size,
+    };
+    onProgress({
+      phase: 'found',
+      message: names.length + ' pages in ' + chapters.length + (chapters.length === 1 ? ' chapter' : ' chapters'),
+      count: chapters.length,
+    });
+    return draft;
+  }
+
   async function prepareArchive(file, opts) {
     const options = opts || {};
     const onProgress = options.onProgress || function () {};
+
+    // A picked URI gets the native, bytes-stay-on-disk path. Falling back to
+    // JSZip when the lister is missing keeps a plugin-less test build working,
+    // at web-cap sizes only — materializing is exactly what the URI path is
+    // for avoiding.
+    if (isPickedUri(file)) {
+      const nativeDraft = await prepareArchiveFromUri(file, options);
+      if (nativeDraft) return nativeDraft;
+      const materialized = await readPicked(file);
+      if (!materialized) {
+        throw impErr('bad_archive', 'That archive could not be read from the picker. Try choosing it again, or open it from a different file app.');
+      }
+      file = materialized;
+    }
 
     onProgress({ phase: 'reading', message: 'Opening ' + file.name + '…' });
     const zip = await openZip(file);
@@ -1465,7 +1697,7 @@
         id: chapterId, num: num, volume: null, title: title.slice(0, 200),
         seriesId: id, updatedAt: null, pageCount: g.pages.length,
       });
-      // `entries` is how rehydration knows which zip members belong here.
+      // `entries` is how hydrateChapter knows which zip members belong here.
       files.push([chapterId, {
         seriesId: id, id: chapterId, num: num, title: title.slice(0, 200),
         kind: 'image', pages: [], entries: g.pages, archiveKey: 'file:' + id,
@@ -1501,51 +1733,183 @@
     return draft;
   }
 
-  // Blob URLs live as long as the document does, so this runs once per page
-  // load per archive series. It is idempotent and cheap enough to fire on boot.
-  const rehydrated = new Set();
+  // ── Lazy hydration (the boot-time decompress-everything replacement) ──────
+  //
+  // Stored CBZ rows are entries + archiveKey with pages: []. When a chapter is
+  // actually opened, hydrateChapter yields live page URLs for JUST that
+  // chapter: natively by streaming extraction to the page cache, on the web by
+  // decompressing from the stored blob to object URLs. Two hard residency
+  // bounds (§9): at most ONE JSZip instance app-wide, and at most TWO hydrated
+  // chapters per archive — current + previous. Evicted chapters revoke their
+  // object URLs (web) or release their page dir (native); a re-open simply
+  // hydrates again. Nothing produced here is ever written back to Store.
 
-  async function rehydrateArchive(series) {
-    if (!series || series.importKind !== 'cbz' || !series.archiveKey) return 0;
-    if (rehydrated.has(series.id)) return 0;
-    rehydrated.add(series.id);
+  // archiveKey → [{ seriesId, chapterId, urls, dirKey }], oldest first, ≤ 2.
+  // dirKey set = native entry (release the dir); null = web (revoke the URLs).
+  const hydratedChapters = new Map();
 
-    const blob = await safeStore('getBlob', [series.archiveKey], null);
-    if (!blob) return 0;
+  // The single JSZip slot. The promise is cached, not the instance, so two
+  // chapters of one archive hydrating concurrently share one loadAsync instead
+  // of holding two copies of the compressed bytes.
+  let archiveCache = { key: null, promise: null };
 
-    let zip;
-    try { zip = await jszip().loadAsync(blob); }
-    catch (e) { console.warn('[Importer] could not reopen archive for ' + series.id, e); return 0; }
-
-    let count = 0;
-    for (const ch of (series.chapters || [])) {
-      const cached = await safeStore('getChapter', [series.id, ch.id], null);
-      if (!cached) continue;
-      const entries = Array.isArray(cached.entries) ? cached.entries : [];
-      if (!entries.length) continue;
-      if (Array.isArray(cached.pages) && cached.pages.length && cached.pages[0].indexOf('blob:') !== 0) continue;
-
-      const urls = [];
-      for (const name of entries) {
-        const entry = zipEntry(zip, name);
-        if (!entry) continue;
-        const b = await entry.async('blob');
-        urls.push(URL.createObjectURL(b.type ? b : new Blob([b], { type: mimeForPath(name) })));
+  function releaseHydrated(entry) {
+    if (entry.dirKey) {
+      const P = platform();
+      if (P && P.archives && typeof P.archives.releasePages === 'function') {
+        try { P.archives.releasePages(entry.dirKey); } catch (e) { /* dir already gone */ }
       }
-      if (!urls.length) continue;
-      await safeStore('putChapter', [series.id, ch.id, Object.assign({}, cached, { pages: urls })], null);
-      count++;
+    } else {
+      (entry.urls || []).forEach(function (u) {
+        try { URL.revokeObjectURL(u); } catch (e) { /* already revoked */ }
+      });
     }
-    return count;
   }
 
+  function registerHydrated(archiveKey, entry) {
+    let list = hydratedChapters.get(archiveKey);
+    if (!list) { list = []; hydratedChapters.set(archiveKey, list); }
+    const i = list.findIndex(function (e) {
+      return e.seriesId === entry.seriesId && e.chapterId === entry.chapterId;
+    });
+    if (i !== -1) list.splice(i, 1);   // refreshed in place; native URLs are path-stable, web hits return early
+    list.push(entry);
+    while (list.length > 2) releaseHydrated(list.shift());
+  }
+
+  function findHydrated(archiveKey, seriesId, chapterId) {
+    const list = hydratedChapters.get(archiveKey);
+    if (!list) return null;
+    return list.find(function (e) {
+      return e.seriesId === seriesId && e.chapterId === chapterId;
+    }) || null;
+  }
+
+  // Forget everything held for one archive: registry entries (revoking /
+  // releasing as we go) and the JSZip slot. Called on delete and on re-import,
+  // where cached state would otherwise serve pages from a superseded file.
+  function dropArchiveState(archiveKey) {
+    if (!archiveKey) return;
+    const list = hydratedChapters.get(archiveKey);
+    if (list) {
+      list.forEach(releaseHydrated);
+      hydratedChapters.delete(archiveKey);
+    }
+    if (archiveCache.key === archiveKey) archiveCache = { key: null, promise: null };
+  }
+
+  function openArchiveZip(archiveKey) {
+    if (archiveCache.key === archiveKey && archiveCache.promise) return archiveCache.promise;
+    const promise = (async function () {
+      const blob = await safeStore('getBlob', [archiveKey], null);
+      if (!blob) return null;
+      try { return await jszip().loadAsync(blob); }
+      catch (e) { console.warn('[Importer] could not reopen archive ' + archiveKey, e); return null; }
+    })();
+    // Claiming the slot IS the LRU-of-1 eviction: the previous archive's zip
+    // loses its last reference here and gets collected.
+    archiveCache = { key: archiveKey, promise: promise };
+    promise.then(function (zip) {
+      // A failed open must not stick for the session — clear the slot so the
+      // next attempt retries instead of replaying the failure from cache.
+      if (!zip && archiveCache.key === archiveKey && archiveCache.promise === promise) {
+        archiveCache = { key: null, promise: null };
+      }
+    });
+    return promise;
+  }
+
+  // Public API (ARCHITECTURE §5 amendment): live pages for one chapter of an
+  // imported archive, or null. The returned ChapterFile is session-local — its
+  // pages are object URLs or Capacitor file URLs and MUST NOT be persisted;
+  // the catalogue's resolver returns it without a putChapter for exactly that
+  // reason.
+  async function hydrateChapter(seriesId, chapterId) {
+    if (!seriesId || !chapterId) return null;
+    const cached = await safeStore('getChapter', [seriesId, chapterId], null);
+    if (!cached || !cached.archiveKey) return null;
+    const entries = Array.isArray(cached.entries) ? cached.entries : [];
+    if (!entries.length) return null;
+    const archiveKey = cached.archiveKey;
+
+    // A live web registry entry means these object URLs are still valid — and
+    // possibly on screen. Reuse them; minting replacements would decompress
+    // again and revoking the old set would blank a visible chapter.
+    const held = findHydrated(archiveKey, seriesId, chapterId);
+    if (held && !held.dirKey) {
+      registerHydrated(archiveKey, held);   // refresh recency
+      return Object.assign({}, cached, { pages: held.urls.slice() });
+    }
+
+    // Native branch: stream-extract just this chapter to the page cache and
+    // convert the relative paths for THIS session. A dir the LRU prune took is
+    // no special case — extraction is idempotent, so we just extract again.
+    const P = platform();
+    if (P && P.isNative && P.zip && typeof P.zip.extract === 'function' && typeof P.pageUrl === 'function') {
+      const dirKey = seriesId + '/' + chapterId;
+      const rels = await P.zip.extract({ key: archiveKey }, entries.slice(), dirKey);
+      if (rels && rels.length) {
+        const urls = [];
+        for (const rel of rels) {
+          const u = P.pageUrl(rel);
+          if (u) urls.push(u);
+        }
+        if (urls.length === rels.length) {
+          registerHydrated(archiveKey, { seriesId: seriesId, chapterId: chapterId, urls: urls, dirKey: dirKey });
+          return Object.assign({}, cached, { pages: urls });
+        }
+      }
+      // No native file for this key (a pre-migration IDB archive) or the
+      // plugin is missing — the blob path below still serves it.
+    }
+
+    // Web branch: one shared JSZip over the stored blob, object URLs for just
+    // this chapter's entries.
+    const zip = await openArchiveZip(archiveKey);
+    if (!zip) return null;
+    const urls = [];
+    for (const name of entries) {
+      const entry = zipEntry(zip, name);
+      if (!entry) continue;
+      const b = await entry.async('blob');
+      urls.push(URL.createObjectURL(b.type ? b : new Blob([b], { type: mimeForPath(name) })));
+    }
+    if (!urls.length) return null;
+    registerHydrated(archiveKey, { seriesId: seriesId, chapterId: chapterId, urls: urls, dirKey: null });
+    return Object.assign({}, cached, { pages: urls });
+  }
+
+  // ── Migration shim ────────────────────────────────────────────────────────
+  //
+  // Earlier builds persisted each session's blob: page URLs back into the
+  // chapter rows — dead weight that was rewritten every boot. The shim walks a
+  // series' cached rows once per session and resets any session-local pages to
+  // [], leaving entries + archiveKey as the truth. No decompression happens
+  // here or anywhere else at boot.
+  const scrubbed = new Set();
+
+  async function scrubSeriesPages(series) {
+    if (!series || series.importKind !== 'cbz' || !series.archiveKey) return 0;
+    if (scrubbed.has(series.id)) return 0;
+    scrubbed.add(series.id);
+    let fixed = 0;
+    for (const ch of (series.chapters || [])) {
+      const cached = await safeStore('getChapter', [series.id, ch.id], null);
+      if (!cached || !Array.isArray(cached.pages) || !cached.pages.length) continue;
+      if (!cached.pages.some(isSessionLocalPageUrl)) continue;
+      await safeStore('putChapter', [series.id, ch.id, Object.assign({}, cached, { pages: [] })], null);
+      fixed++;
+    }
+    return fixed;
+  }
+
+  // Name kept — this is still the boot-time entry point — but it is a
+  // rewrite-only migration pass now, not a decompressor.
   async function rehydrateAll() {
     const rows = await safeStore('listUserSeries', [], []);
     for (const s of (rows || [])) {
-      if (s && s.importKind === 'cbz') {
-        try { await rehydrateArchive(s); }
-        catch (e) { console.warn('[Importer] rehydrate failed', s.id, e); }
-      }
+      try { await scrubSeriesPages(s); }
+      catch (e) { console.warn('[Importer] page scrub failed', s && s.id, e); }
     }
   }
 
@@ -1576,8 +1940,40 @@
 
     onProgress({ phase: 'saving', message: 'Saving to your library…', done: 0, total: draft.files.length });
 
+    // Payload first, chapters second, series row last — the ordering
+    // invariant. On the native URI path the payload step is a file MOVE into
+    // Data/archives/, not a blob write: zero archive bytes cross the bridge.
+    const warnings = [];
+
+    if (draft.nativeArchive && draft.nativeArchive.nativeUri) {
+      const P = platform();
+      const A = P && P.archives;
+      let moved = null;
+      if (A && typeof A.importFromUri === 'function') {
+        if (typeof A.remove === 'function') {
+          // A re-import of the same name+size lands on the same key, and a
+          // native rename refuses to clobber — clear the destination first.
+          try { await A.remove(draft.nativeArchive.archiveKey); } catch (e) { /* nothing there */ }
+        }
+        moved = await A.importFromUri(draft.nativeArchive.archiveKey, draft.nativeArchive.nativeUri);
+      }
+      if (!moved) {
+        warnings.push('The archive could not be stored on this device, so its chapters will not open. Free some space and import the file again.');
+      }
+    }
+
     for (const [key, blob] of draft.blobs) {
       await safeStore('putBlob', [key, blob], null);
+      // Store.putBlob resolves even when the underlying write silently failed
+      // (the iOS quota landmine), so reading the key back is the only honest
+      // success check. IndexedDB hands back a lazy file-backed handle, not a
+      // byte copy — this costs a lookup, not a materialization.
+      const back = await safeStore('getBlob', [key], null);
+      if (!back) {
+        warnings.push(draft.meta && draft.meta.kind === 'cbz'
+          ? 'The archive could not be saved (storage is full or restricted), so its chapters will not open. Free some space and import the file again.'
+          : 'The original file could not be kept alongside the chapters (storage is full or restricted). Reading works, but a future re-import will need the file again.');
+      }
     }
 
     let done = 0;
@@ -1596,14 +1992,20 @@
 
     const saved = await safeStore('putUserSeries', [series], series);
     if (series.importKind === 'cbz') {
-      rehydrated.delete(series.id);
-      try { await rehydrateArchive(saved || series); } catch (e) { /* pages fill in on next boot */ }
+      // No decompression here anymore — chapters hydrate lazily on open. What
+      // a re-import MUST do is forget the superseded archive: a cached JSZip
+      // or live page set from the old file would serve stale pages.
+      dropArchiveState(series.archiveKey);
+      scrubbed.delete(series.id);
     }
 
     // The catalogue listens for this and reloads My Library.
     try { window.dispatchEvent(new CustomEvent('or:library-changed', { detail: { id: series.id } })); }
     catch (e) { /* CustomEvent is unavailable in some very old webviews */ }
 
+    scheduleBackup(BACKUP_CHANGE_DEBOUNCE_MS);   // library shape changed
+
+    if (warnings.length) onProgress({ phase: 'warning', message: warnings.join(' ') });
     onProgress({ phase: 'done', message: 'Added “' + series.title + '”', count: series.chapterCount });
     return saved || series;
   }
@@ -1621,6 +2023,20 @@
 
   async function prepareFile(file, opts) {
     if (!file) throw impErr('no_file', 'No file was chosen.');
+    // Native picks: kindOfFile dispatches on the ORIGINAL name either way.
+    // EPUB and TXT are parsed in JS by design (both are small, and the format
+    // caps are unchanged), so a picked one is materialized into a real File
+    // first; a CBZ stays a URI and prepareArchive reads it natively — its
+    // bytes never enter the webview. An unsupported pick falls through to the
+    // refusal below without materializing anything.
+    if (isPickedUri(file)) {
+      const kind0 = kindOfFile(file);
+      if (kind0 === 'epub' || kind0 === 'txt') {
+        const real = await readPicked(file);
+        if (!real) throw impErr('bad_file', 'That file could not be read from the picker. Try choosing it again, or open it from a different file app.');
+        file = real;
+      }
+    }
     const kind = kindOfFile(file);
     if (kind === 'epub') return await prepareEpub(file, opts);
     if (kind === 'txt')  return await prepareTxt(file, opts);
@@ -1638,13 +2054,12 @@
     const current = await safeStore('getUserSeries', [seriesId], null);
     if (!current) throw impErr('not_in_library', 'That series is not in your library.');
 
-    // File-backed series have no upstream. Re-linking the archive is the only
-    // useful "refresh" there, and saying so is better than a fake check.
+    // File-backed series have no upstream, and pages hydrate lazily now — the
+    // only useful work here is scrubbing any stale session-local page URLs an
+    // older build left behind, and being honest about the rest.
     if (current.importKind !== 'url' || !current.sourceUrl) {
-      const n = await rehydrateArchive(current);
-      return { series: current, added: 0, note: n
-        ? 'Relinked ' + n + ' chapter' + (n === 1 ? '' : 's') + ' to the stored file.'
-        : 'This series came from a file, so there is nothing new to fetch.' };
+      try { await scrubSeriesPages(current); } catch (e) { /* purely cosmetic cleanup */ }
+      return { series: current, added: 0, note: 'This series came from a file, so there is nothing new to fetch.' };
     }
     if (!gatewayEnabled()) throw impErr('gateway_disabled', GATEWAY_ERRORS.gateway_disabled.text);
 
@@ -1707,10 +2122,11 @@
       const ids = (await safeStore('listCachedChapterIds', [s.id], [])) || [];
       for (const cid of ids) {
         const f = await safeStore('getChapter', [s.id, cid], null);
-        // Rehydrated blob: URLs are meaningless on another device — drop them
-        // and let the archive-backed series rebuild from its own file.
+        // Session-local page URLs (blob:, Capacitor file URLs) are meaningless
+        // on another device or after an app update — drop them and let the
+        // archive-backed series rebuild from its own file.
         if (f) out.chapters.push(Object.assign({}, f, {
-          pages: Array.isArray(f.pages) ? f.pages.filter(function (u) { return u.indexOf('blob:') !== 0; }) : undefined,
+          pages: Array.isArray(f.pages) ? f.pages.filter(function (u) { return !isSessionLocalPageUrl(u); }) : undefined,
         }));
       }
     }
@@ -1744,8 +2160,165 @@
       progress++;
     }
     try { window.dispatchEvent(new CustomEvent('or:library-changed', { detail: { imported: series } })); } catch (e) {}
-    await rehydrateAll();
+    await rehydrateAll();   // migration shim: scrub any stale page URLs the export carried
+    scheduleBackup(BACKUP_CHANGE_DEBOUNCE_MS);   // a bulk import is a library change like any other
     return { series: series, chapters: chapters, progress: progress };
+  }
+
+  // ── Library backup (PLAN.md §6.2 — eviction insurance) ────────────────────
+  //
+  // WKWebView may evict IndexedDB wholesale, or just the progress store. A
+  // small JSON snapshot (series + progress, never chapter payloads, never
+  // source blobs) written to Documents/ makes both survivable. Two triggers:
+  // library-shape changes (commit / delete / bulk import, debounced 1 min) and
+  // the FIRST or:progress event of each local day (debounced 5 min) so a
+  // months-long reading streak with zero imports is still at most ~a day
+  // exposed. Restore is offered at boot — a visible toast the user must tap,
+  // never a silent write.
+
+  const BACKUP_CHANGE_DEBOUNCE_MS   = 60 * 1000;
+  const BACKUP_PROGRESS_DEBOUNCE_MS = 5 * 60 * 1000;
+
+  let backupTimer = null;
+  let backupDueAt = 0;
+  let progressBackupDay = '';       // last local day that scheduled a progress backup
+  let sessionDeleted = false;       // the user emptied the library on purpose this session
+
+  function canBackup() {
+    const P = platform();
+    return !!(P && P.isNative && P.backup && typeof P.backup.write === 'function');
+  }
+
+  // Earliest deadline wins: a sooner pending write already covers this change,
+  // and never letting a burst of triggers push the write out keeps the loss
+  // window bounded instead of merely coalesced.
+  function scheduleBackup(delayMs) {
+    if (!canBackup()) return;
+    const dueAt = Date.now() + delayMs;
+    if (backupTimer && backupDueAt <= dueAt) return;
+    clearTimeout(backupTimer);
+    backupDueAt = dueAt;
+    backupTimer = setTimeout(function () {
+      backupTimer = null;
+      writeBackup().catch(function () { /* writeBackup reports its own failures */ });
+    }, delayMs);
+  }
+
+  async function writeBackup() {
+    if (!canBackup()) return;
+    try {
+      const data = await exportLibrary({ includeChapters: false });
+      // An empty library the user did not empty is the eviction this file
+      // insures against — overwriting a good backup with the wreckage would
+      // destroy the insurance at the exact moment it is needed.
+      if (!data.series.length && !sessionDeleted) return;
+      await platform().backup.write(JSON.stringify(data));
+    } catch (e) {
+      console.warn('[Importer] backup write failed', e);
+    }
+  }
+
+  function wireBackupTriggers() {
+    if (!canBackup()) return;
+    window.addEventListener('or:progress', function () {
+      const today = localDayStr();
+      if (progressBackupDay === today) return;
+      progressBackupDay = today;
+      scheduleBackup(BACKUP_PROGRESS_DEBOUNCE_MS);
+    });
+  }
+
+  // Boot-time restore offer. Two detections, per the plan: the library is
+  // empty but a backup has series (full / series-side eviction), or series
+  // survived while the progress store did not (partial eviction). Either way
+  // the offer is a toast with an explicit Restore tap — restoring rewrites
+  // rows, and rewriting rows without being asked is how trust dies.
+  async function offerBackupRestore() {
+    const P = platform();
+    if (!P || !P.isNative || !P.backup || typeof P.backup.readLatest !== 'function') return;
+    try { await P.ready; } catch (e) { /* ready never rejects, but belts and braces */ }
+
+    const seriesRows = (await safeStore('listUserSeries', [], [])) || [];
+    const haveSeries = seriesRows.length > 0;
+    if (haveSeries) {
+      const p = (await safeStore('listProgress', [{ limit: 1 }], [])) || [];
+      if (p.length) return;   // series and progress both present — healthy boot
+    }
+
+    const raw = await P.backup.readLatest();
+    if (!raw) return;
+    let data = null;
+    try { data = JSON.parse(raw); } catch (e) { return; }
+    if (!data || data.format !== EXPORT_FORMAT) return;
+    const backupSeries   = Array.isArray(data.series)   ? data.series.length   : 0;
+    const backupProgress = Array.isArray(data.progress) ? data.progress.length : 0;
+
+    if (!haveSeries && backupSeries > 0) {
+      showRestoreToast(
+        'Your library looks empty, but a backup on this device has ' + backupSeries +
+        ' series' + (backupProgress ? ' and ' + backupProgress + ' reading position' + (backupProgress === 1 ? '' : 's') : '') + '.',
+        raw);
+    } else if (haveSeries && backupProgress > 0) {
+      showRestoreToast(
+        'Your reading positions look lost, but a backup on this device has ' +
+        backupProgress + ' of them.',
+        raw);
+    }
+  }
+
+  // The offer itself. Parked on <body> (the .cat-toast precedent) because the
+  // import screen is hidden at boot; solid background because the blur budget
+  // is already spent on the app's fixed chrome.
+  function showRestoreToast(message, rawJson) {
+    const existing = document.querySelector('.imp-restore');
+    if (existing) existing.remove();
+
+    const toastEl = el('div', 'imp-restore');
+    toastEl.setAttribute('role', 'status');
+    toastEl.setAttribute('aria-live', 'polite');
+    toastEl.appendChild(el('p', 'imp-restore-msg', message + ' Restore it?'));
+
+    const actions = el('div', 'imp-restore-actions');
+    const dismiss = el('button', 'imp-restore-btn');
+    dismiss.type = 'button';
+    dismiss.textContent = 'Not now';
+    dismiss.setAttribute('aria-label', 'Dismiss the restore offer');
+    dismiss.addEventListener('click', function () { toastEl.remove(); });
+
+    const restore = el('button', 'imp-restore-btn imp-restore-btn--accent');
+    restore.type = 'button';
+    restore.textContent = 'Restore';
+    restore.setAttribute('aria-label', 'Restore the library backup');
+    restore.addEventListener('click', async function () {
+      restore.disabled = true;
+      dismiss.disabled = true;
+      restore.textContent = 'Restoring…';
+      try {
+        const res = await importLibrary(rawJson);
+        toastEl.textContent = '';
+        toastEl.appendChild(el('p', 'imp-restore-msg',
+          'Restored ' + res.series + ' series and ' + res.progress + ' reading position' + (res.progress === 1 ? '' : 's') + '.'));
+      } catch (e) {
+        console.warn('[Importer] backup restore failed', e);
+        toastEl.textContent = '';
+        toastEl.appendChild(el('p', 'imp-restore-msg',
+          'That backup could not be read. Your library was left untouched.'));
+      }
+      setTimeout(function () { toastEl.remove(); }, 6000);
+    });
+
+    actions.appendChild(dismiss);
+    actions.appendChild(restore);
+    toastEl.appendChild(actions);
+    document.body.appendChild(toastEl);
+
+    // If the user starts reading instead, stop hovering over the reader —
+    // the untouched offer simply comes back on the next launch.
+    const clear = function () {
+      window.removeEventListener('or:progress', clear);
+      if (!restore.disabled) toastEl.remove();
+    };
+    window.addEventListener('or:progress', clear);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1936,9 +2509,9 @@
     drop.appendChild(icon('up', 26));
     drop.appendChild(el('div', 'imp-drop-title', 'Choose a file'));
     drop.appendChild(el('div', 'imp-drop-sub', 'EPUB · TXT · CBZ · ZIP'));
-    drop.addEventListener('click', function () { fileInput.click(); });
+    drop.addEventListener('click', function () { pickImportFile(); });
     drop.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickImportFile(); }
     });
     ['dragenter', 'dragover'].forEach(function (evt) {
       drop.addEventListener(evt, function (e) { e.preventDefault(); drop.classList.add('over'); });
@@ -2047,6 +2620,13 @@
       r.id = 'imp-retry';
       r.addEventListener('click', opts.retry);
       actions.appendChild(r);
+    }
+    // A status that ends somewhere (a commit that finished with a warning)
+    // gets a way forward, not just a message.
+    if (opts.action && typeof opts.action.onClick === 'function') {
+      const a = button('imp-btn', opts.action.label || 'Continue', opts.action.label || 'Continue');
+      a.addEventListener('click', opts.action.onClick);
+      actions.appendChild(a);
     }
     if (actions.childNodes.length) box.appendChild(actions);
   }
@@ -2369,14 +2949,25 @@
     };
 
     try {
+      let commitWarning = null;
       const series = await commitDraft(draft, edits, {
         onProgress: function (p) {
+          if (p.phase === 'warning') { commitWarning = p.message; return; }
           setStatus(ui.confirmStatus, p.phase === 'done' ? 'ok' : 'busy', p.message, {
             done: p.done, total: p.total,
           });
         },
       });
       currentDraft = null;
+      if (commitWarning) {
+        // The series committed, but part of the payload did not stick (quota,
+        // disk). Navigating away would flash the warning for a frame — hold
+        // here and let the user leave deliberately.
+        setStatus(ui.confirmStatus, 'error', commitWarning, {
+          action: { label: 'Open it anyway', onClick: function () { handoff(series); } },
+        });
+        return;
+      }
       await handoff(series);
     } catch (e) {
       console.error('[Importer] save failed', e);
@@ -2447,7 +3038,7 @@
       importInput.value = '';
       if (f) doImport(f);
     });
-    importBtn.addEventListener('click', function () { importInput.click(); });
+    importBtn.addEventListener('click', function () { pickLibraryJson(importInput); });
 
     row.appendChild(exportBtn);
     row.appendChild(importBtn);
@@ -2461,6 +3052,11 @@
     toolStatus.hidden = true;
     tools.appendChild(toolStatus);
 
+    view.appendChild(buildPerformanceCard());
+
+    const storageCard = buildStorageCard();
+    if (storageCard) view.appendChild(storageCard);
+
     view.appendChild(tools);
 
     const backBtn = button('imp-linkbtn', 'Add another series', 'Back to adding a series');
@@ -2472,6 +3068,157 @@
     ui.usageBox = usage;
     ui.manageList = list;
     ui.toolStatus = toolStatus;
+  }
+
+  // ── Performance row (PLAN.md §4.1 — the memoryClass escape hatch) ─────────
+  //
+  // Platform.memoryClass() guesses the device tier from hardware signals; this
+  // is the visible override for anything it misjudges. The pref is validated
+  // on read (here and in platform.js), and tuning() is consumed at session
+  // start, so a change takes hold the next time a reader opens.
+
+  const MEMORY_CLASSES = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'low',  label: 'Low' },
+    { id: 'mid',  label: 'Mid' },
+    { id: 'high', label: 'High' },
+  ];
+
+  function readMemoryClassPref() {
+    let v = null;
+    try {
+      const S = store();
+      if (S && S.prefs && typeof S.prefs.get === 'function') v = S.prefs.get('platform.memoryClass', 'auto');
+    } catch (e) { v = null; }
+    return (v === 'low' || v === 'mid' || v === 'high') ? v : 'auto';
+  }
+
+  function buildPerformanceCard() {
+    const card = el('div', 'imp-card');
+    const head = el('div', 'imp-card-head');
+    head.appendChild(icon('gear', 16));
+    head.appendChild(el('h3', 'imp-card-title', 'Performance'));
+    card.appendChild(head);
+    card.appendChild(el('p', 'imp-card-sub',
+      'How much the readers keep in memory. Auto sizes the windows to this device; ' +
+      'forcing Low helps an older phone the detection misses, and High lets a big tablet keep more pages warm. ' +
+      'Takes effect the next time a reader opens.'));
+
+    const seg = el('div', 'imp-segmented imp-perf-seg');
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', 'Memory tuning');
+    const buttons = {};
+    const sync = function () {
+      const active = readMemoryClassPref();
+      MEMORY_CLASSES.forEach(function (c) {
+        const b = buttons[c.id];
+        const on = c.id === active;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      });
+    };
+    MEMORY_CLASSES.forEach(function (c) {
+      const b = button('imp-seg', c.label, c.label + ' memory tuning');
+      b.dataset.memoryClass = c.id;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', 'false');
+      b.addEventListener('click', function () {
+        try {
+          const S = store();
+          if (S && S.prefs && typeof S.prefs.set === 'function') S.prefs.set('platform.memoryClass', c.id);
+        } catch (e) { console.warn('[Importer] could not save platform.memoryClass'); }
+        sync();
+      });
+      buttons[c.id] = b;
+      seg.appendChild(b);
+    });
+    sync();
+    card.appendChild(seg);
+    return card;
+  }
+
+  // ── Device-storage migration (delegation addendum — manage view) ──────────
+  //
+  // Web-era archives live in IndexedDB, which iOS may clear under storage
+  // pressure. This copies each one into the app's own container — chunked
+  // through Platform.archives.migrateBlob, one archive at a time, idempotent —
+  // after which chapters also open by native extraction instead of unpacking
+  // in the browser. The IndexedDB rows are left in place: Store.deleteBlob
+  // removes BOTH backends, so a store-side IDB-only delete is the missing
+  // piece for reclaiming that space (flagged in the delivery notes).
+
+  function canMigrate() {
+    const P = platform();
+    return !!(P && P.isNative && P.archives && typeof P.archives.migrateBlob === 'function');
+  }
+
+  function buildStorageCard() {
+    if (!canMigrate()) return null;   // web build: the card would be a lie
+
+    const card = el('div', 'imp-card');
+    const head = el('div', 'imp-card-head');
+    head.appendChild(icon('down', 16));
+    head.appendChild(el('h3', 'imp-card-title', 'Device storage'));
+    card.appendChild(head);
+    card.appendChild(el('p', 'imp-card-sub',
+      'Series imported before this version keep their archive in browser storage, which the system can clear under pressure. ' +
+      'Moving them into the app’s own storage protects them and lets chapters open without unpacking in the browser.'));
+
+    const status = el('div', 'imp-status');
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.hidden = true;
+
+    const row = el('div', 'imp-actions imp-actions--start');
+    const moveBtn = button('imp-btn', 'Move library to device storage', 'Move imported archives to device storage');
+    moveBtn.addEventListener('click', function () { runStorageMigration(moveBtn, status); });
+    row.appendChild(moveBtn);
+    card.appendChild(row);
+    card.appendChild(status);
+    return card;
+  }
+
+  async function runStorageMigration(btn, status) {
+    if (!canMigrate()) return;
+    btn.disabled = true;
+    setStatus(status, 'busy', 'Checking your archives…');
+    try {
+      const rows = (await safeStore('listUserSeries', [], [])) || [];
+      const withArchives = rows.filter(function (s) { return s && s.archiveKey; });
+      let done = 0, moved = 0, failed = 0;
+      for (const s of withArchives) {
+        done++;
+        // getBlob checks the filesystem first, then IndexedDB. Nothing back
+        // means the archive is already a native file too large for a bridge
+        // read (imported by URI) — exactly the state migration produces, so
+        // there is nothing to do for it.
+        const blob = await safeStore('getBlob', [s.archiveKey], null);
+        if (!blob) continue;
+        const label = s.title || s.fileName || 'archive';
+        const res = await platform().archives.migrateBlob(s.archiveKey, blob, function (frac) {
+          setStatus(status, 'busy',
+            'Moving “' + label + '”… (' + done + ' of ' + withArchives.length + ')',
+            { done: Math.round(frac * 100), total: 100 });
+        });
+        if (res) moved++; else failed++;
+      }
+      if (failed) {
+        setStatus(status, 'error',
+          failed + ' archive' + (failed === 1 ? '' : 's') + ' could not be moved — the device may be out of space. ' +
+          'Moving is safe to retry; finished archives are skipped.');
+      } else if (moved) {
+        setStatus(status, 'ok', 'Done — ' + moved + ' archive' + (moved === 1 ? '' : 's') + ' now on device storage.');
+      } else {
+        setStatus(status, 'ok', 'Nothing to move — your archives are already on device storage.');
+      }
+      renderManage();   // the usage summary shifts once native bytes count
+    } catch (e) {
+      console.warn('[Importer] storage migration failed', e);
+      setStatus(status, 'error', 'The move stopped early. It is safe to try again — finished archives are skipped.');
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   async function renderManage() {
@@ -2585,9 +3332,24 @@
       box.remove();
       setStatus(status, 'busy', 'Deleting…');
       await safeStore('deleteUserSeries', [s.id], null);
-      if (s.archiveKey) await safeStore('deleteBlob', [s.archiveKey], null);
-      rehydrated.delete(s.id);
+      // Store.deleteBlob removes both backends (IndexedDB row and native
+      // archive file); what it cannot know about is this session's hydration
+      // state and the extracted page dirs, so those are cleaned here.
+      if (s.archiveKey) {
+        await safeStore('deleteBlob', [s.archiveKey], null);
+        dropArchiveState(s.archiveKey);
+      }
+      scrubbed.delete(s.id);
+      const P = platform();
+      if (P && P.archives && typeof P.archives.releasePages === 'function') {
+        // Chapter page dirs are laid out as pages/<seriesId>/<chapterId>, so
+        // releasing the series id clears every chapter's dir in one call —
+        // including dirs left by earlier sessions this registry never saw.
+        try { P.archives.releasePages(s.id); } catch (e) { /* already gone */ }
+      }
+      sessionDeleted = true;   // an empty library after this is intentional, so backups may record it
       try { window.dispatchEvent(new CustomEvent('or:library-changed', { detail: { deleted: s.id } })); } catch (e) {}
+      scheduleBackup(BACKUP_CHANGE_DEBOUNCE_MS);   // library shape changed
       renderManage();
     });
     acts.appendChild(no);
@@ -2611,6 +3373,12 @@
       if (s.archiveKey) {
         const blob = await safeStore('getBlob', [s.archiveKey], null);
         if (blob && typeof blob.size === 'number') bytes += blob.size;
+        else if (platform() && platform().isNative && typeof s.fileSize === 'number') {
+          // Native archives over 64 MB never come back as blobs (the bridge
+          // refuses reads that size); the recorded import size is the honest
+          // stand-in. On the web a missing blob really is missing — show it.
+          bytes += s.fileSize;
+        }
       }
       bytes += JSON.stringify(s).length;
       node.textContent = fmtBytes(bytes);
@@ -2738,6 +3506,26 @@
     });
   }
 
+  // Native-first file picking. The <input> stays as the fallback and as the
+  // web path; both funnel into startFileImport, so everything downstream is
+  // shared. The []-vs-null contract (see nativePick) decides which happens.
+  async function pickImportFile() {
+    buildUi();
+    const picked = await nativePick('.epub,.txt,.text,.md,.cbz,.zip', false);
+    if (picked === null) { ui.fileInput.click(); return; }
+    if (!picked.length) return;   // cancelled the native sheet — respect it
+    startFileImport(picked[0]);
+  }
+
+  async function pickLibraryJson(fallbackInput) {
+    const picked = await nativePick('.json', false);
+    if (picked === null) { fallbackInput.click(); return; }
+    if (!picked.length) return;
+    const f = await readPicked(picked[0]);
+    if (f) { doImport(f); return; }
+    setStatus(ui.toolStatus, 'error', 'That file could not be read from the picker. Try choosing it again.');
+  }
+
   async function startFileImport(file) {
     buildUi();
     cancelActive();
@@ -2825,6 +3613,11 @@
     importFile: importFile,
     refreshSeries: refreshSeries,
 
+    // Lazy per-chapter hydration (ARCHITECTURE §5 amendment). The catalogue's
+    // resolver calls this for imported-archive rows; the result is
+    // session-local and must never be persisted.
+    hydrateChapter: hydrateChapter,
+
     // Extras the manage view uses; useful to an integrator and to tests.
     exportLibrary: exportLibrary,
     importLibrary: importLibrary,
@@ -2881,10 +3674,57 @@
     } catch (e) { /* history is unavailable in some embedded contexts */ }
   }
 
+  // Custom-scheme intake (offlinereader://add?url=…) — the native sibling of
+  // the ?add= share target above, same parameter names, same rule: land on
+  // the confirm screen, never in a headless commit. The heuristics are wrong
+  // often enough that skipping the correction screen would salt the library
+  // with mistitled series keyed by ids that then cannot change.
+  function urlFromDeepLink(raw) {
+    let params = null;
+    try { params = new URL(String(raw || '')).searchParams; } catch (e) { params = null; }
+    if (params) {
+      const direct = params.get('url') || params.get('add') || '';
+      if (direct) {
+        const found = /^https?:/i.test(direct.trim()) ? direct.trim() : extractUrl(direct);
+        if (found) return found;
+      }
+      const text = params.get('text') || '';
+      if (text) {
+        const found = extractUrl(text);
+        if (found) return found;
+      }
+    }
+    // A malformed scheme URL often still carries the target in plain sight.
+    return extractUrl(raw);
+  }
+
+  function wireAppUrlOpen() {
+    const P = platform();
+    if (!P || typeof P.onAppUrlOpen !== 'function') return;
+    P.onAppUrlOpen(function (rawUrl) {
+      const found = urlFromDeepLink(rawUrl);
+      if (!found) return;
+      // At a cold launch this event can race the catalogue's boot showScreen —
+      // one task later, the same trick the web share target uses below.
+      setTimeout(function () {
+        openDialog({ url: found });
+        // The lookup runs normalizeUrl and every gateway validation; the user
+        // still confirms before anything is written.
+        if (gatewayEnabled()) startUrlImport();
+      }, 0);
+    });
+  }
+
   function boot() {
     buildUi();
-    // Archive-backed series need fresh object URLs once per document load.
-    rehydrateAll().catch(function (e) { console.warn('[Importer] rehydrate pass failed', e); });
+    // Migration shim: strip stale session-local page URLs older builds
+    // persisted. Nothing decompresses at boot anymore — chapters hydrate
+    // lazily when opened.
+    rehydrateAll().catch(function (e) { console.warn('[Importer] page scrub pass failed', e); });
+
+    wireAppUrlOpen();
+    wireBackupTriggers();
+    offerBackupRestore().catch(function (e) { console.warn('[Importer] backup check failed', e); });
 
     const shared = deepLinkUrl();
     if (!shared) return;

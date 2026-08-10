@@ -1,0 +1,677 @@
+/* Offline Reader — goals & timers skin. Owned by js/goals.js.
+ *
+ * Everything screen-shaped is scoped under #goals-screen so it cannot leak
+ * into the readers or the catalogue. Two things deliberately park on <body>
+ * and carry the tokens themselves: the floating reader pill (#gl-pill), which
+ * must float over both reader screens, and the toast (.gl-toast) — the
+ * .cat-toast precedent, visible regardless of which screen is up.
+ * Tokens mirror styles.css (--bg/--surf/--border/--accent/--text/--muted) but
+ * are re-declared locally with fallbacks: this UI has to look right even on a
+ * page that never defined them (the test harness loads it that way).
+ *
+ * Blur budget: ZERO backdrop-filter in this file. The readers already spend
+ * the two concurrent blur layers the GPU budget allows (styles.css:280-282),
+ * and goals chrome floats over them — every surface here is solid.
+ *
+ * Mobile-first; narrowest target is a 360 px phone. The one breakpoint is
+ * 720 px, where the customize sheet docks right (the novel.css precedent).
+ */
+
+#goals-screen,
+#gl-pill,
+.gl-toast {
+  --gl-bg:          var(--bg, #0a0a0a);
+  --gl-surf:        var(--surf, rgba(255, 255, 255, 0.08));
+  --gl-surf-1:      rgba(255, 255, 255, 0.04);
+  --gl-surf-2:      rgba(255, 255, 255, 0.12);
+  --gl-border:      var(--border, rgba(255, 255, 255, 0.1));
+  --gl-border-soft: rgba(255, 255, 255, 0.06);
+  --gl-accent:      var(--accent, #6366f1);
+  --gl-accent-ink:  #a5b4fc;
+  --gl-accent-soft: rgba(99, 102, 241, 0.14);
+  --gl-accent-line: rgba(99, 102, 241, 0.42);
+  --gl-text:        var(--text, #f0f0f0);
+  --gl-muted:       var(--muted, #a0a0a0);
+  --gl-ok:          #34d399;               /* met goals — the .cat-ok green family */
+  --gl-ok-soft:     rgba(52, 211, 153, 0.16);
+  --gl-warn:        #e8b23a;
+  --gl-danger:      #f0616d;
+  --gl-r:           10px;                  /* house card radius */
+  --gl-r-sm:        8px;                   /* nested / segments */
+  --gl-r-lg:        14px;                  /* panels — nothing past this but the sheet top */
+  --gl-tap:         44px;                  /* the floor for a finger */
+  --gl-dur:         150ms;
+  --gl-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Screen shell ─────────────────────────────────────────────────────────── */
+
+#goals-screen {
+  display: none;               /* showScreen() flips this to flex */
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 140;                /* under #import-screen (150) — they never show together */
+  background: var(--gl-bg);
+  color: var(--gl-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Visible ring from the keyboard only — a persistent outline after a tap
+   reads as a bug. Outline never changes the element's own shape. */
+#goals-screen :focus-visible,
+#gl-pill :focus-visible {
+  outline: 2px solid var(--gl-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+#goals-screen :focus:not(:focus-visible),
+#gl-pill :focus:not(:focus-visible) { outline: none; }
+
+#goals-screen .gl-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.75rem;
+  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--gl-border);
+  /* Solid, not glass — see the blur-budget note in the header. */
+  background: rgba(10, 10, 10, 0.92);
+}
+
+#goals-screen .gl-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#goals-screen .gl-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--gl-r);
+  background: transparent;
+  color: var(--gl-text);
+  cursor: pointer;
+  transition: background var(--gl-dur);
+}
+#goals-screen .gl-icon-btn:active { background: var(--gl-surf); transform: scale(0.94); }
+#goals-screen .gl-icon-btn svg { flex-shrink: 0; }
+
+#goals-screen .gl-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 0.875rem;
+  padding-left: calc(0.875rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.875rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+#goals-screen .gl-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Stats strip — the .cat-stats tile pattern ───────────────────────────── */
+
+#goals-screen .gl-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+#goals-screen .gl-stat {
+  flex: 1 1 5rem;
+  min-width: 4.25rem;
+  padding: 0.55rem 0.6rem;
+  background: var(--gl-surf-1);
+  border: 1px solid var(--gl-border);
+  border-radius: var(--gl-r);
+  text-align: center;
+}
+#goals-screen .gl-stat-value {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--gl-text);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+#goals-screen .gl-stat-label {
+  margin-top: 0.15rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--gl-muted);
+}
+/* A met daily goal turns its tile's number green — state via attribute, so JS
+   writes one dataset flag and this sheet does the rest. */
+#goals-screen .gl-stat[data-met='true'] .gl-stat-value { color: var(--gl-ok); }
+
+/* ── Cards + thin goal bars ───────────────────────────────────────────────── */
+
+#goals-screen .gl-card {
+  background: var(--gl-surf-1);
+  border: 1px solid var(--gl-border);
+  border-radius: var(--gl-r);
+  padding: 0.8rem 0.85rem;
+}
+#goals-screen .gl-card-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gl-muted);
+  margin-bottom: 0.45rem;
+}
+#goals-screen .gl-card-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+#goals-screen .gl-card-value {
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+#goals-screen .gl-card-sub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--gl-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin bars only — the house progress language (3-4 px; a big ring would be
+   foreign here). Fill width is a JS-written percentage. */
+#goals-screen .gl-bar-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--gl-surf);
+  overflow: hidden;
+}
+#goals-screen .gl-bar {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--gl-accent);
+  transition: width 0.2s ease;
+}
+#goals-screen .gl-card[data-met='true'] .gl-bar { background: var(--gl-ok); }
+#goals-screen .gl-card[data-met='true'] .gl-card-value { color: var(--gl-ok); }
+
+/* ── 7-day chart — plain divs, height percentages, textContent labels ─────── */
+
+#goals-screen .gl-chart {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  height: 7.5rem;
+  padding-top: 0.25rem;
+}
+#goals-screen .gl-chart-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+#goals-screen .gl-chart-val {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--gl-muted);
+  font-variant-numeric: tabular-nums;
+  min-height: 0.8rem;
+  line-height: 0.8rem;
+}
+#goals-screen .gl-chart-well {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+#goals-screen .gl-chart-bar {
+  width: min(100%, 1.4rem);
+  min-height: 2px;               /* a zero day still draws a baseline tick */
+  border-radius: 3px 3px 0 0;
+  background: var(--gl-surf-2);
+}
+#goals-screen .gl-chart-col[data-met='true'] .gl-chart-bar { background: var(--gl-ok); }
+#goals-screen .gl-chart-col[data-today='true'] .gl-chart-bar { background: var(--gl-accent); }
+#goals-screen .gl-chart-col[data-today='true'][data-met='true'] .gl-chart-bar { background: var(--gl-ok); }
+#goals-screen .gl-chart-day {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gl-muted);
+}
+#goals-screen .gl-chart-col[data-today='true'] .gl-chart-day { color: var(--gl-text); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+#goals-screen .gl-primary {
+  min-height: 48px;
+  padding: 0 1.1rem;
+  border: 0;
+  border-radius: var(--gl-r);
+  background: var(--gl-accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background var(--gl-dur), transform var(--gl-dur);
+}
+#goals-screen .gl-primary:active { background: #4f46e5; transform: scale(0.98); }
+
+#goals-screen .gl-btn {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  background: var(--gl-surf);
+  border: 1px solid var(--gl-border);
+  border-radius: var(--gl-r);
+  color: var(--gl-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--gl-dur), transform var(--gl-dur);
+}
+#goals-screen .gl-btn:active { background: var(--gl-surf-2); transform: scale(0.97); }
+/* id + two classes outranks the .gl-actions button base rule, so the danger
+   colours survive inside the actions row. */
+#goals-screen .gl-btn.gl-btn-danger { color: var(--gl-danger); border-color: rgba(240, 97, 109, 0.4); }
+
+#goals-screen .gl-timer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+#goals-screen .gl-timer-remaining {
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5rem;
+}
+#goals-screen .gl-off-note {
+  color: var(--gl-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* ── Customize sheet — the novel settings-sheet geometry, goals-owned ─────── */
+
+#goals-screen .gl-scrim {
+  position: absolute; inset: 0; z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.28s ease;
+}
+#goals-screen .gl-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+#goals-screen .gl-sheet {
+  position: absolute; z-index: 50;
+  left: 0; right: 0; bottom: 0;
+  max-height: 86%;
+  display: flex; flex-direction: column;
+  background: var(--gl-bg);
+  border-top: 1px solid var(--gl-border);
+  border-radius: 24px 24px 0 0;   /* sheet tops are the one place 24px is allowed */
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.28s var(--gl-ease);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* [hidden] keeps the sheet displayed but translated off-screen so the hide can
+   animate; `inert` (set in JS) is what actually removes it from the tab order. */
+#goals-screen .gl-sheet[hidden] { display: flex !important; transform: translateY(101%); pointer-events: none; }
+
+#goals-screen .gl-sheet-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--gl-border);
+}
+#goals-screen .gl-sheet-head h2 { font-size: 1rem; font-weight: 800; flex: 1; margin: 0; }
+#goals-screen .gl-sheet-body {
+  overflow-y: auto;
+  padding: 0.5rem 1rem 1rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+#goals-screen .gl-row { padding: 0.7rem 0; border-bottom: 1px solid var(--gl-border-soft); }
+#goals-screen .gl-row:last-child { border-bottom: none; }
+#goals-screen .gl-row[hidden] { display: none; }
+#goals-screen .gl-row-label {
+  display: block;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--gl-muted);
+  margin-bottom: 0.5rem;
+}
+
+#goals-screen .gl-seg { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+#goals-screen .gl-seg button {
+  flex: 1 1 auto; min-width: 4.5rem; min-height: 44px;
+  padding: 0.5rem 0.6rem;
+  background: var(--gl-surf);
+  border: 1px solid transparent;
+  border-radius: var(--gl-r);
+  color: var(--gl-text);
+  font-size: 0.82rem; font-weight: 600;
+  cursor: pointer;
+  transition: background var(--gl-dur), color var(--gl-dur);
+}
+#goals-screen .gl-seg button[aria-pressed='true'] {
+  background: var(--gl-accent-soft);
+  border-color: var(--gl-accent);
+  color: var(--gl-accent-ink);
+}
+#goals-screen .gl-seg button:active { transform: scale(0.97); }
+
+/* Weekday multi-select — seven small squares, Monday first, same pressed
+   grammar as the segments. */
+#goals-screen .gl-days { display: flex; gap: 0.3rem; }
+#goals-screen .gl-days button {
+  flex: 1 1 0; min-width: 0; min-height: 44px;
+  padding: 0;
+  background: var(--gl-surf);
+  border: 1px solid transparent;
+  border-radius: var(--gl-r-sm);
+  color: var(--gl-muted);
+  font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background var(--gl-dur), color var(--gl-dur);
+}
+#goals-screen .gl-days button[aria-pressed='true'] {
+  background: var(--gl-accent-soft);
+  border-color: var(--gl-accent);
+  color: var(--gl-accent-ink);
+}
+
+#goals-screen .gl-step { display: flex; align-items: center; gap: 0.6rem; }
+#goals-screen .gl-step button {
+  width: 44px; height: 44px;
+  background: var(--gl-surf); border: none; border-radius: var(--gl-r);
+  color: var(--gl-text);
+  font-size: 1.1rem; font-weight: 700; cursor: pointer;
+}
+#goals-screen .gl-step button:active { background: var(--gl-surf-2); transform: scale(0.95); }
+#goals-screen .gl-step output {
+  flex: 1; text-align: center;
+  font-size: 0.9rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#goals-screen .gl-toggle {
+  width: 100%; min-height: 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--gl-surf); border: 1px solid transparent; border-radius: var(--gl-r);
+  color: var(--gl-text);
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  text-align: left;
+}
+#goals-screen .gl-toggle .gl-chip {
+  flex-shrink: 0;
+  padding: 0.2rem 0.6rem; border-radius: var(--gl-r-sm);   /* squared off, not pill-shaped */
+  background: var(--gl-surf-2); font-size: 0.72rem; font-weight: 700;
+}
+#goals-screen .gl-toggle[aria-pressed='true'] { border-color: var(--gl-accent); color: var(--gl-accent-ink); }
+#goals-screen .gl-toggle[aria-pressed='true'] .gl-chip { background: var(--gl-accent); color: #fff; }
+
+#goals-screen .gl-actions { display: flex; gap: 0.5rem; padding-top: 0.4rem; }
+#goals-screen .gl-actions button {
+  flex: 1; min-height: 44px;
+  background: var(--gl-surf); border: 1px solid var(--gl-border); border-radius: var(--gl-r);
+  color: var(--gl-text);
+  font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+#goals-screen .gl-actions button:active { background: var(--gl-surf-2); }
+
+/* Excluded-series list — bordered rows, series title left, include toggle
+   right. Titles are third-party strings; JS writes them via textContent only. */
+#goals-screen .gl-series-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+#goals-screen .gl-series-list[hidden] { display: none; }
+#goals-screen .gl-series-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  min-height: var(--gl-tap);
+  padding: 0.35rem 0.6rem;
+  background: var(--gl-surf-1);
+  border: 1px solid var(--gl-border-soft);
+  border-radius: var(--gl-r-sm);
+}
+#goals-screen .gl-series-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 0.82rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#goals-screen .gl-series-row .gl-toggle { width: auto; min-height: var(--gl-tap); padding: 0.25rem 0.5rem; background: transparent; }
+#goals-screen .gl-series-empty { font-size: 0.78rem; color: var(--gl-muted); padding: 0.4rem 0.2rem; }
+
+/* ── Floating reader pill ─────────────────────────────────────────────────── */
+
+/* Cloned from #autoscroll-bar (styles.css:280-302): solid 0.92 dark — never a
+   third blur layer — radius 100px, fixed above the reader footer. Docked at
+   the RIGHT edge rather than centred because bottom-centre belongs to the
+   autoscroll bar; the two can be up at the same time. It floats over prose
+   and never takes layout space, so neither reader can repaginate because of
+   it. z-index 250 clears #novel-screen (200). */
+#gl-pill {
+  position: fixed;
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  max-width: calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(18, 18, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 100px;
+  padding: 0.3rem 0.55rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: var(--gl-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: transform 0.3s var(--gl-ease), opacity 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+#gl-pill.gl-hidden { opacity: 0; transform: translateY(100px); pointer-events: none; }
+
+#gl-pill .gl-pill-main {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding: 0 0.25rem;
+  background: none; border: none;
+  color: inherit;
+  cursor: pointer;
+}
+#gl-pill .gl-pill-main svg { color: var(--gl-accent-ink); flex-shrink: 0; }
+#gl-pill[data-timer='true'] .gl-pill-main svg { color: var(--gl-ok); }
+#gl-pill .gl-pill-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#gl-pill .gl-pill-more { display: flex; align-items: center; gap: 0.35rem; }
+#gl-pill .gl-pill-more[hidden] { display: none; }
+#gl-pill .gl-pill-divider {
+  width: 1px; height: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1px;
+}
+#gl-pill .gl-pill-today {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--gl-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#gl-pill .gl-pill-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  background: none; border: none;
+  border-radius: 50%;
+  color: #fff;
+  opacity: 0.9;
+  cursor: pointer;
+}
+#gl-pill .gl-pill-btn:active { opacity: 0.5; }
+#gl-pill .gl-pill-btn[aria-pressed='true'] {
+  background: var(--gl-accent-soft);
+  color: var(--gl-accent-ink);
+  opacity: 1;
+}
+
+/* ── Home slot strip (contents of catalogue's #goals-home-slot) ───────────── */
+
+#goals-home-slot .gl-home-strip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: var(--gl-tap, 44px);
+  margin-bottom: 1.75rem;          /* the .cat-section rhythm */
+  padding: 0.6rem 0.75rem;
+  background: var(--surf, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  color: var(--text, #f0f0f0);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 150ms;
+}
+#goals-home-slot .gl-home-strip:active { background: rgba(255, 255, 255, 0.12); transform: scale(0.99); }
+#goals-home-slot .gl-home-main { flex: 1 1 auto; min-width: 0; }
+#goals-home-slot .gl-home-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+#goals-home-slot .gl-home-mins { font-weight: 800; font-variant-numeric: tabular-nums; }
+#goals-home-slot .gl-home-streak {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted, #a0a0a0);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-mins { color: #34d399; }
+#goals-home-slot .gl-home-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+#goals-home-slot .gl-home-bar {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--accent, #6366f1);
+  transition: width 0.2s ease;
+}
+#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-bar { background: #34d399; }
+#goals-home-slot .gl-home-chev { flex-shrink: 0; color: var(--muted, #a0a0a0); display: flex; }
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+
+/* The .cat-toast geometry with a solid background — same blur-budget rule as
+   the pill, since this can appear over an open reader. */
+.gl-toast {
+  position: fixed;
+  z-index: 410;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 10px);
+  max-width: min(calc(92vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 30rem);
+  padding: 0.7rem 1rem;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid var(--gl-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: var(--gl-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s var(--gl-ease), transform 0.22s var(--gl-ease);
+}
+.gl-toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── Wide screens ─────────────────────────────────────────────────────────── */
+
+@media (min-width: 720px) {
+  /* The sheet docks as a right-hand panel — the novel.css:788 precedent. */
+  #goals-screen .gl-sheet {
+    left: auto; top: 0; bottom: 0;
+    width: 24rem;
+    max-height: none;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--gl-border);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  #goals-screen .gl-sheet[hidden] { transform: translateX(101%); }
+}
+
+/* ── Hover — pointer-fine devices only, never the touch default ───────────── */
+
+@media (hover: hover) and (pointer: fine) {
+  #goals-screen .gl-icon-btn:hover { background: var(--gl-surf); }
+  #goals-screen .gl-primary:hover { background: #5457e8; }
+  #goals-screen .gl-btn:hover,
+  #goals-screen .gl-seg button:hover,
+  #goals-screen .gl-days button:hover,
+  #goals-screen .gl-step button:hover,
+  #goals-screen .gl-toggle:hover,
+  #goals-screen .gl-actions button:hover { background: var(--gl-surf-2); }
+  #gl-pill .gl-pill-btn:hover { opacity: 1; }
+  #goals-home-slot .gl-home-strip:hover { background: rgba(255, 255, 255, 0.12); }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #goals-screen *,
+  #gl-pill,
+  #goals-home-slot .gl-home-strip,
+  .gl-toast {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

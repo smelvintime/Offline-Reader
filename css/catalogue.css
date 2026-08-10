@@ -75,6 +75,16 @@
 #series-body { max-width: var(--cat-shell); }
 #series-body { padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px)); }
 
+/* Landscape-notch clearance: the base gutter grows by the physical inset so
+   cards and rows never sit under the sensor housing, and env(…, 0px) keeps it
+   a plain gutter everywhere insets are zero. The 68rem block below only bumps
+   --cat-pad-x — these calcs pick the wider value up on their own. */
+#home-body,
+#series-body {
+  padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
+}
+
 /* Buttons built by el() inherit nothing from the UA button font stack. */
 #home-screen button,
 #series-screen button,
@@ -124,9 +134,17 @@
 .cat-tabs {
   display: flex;
   gap: 0.35rem;
-  /* Bleed past #home-body's padding so the strip scrolls edge to edge. */
-  margin: 0 calc(var(--cat-pad-x) * -1) 1.25rem;
+  /* Bleed past #home-body's padding so the strip scrolls edge to edge. The
+     bleed and the re-pad both include the safe-area inset: the strip reaches
+     the physical screen edge, while its first tab still lines up with body
+     content clear of the notch. Insets can differ per side (landscape), so
+     the two edges are declared separately. */
+  margin: 0 0 1.25rem;
+  margin-left:  calc((var(--cat-pad-x) + env(safe-area-inset-left, 0px)) * -1);
+  margin-right: calc((var(--cat-pad-x) + env(safe-area-inset-right, 0px)) * -1);
   padding: 0.15rem var(--cat-pad-x) 0.3rem;
+  padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x proximity;
@@ -163,8 +181,13 @@
 .cat-rail {
   display: flex;
   gap: 0.6rem;
-  margin: 0 calc(var(--cat-pad-x) * -1);
+  /* Same inset-aware bleed as .cat-tabs above. */
+  margin: 0;
+  margin-left:  calc((var(--cat-pad-x) + env(safe-area-inset-left, 0px)) * -1);
+  margin-right: calc((var(--cat-pad-x) + env(safe-area-inset-right, 0px)) * -1);
   padding: 0.15rem var(--cat-pad-x) 0.5rem;
+  padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
   overflow-x: auto;
   scroll-snap-type: x proximity;
 }
@@ -956,6 +979,19 @@
 .cat-ch-dl.busy { color: var(--cat-accent-ink); animation: cat-pulse 1.1s ease-in-out infinite; }
 .cat-ch-dl:disabled { pointer-events: none; }
 
+/* ── "Show more" chunk seam ───────────────────────────────────────────────── */
+
+/* Chapter lists stop at 250 rows and grids at 200 cards; this row is where
+   the rest waits. It wears the stock .cat-btn skin and just stretches to the
+   list measure; inside a grid it spans the full track row so it reads as a
+   footer, not a card. */
+.cat-show-more {
+  width: 100%;
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+#series-grid .cat-show-more { grid-column: 1 / -1; margin-top: 0.25rem; }
+
 @keyframes cat-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.35; }
@@ -972,7 +1008,9 @@
   left: 50%;
   bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   transform: translate(-50%, 10px);
-  max-width: min(92vw, 30rem);
+  /* Centered, so left/right insets cannot be padded away — instead the width
+     budget shrinks by both, keeping the toast clear of a landscape notch. */
+  max-width: min(calc(92vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 30rem);
   padding: 0.7rem 1rem;
   background: rgba(22, 22, 26, 0.96);
   border: 1px solid var(--cat-border);
@@ -1025,8 +1063,9 @@
    floor to go with it, so covers grow rather than the column count exploding. */
 @media (min-width: 68rem) {
   :root { --cat-shell: 1180px; --cat-pad-x: 1.5rem; --cat-card-min: 11rem; }
-  #home-body   { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
-  #series-body { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
+  /* #home-body / #series-body take the wider --cat-pad-x through the
+     safe-area calc in the Shell section — re-declaring them here would
+     clobber the inset. */
   #home-header { padding-left: var(--cat-pad-x); padding-right: var(--cat-pad-x); }
 
   #series-hero { gap: 1.75rem; }

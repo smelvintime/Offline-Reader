@@ -35,6 +35,17 @@
   const WPM = 250;                 // average adult prose reading speed
   const MAX_RANGE_DOWNLOAD = 100;  // guard against a 3000-chapter "download all"
 
+  // DOM is the scarcest resource on a phone. Chapter lists and card grids
+  // render in chunks behind a "Show more" row instead of flooding thousands of
+  // nodes at once — the full-rebuild philosophy stays, the build just stops
+  // early (§9 budget: ≤250 rows, ≤200 cards before the seam).
+  const CHAPTER_CHUNK = 250;
+  const GRID_CHUNK    = 200;
+  // Resolver cache writes between steady-state prunes. Ordinary online reading
+  // is the biggest cache-growth path; waiting for a range download to prune
+  // would let it balloon unbounded.
+  const PRUNE_EVERY_WRITES = 25;
+
   let bundledSeries = [];   // from catalog.json (already migrated to v2 shape)
   let userSeries    = [];   // from Store.listUserSeries()
   let allSeries     = [];   // merged, user entries win on id collision
@@ -51,6 +62,10 @@
   let navStack     = [];          // screen ids, for goBack()
   let domReady     = false;
   let booted       = false;
+
+  let chapterRowLimit = CHAPTER_CHUNK; // rows before "Show more"; reset per series open
+  let gridCardLimit   = GRID_CHUNK;   // cards before "Show more"; reset on tab/search change
+  let rangeSelectsFor = null;         // series id the range <option>s were built for (lazy)
 
   // ─────────────────────────────────────────────────────────────────────────
   // Small utilities
@@ -97,6 +112,7 @@
     sortD:  '<line x1="4" y1="6" x2="16" y2="6"/><line x1="4" y1="12" x2="12" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/>',
     sortA:  '<line x1="4" y1="6" x2="8" y2="6"/><line x1="4" y1="12" x2="12" y2="12"/><line x1="4" y1="18" x2="16" y2="18"/>',
     chev:   '<polyline points="9 18 15 12 9 6"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   };
 
   function icon(name, size) {
@@ -114,9 +130,18 @@
 
   // Only http(s)/data:image/blob/relative may reach an <img src>. A catalogue is
   // third-party data; refusing exotic schemes here keeps that boundary explicit.
+  //
+  // Capacitor's local-file origins are the one addition: iOS serves extracted
+  // pages from capacitor://localhost, Android re-serves them under
+  // https://localhost with a /_capacitor_file_/ path. Both are pinned as EXACT
+  // prefixes — origin plus path start, never a substring — so a lookalike
+  // (capacitor://localhost.evil, some capacitor-evil scheme) still falls
+  // through to the drop-everything-else rule below.
   function safeImageUrl(url) {
     if (!url || typeof url !== 'string') return '';
     const u = url.trim();
+    if (/^capacitor:\/\/localhost\//i.test(u)) return u;
+    if (/^https:\/\/localhost\/_capacitor_file_\//i.test(u)) return u;
     if (/^(https?:)/i.test(u)) return u;
     if (/^data:image\//i.test(u)) return u;
     if (/^blob:/i.test(u)) return u;
@@ -219,6 +244,12 @@
     try { return await S[method].apply(S, args || []); }
     catch (e) { console.warn('[Catalogue] Store.' + method + ' failed', e); return fallback; }
   }
+
+  // Same absence tolerance for the platform bridge: the catalogue must behave
+  // like the plain web app when js/platform.js is missing (test harnesses load
+  // this file standalone).
+  function platform() { return window.Platform || null; }
+  function isNativeApp() { const P = platform(); return !!(P && P.isNative); }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Catalogue normalization (schema v1 → v2)
@@ -437,6 +468,18 @@
 
   const inflight = new Map(); // de-dupe concurrent resolves of the same chapter
 
+  // blob: object URLs die with their session; Capacitor page URLs die with the
+  // next app update (the iOS container path embeds a UUID that rotates on
+  // every build). Finding one in a PERSISTED row means it leaked from an
+  // earlier session and is a dead link — the row must re-hydrate, never render.
+  function isSessionLocalPageUrl(u) {
+    return typeof u === 'string' && (
+      /^blob:/i.test(u) ||
+      /^capacitor:\/\//i.test(u) ||
+      u.indexOf('_capacitor_file_') !== -1
+    );
+  }
+
   async function resolveChapterContent(series, chapter) {
     if (!series || !series.id) throw catErr('no-payload', 'resolveChapterContent: series.id is required');
     if (!chapter || !chapter.id) throw catErr('no-payload', 'resolveChapterContent: chapter.id is required');
@@ -445,8 +488,27 @@
     if (inflight.has(key)) return inflight.get(key);
 
     const job = (async function () {
-      // 1 ── cache
-      const cached = await safeCall('getChapter', [series.id, chapter.id], null);
+      // 1 ── cache. Imported CBZ rows persist `entries` + `archiveKey` as the
+      // durable truth; their `pages` are either empty (the modern shape) or
+      // stale session-local URLs left behind by an earlier build. Either way
+      // the archive re-yields live pages on demand. The hydrated file is
+      // returned as-is and NEVER written back to Store — its page URLs are
+      // session-local by design, the same rule as MangaDex signed URLs below.
+      let cached = await safeCall('getChapter', [series.id, chapter.id], null);
+      if (cached && cached.archiveKey && Array.isArray(cached.entries) && cached.entries.length) {
+        const pages = Array.isArray(cached.pages) ? cached.pages : [];
+        if (!pages.length || pages.some(isSessionLocalPageUrl)) {
+          if (window.Importer && typeof window.Importer.hydrateChapter === 'function') {
+            let live = null;
+            try { live = await window.Importer.hydrateChapter(series.id, chapter.id); }
+            catch (e) { console.warn('[Catalogue] hydrateChapter failed', e); }
+            if (fileHasPayload(live)) return live;
+          }
+          // No hydrator, or the archive is gone: treat the row as a cache
+          // miss rather than hand a reader page URLs that cannot render.
+          cached = null;
+        }
+      }
       if (fileHasPayload(cached)) return cached;
 
       let file = null;
@@ -492,6 +554,7 @@
       // the reader dead links tomorrow. Everything else is safe to persist.
       if (!(chapter.mdChapterId && !chapter.pages)) {
         await safeCall('putChapter', [series.id, chapter.id, file], file);
+        noteChapterCacheWrite();
       }
       return file;
     })();
@@ -502,6 +565,72 @@
   }
 
   window.resolveChapterContent = resolveChapterContent;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Cache housekeeping (three triggers, one prune)
+  //
+  // The chapter cache used to be pruned only after range downloads, but the
+  // most common growth path is ordinary online reading, which never touches
+  // range download. So the same prune now fires: once per boot at idle, after
+  // every 25 resolver cache writes (debounced), and after a range batch.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let cacheWriteCount = 0;
+  let pruneDebounce   = null;
+
+  function userSeriesIds() {
+    return userSeries.map(function (s) { return s.id; });
+  }
+
+  async function runCachePrune() {
+    const P = platform();
+    if (!P || typeof P.tuning !== 'function') return;
+    let t = null;
+    try { t = P.tuning(); } catch (e) { /* no tuning row — nothing to size against */ }
+    if (!t) return;
+
+    // tuning() speaks in MB; the Store cap is bytes. Passing the raw MB count
+    // through would set a ~200-byte budget and evict the entire cache — and a
+    // missing row must not read as a zero-byte budget, which would do the
+    // same, so anything non-positive prunes nothing.
+    const chapterMB = t.chapterCacheMB;
+    if (typeof chapterMB === 'number' && isFinite(chapterMB) && chapterMB > 0) {
+      // Imported series' chapters are primary data, not cache — never evicted.
+      await safeCall('pruneChapterCache', [{
+        maxBytes: chapterMB * 1024 * 1024,
+        protectSeriesIds: userSeriesIds(),
+      }], null);
+    }
+
+    const pageMB = t.pageCacheMB;
+    if (P.isNative && P.archives && typeof P.archives.prunePageCache === 'function'
+        && typeof pageMB === 'number' && isFinite(pageMB) && pageMB > 0) {
+      try { await P.archives.prunePageCache(pageMB * 1024 * 1024); }
+      catch (e) { console.warn('[Catalogue] prunePageCache failed'); }
+    }
+  }
+
+  // Steady-state trigger, counted at the resolver's putChapter site. The
+  // debounce means a burst of writes (a range download also lands here)
+  // schedules one prune after the dust settles, not one per threshold cross.
+  function noteChapterCacheWrite() {
+    cacheWriteCount++;
+    if (cacheWriteCount < PRUNE_EVERY_WRITES) return;
+    cacheWriteCount = 0;
+    clearTimeout(pruneDebounce);
+    pruneDebounce = setTimeout(function () { runCachePrune(); }, 10000);
+  }
+
+  // Boot trigger helper. Safari ships no requestIdleCallback, so a plain
+  // timeout stands in — late enough that first paint and the boot fetches own
+  // the frame budget, early enough that the prune still happens this session.
+  function deferToIdle(fn) {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(fn, { timeout: 10000 });
+    } else {
+      setTimeout(fn, 2000);
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // DOM construction
@@ -536,6 +665,7 @@
 
     buildTabs();
     buildContinue();
+    buildGoalsSlot();
     buildGridToolbar();
     buildEmptyState();
     buildSeriesExtras();
@@ -603,6 +733,17 @@
     dom.homeBody.insertBefore(section, dom.latestSection || null);
   }
 
+  // A fixture, not a feature: goals owns everything INSIDE this slot (PLAN
+  // §5.2), so it ships empty and stays empty from here. With js/goals.js
+  // absent the home screen must render exactly as it did before the slot
+  // existed — an empty div between Continue and Latest costs no layout.
+  function buildGoalsSlot() {
+    const slot = el('div');
+    slot.id = 'goals-home-slot';
+    dom.goalsSlot = slot;
+    dom.homeBody.insertBefore(slot, dom.latestSection || null);
+  }
+
   function buildGridToolbar() {
     const bar = el('div', 'cat-toolbar');
     bar.id = 'cat-grid-toolbar';
@@ -620,6 +761,22 @@
     addBtn.appendChild(icon('plus', 14));
     addBtn.appendChild(el('span', null, 'Add series'));
     addBtn.addEventListener('click', openImporter);
+
+    // Optional module, guarded like every cross-module call: no window.Goals,
+    // no button — the toolbar must look exactly as it did before the feature
+    // existed (goals absence tolerance, PLAN §5.4).
+    let goalsBtn = null;
+    if (window.Goals && typeof window.Goals.openScreen === 'function') {
+      goalsBtn = el('button', 'cat-btn');
+      goalsBtn.id = 'cat-goals-btn';
+      goalsBtn.type = 'button';
+      goalsBtn.setAttribute('aria-label', 'Reading goals');
+      goalsBtn.appendChild(icon('target', 14));
+      goalsBtn.appendChild(el('span', null, 'Goals'));
+      goalsBtn.addEventListener('click', function () {
+        if (window.Goals && typeof window.Goals.openScreen === 'function') window.Goals.openScreen();
+      });
+    }
 
     const group = el('div', 'cat-segmented');
     group.setAttribute('role', 'group');
@@ -644,12 +801,14 @@
 
     bar.appendChild(count);
     bar.appendChild(spacer);
+    if (goalsBtn) bar.appendChild(goalsBtn);
     bar.appendChild(addBtn);
     bar.appendChild(group);
 
     dom.gridToolbar = bar;
     dom.count = count;
     dom.addBtn = addBtn;
+    dom.goalsBtn = goalsBtn;
     dom.layoutGrid = gridBtn;
     dom.layoutList = listBtn;
 
@@ -730,6 +889,8 @@
     rangeBtn.appendChild(el('span', null, 'Download range'));
     rangeBtn.addEventListener('click', function () {
       const open = dom.rangePanel.style.display === 'none';
+      // The 2×N <option>s exist only once someone actually asks for them.
+      if (open) buildRangeSelects();
       dom.rangePanel.style.display = open ? 'flex' : 'none';
       rangeBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
@@ -830,6 +991,19 @@
     t.setAttribute('aria-live', 'polite');
     document.body.appendChild(t);
     dom.toast = t;
+  }
+
+  // The chunk seam for lists and grids: a real button carrying the remaining
+  // count in its text and accessible name. Each rebuild replaces it, so the
+  // click handler is responsible for putting focus somewhere sensible in the
+  // fresh DOM — keyboard users must not be dropped back to <body>.
+  function showMoreRow(remaining, noun, onClick) {
+    const b = el('button', 'cat-btn cat-show-more', 'Show more (' + remaining + ' remaining)');
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Show more ' + noun + ', ' + remaining + ' remaining');
+    b.setAttribute('aria-live', 'polite');
+    b.addEventListener('click', onClick);
+    return b;
   }
 
   let toastTimer = null;
@@ -940,7 +1114,14 @@
     }
     if (dom.addBtn) dom.addBtn.style.display = (tab === 'library') ? 'inline-flex' : 'none';
     // "series" is its own plural, so there is no singular/plural branch here.
-    if (dom.count) dom.count.textContent = list.length ? list.length + ' series' : '';
+    // The count is an aria-live region; when the grid is chunked it carries
+    // the shown-of-total tally, so expanding announces the new count.
+    if (dom.count) {
+      dom.count.textContent = !list.length ? ''
+        : (list.length > gridCardLimit
+          ? 'Showing ' + gridCardLimit + ' of ' + list.length + ' series'
+          : list.length + ' series');
+    }
     // The home grid's toolbar — not the series-detail chapter toolbar, which
     // belongs to a different screen and hides itself when a series has no
     // chapters. Setting that one here left an inline display:flex behind that
@@ -980,6 +1161,7 @@
 
   function setTab(id) {
     prefSet('catalogue.tab', id);
+    gridCardLimit = GRID_CHUNK; // a new tab is a new list; expansion does not carry over
     renderHome();
   }
 
@@ -1150,9 +1332,26 @@
     grid.textContent = '';
     grid.setAttribute('aria-labelledby', 'cat-tab-' + tab);
 
-    list.forEach(function (s) {
+    // Chunked, not virtualized: the full-rebuild philosophy stays, the build
+    // just stops at 200 cards until asked for more. The bundled catalogue plus
+    // a normal library never crosses the threshold, so this only engages for
+    // grown libraries. Covers keep loading="lazy" either way.
+    const shown = list.slice(0, gridCardLimit);
+    shown.forEach(function (s) {
       grid.appendChild(isTextSeries(s) ? novelCard(s, tab) : mangaCard(s, tab));
     });
+
+    if (list.length > shown.length) {
+      const before = shown.length;
+      grid.appendChild(showMoreRow(list.length - shown.length, 'series', function () {
+        gridCardLimit += GRID_CHUNK;
+        renderHome();
+        const next = grid.querySelector('.cat-show-more');
+        if (next) { next.focus(); return; }
+        const cards = grid.querySelectorAll('.series-card');
+        if (cards[before]) cards[before].focus();
+      }));
+    }
   }
 
   function cardShell(s, tab, extraClass) {
@@ -1237,7 +1436,15 @@
   }
 
   async function confirmDelete(s) {
-    if (!window.confirm('Remove “' + s.title + '” from your library?\n\nCached chapters and reading progress for it will also be deleted.')) return;
+    const msg = 'Remove “' + s.title + '” from your library?\n\nCached chapters and reading progress for it will also be deleted.';
+    // Platform.confirm is a native dialog under Capacitor (window.confirm in a
+    // WebView paints a browser-styled box with the origin string in it) and
+    // falls back to window.confirm itself on the web, so one call serves both.
+    const P = platform();
+    const ok = (P && typeof P.confirm === 'function')
+      ? await P.confirm({ title: 'Remove series', message: msg, okLabel: 'Remove', cancelLabel: 'Cancel' })
+      : window.confirm(msg);
+    if (!ok) return;
     await safeCall('deleteUserSeries', [s.id], null);
     toast('Removed “' + s.title + '”.');
     await refresh();
@@ -1264,7 +1471,13 @@
 
     if (catalogError && !allSeries.length) {
       dom.emptyTitle.textContent = 'Library unavailable';
-      dom.emptyBody.textContent = 'Could not load the catalogue. Check your connection, or add a series you already read.';
+      // On the web this is a connectivity story. On native the catalogue is a
+      // file inside the app bundle — a missing one is a broken install, and
+      // telling the user to check their connection would send them chasing
+      // the wrong problem.
+      dom.emptyBody.textContent = isNativeApp()
+        ? 'Could not load the bundled catalogue — reinstalling the app should repair it. Your imported series and reading progress are kept.'
+        : 'Could not load the catalogue. Check your connection, or add a series you already read.';
       dom.emptyAction.textContent = 'Retry';
       dom.emptyAction.style.display = 'inline-flex';
       dom.emptyAction.onclick = function () { refresh(); };
@@ -1312,6 +1525,7 @@
     currentSeries = series;
     chapterQuery = '';
     chapterSortAsc = false;
+    chapterRowLimit = CHAPTER_CHUNK; // fresh view, fresh chunk — like the query/sort resets above
     if (dom.chapterSearch) dom.chapterSearch.value = '';
     updateSortButton();
 
@@ -1519,9 +1733,26 @@
       return;
     }
 
-    rows.forEach(function (r) {
+    // A 3000-chapter series must not become 3000 rows of DOM (§9): render a
+    // chunk, park the rest behind "Show more". refreshSeriesProgress re-renders
+    // through here without resetting the limit, so an expanded list — and the
+    // scroll position within it — survives a read-and-return round trip.
+    const shown = rows.slice(0, chapterRowLimit);
+    shown.forEach(function (r) {
       list.appendChild(chapterRow(s, r.ch));
     });
+
+    if (rows.length > shown.length) {
+      const before = shown.length;
+      list.appendChild(showMoreRow(rows.length - shown.length, 'chapters', function () {
+        chapterRowLimit += CHAPTER_CHUNK;
+        renderChapterList();
+        const next = list.querySelector('.cat-show-more');
+        if (next) { next.focus(); return; }
+        const mains = list.querySelectorAll('.cat-ch-main');
+        if (mains[before]) mains[before].focus();
+      }));
+    }
   }
 
   function chapterRow(s, ch) {
@@ -1598,8 +1829,25 @@
     }
   }
 
+  // Split in two on purpose: opening a series only RESETS the panel, it no
+  // longer builds it. A 3000-chapter series was paying for 6000 <option>
+  // nodes on every visit to its detail screen, when most visits never touch
+  // range download — the build now waits for the panel's first open.
   function populateRangeSelects(s) {
     if (!dom.rangeFrom) return;
+    rangeSelectsFor = null;
+    dom.rangeFrom.textContent = '';
+    dom.rangeTo.textContent = '';
+    dom.rangeStatus.textContent = '';
+    dom.rangePanel.style.display = 'none';
+    if (dom.rangeBtn) dom.rangeBtn.setAttribute('aria-expanded', 'false');
+    dom.actions.style.display = orderedChapters(s).length ? 'flex' : 'none';
+  }
+
+  function buildRangeSelects() {
+    const s = currentSeries;
+    if (!s || !dom.rangeFrom || rangeSelectsFor === s.id) return;
+    rangeSelectsFor = s.id;
     const ordered = orderedChapters(s);
     [dom.rangeFrom, dom.rangeTo].forEach(function (sel) {
       sel.textContent = '';
@@ -1612,10 +1860,6 @@
     });
     dom.rangeFrom.value = '0';
     dom.rangeTo.value = String(Math.min(ordered.length - 1, 9));
-    dom.rangeStatus.textContent = '';
-    dom.rangePanel.style.display = 'none';
-    if (dom.rangeBtn) dom.rangeBtn.setAttribute('aria-expanded', 'false');
-    dom.actions.style.display = ordered.length ? 'flex' : 'none';
   }
 
   async function downloadRange() {
@@ -1643,6 +1887,9 @@
     if (go) go.disabled = false;
     renderStats(s);
     renderChapterList();
+    // A batch just landed up to 100 rows in one go — settle the cache now
+    // rather than waiting for the next steady-state threshold.
+    runCachePrune();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1910,6 +2157,7 @@
     if (search) {
       search.addEventListener('input', debounce(function () {
         searchQuery = search.value.trim().toLowerCase();
+        gridCardLimit = GRID_CHUNK; // a new query is a new list, like a tab switch
         renderHome();
       }, 180));
     }
@@ -1944,11 +2192,13 @@
       setTimeout(refreshSeriesProgress, 0);
     });
 
-    // Connectivity. Losing the network while browsing drops to the CBZ reader,
-    // which is the only thing guaranteed to work without a connection.
+    // Connectivity. On the WEB, losing the network while browsing drops to the
+    // CBZ reader — the only thing guaranteed to work without a connection. On
+    // native that logic inverts: the catalogue is a bundled local file that
+    // always works, so the user keeps browsing and only the badge changes.
     window.addEventListener('offline', function () {
       const screen = document.body.dataset.screen;
-      if (screen === 'home-screen' || screen === 'series-screen') {
+      if (!isNativeApp() && (screen === 'home-screen' || screen === 'series-screen')) {
         window.showScreen('upload-screen');
         const b = document.getElementById('offline-reader-badge');
         if (b) b.classList.add('visible');
@@ -1971,6 +2221,17 @@
   }
 
   function wireServiceWorkerBadge() {
+    // Native builds run without a service worker (reader.js gates its own
+    // registration on Platform.isNative), so the version stamp comes from the
+    // app binary instead of the SW cache name.
+    const P = platform();
+    if (P && P.isNative && typeof P.appVersion === 'function') {
+      P.appVersion().then(function (v) {
+        const stamp = document.getElementById('home-version');
+        if (stamp && v) stamp.textContent = 'v' + String(v);
+      }).catch(function () { /* no version info — the badge just stays blank */ });
+      return;
+    }
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.ready.then(function (reg) {
       const sw = reg.active;
@@ -2005,7 +2266,11 @@
 
   async function initMode() {
     ensureDom();
-    if (navigator.onLine) {
+    // navigator.onLine is not a boot gate on native: the WebView can report
+    // false at cold start, and the "online" branch's catalogue is a bundled
+    // local file that loads with the radios off. Native always boots to home;
+    // real connectivity loss shows as badge state, never as a screen swap.
+    if (isNativeApp() || navigator.onLine) {
       window.showScreen('home-screen');
       navStack = ['home-screen'];
       await refresh();
@@ -2025,10 +2290,17 @@
     if (booted) return;
     booted = true;
     if (typeof window.readerOrigin === 'undefined') window.readerOrigin = 'upload';
+    // Native init restores mirror-evicted prefs before anything renders, so
+    // the first post-eviction launch paints with the user's real settings. On
+    // the web ready is a pre-resolved promise — one microtask, no delay.
+    await (window.Platform ? Platform.ready : Promise.resolve());
     ensureDom();
     wireEvents();
     wireServiceWorkerBadge();
     await initMode();
+    // Cache-prune trigger 1: once per boot, off the critical path — the first
+    // render owns the frame budget, housekeeping waits for idle.
+    deferToIdle(function () { runCachePrune(); });
   }
 
   window.Catalogue = {

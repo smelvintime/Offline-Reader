@@ -25,7 +25,12 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 2rem 1.5rem;
+    /* Left/right safe-area insets keep content clear of the sensor housing in
+       landscape on notched phones (importer.css is the model). */
+    padding: 2rem
+             calc(1.5rem + env(safe-area-inset-right, 0px))
+             2rem
+             calc(1.5rem + env(safe-area-inset-left, 0px));
     gap: 1.5rem;
     text-align: center;
     background: var(--bg);
@@ -111,7 +116,12 @@
     display: flex;
     align-items: center;
     gap: .4rem;
-    padding: calc(.5rem + env(safe-area-inset-top, 0px)) .7rem .6rem;
+    /* All four insets: the top for the status bar / island, left/right so the
+       close and mode buttons clear the sensor housing in landscape. */
+    padding: calc(.5rem + env(safe-area-inset-top, 0px))
+             calc(.7rem + env(safe-area-inset-right, 0px))
+             .6rem
+             calc(.7rem + env(safe-area-inset-left, 0px));
     background: rgba(10, 10, 10, 0.45);
     backdrop-filter: blur(24px) saturate(150%);
     -webkit-backdrop-filter: blur(24px) saturate(150%);
@@ -127,7 +137,11 @@
     z-index: 100;
     display: flex;
     align-items: center;
-    padding: .6rem .7rem calc(.6rem + env(safe-area-inset-bottom, 0px));
+    /* Bottom inset for the home indicator, left/right for landscape notches. */
+    padding: .6rem
+             calc(.7rem + env(safe-area-inset-right, 0px))
+             calc(.6rem + env(safe-area-inset-bottom, 0px))
+             calc(.7rem + env(safe-area-inset-left, 0px));
     background: rgba(10, 10, 10, 0.45);
     backdrop-filter: blur(24px) saturate(150%);
     -webkit-backdrop-filter: blur(24px) saturate(150%);
@@ -201,6 +215,13 @@
     background: #080808;
   }
 
+  /* Scroll-mode window spacer: stands in for a collapsed chapter's wrappers.
+     Explicit width — the flex column sizes children by content, and a bare
+     div with only a height would collapse to zero width. */
+  .chapter-spacer {
+    width: 100%;
+  }
+
   .chapter-divider {
     padding: .8rem 1rem;
     font-size: .75rem; font-weight: 700;
@@ -264,6 +285,9 @@
     bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
+    /* The pill is centred, so side insets bind through its max width: on a
+       notched phone in landscape it can never reach into the housing. */
+    max-width: calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
     z-index: 200;
     display: flex;
     align-items: center;
@@ -425,7 +449,9 @@
     left: 50%;
     transform: translateX(-50%);
     width: max-content;
-    max-width: calc(100vw - 0.8rem);
+    /* Centred like the autoscroll pill — side insets bind via max-width so
+       landscape notches can't clip the dismiss button. */
+    max-width: calc(100vw - 0.8rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
     display: flex;
     align-items: center;
     gap: 0.6rem;
@@ -534,6 +560,12 @@
     opacity: 0.55;
     font-size: 0.7rem;
   }
+  /* Native-only: rows with a stored archive manifest reopen from disk on tap. */
+  .library-row-resume {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .library-row-resume:active { background: rgba(255,255,255,0.04); }
   .resume-missing {
     font-size: 0.72rem;
     color: var(--muted);
@@ -562,7 +594,11 @@
     backdrop-filter: blur(24px) saturate(150%);
     -webkit-backdrop-filter: blur(24px) saturate(150%);
     border-bottom: 1px solid rgba(255,255,255,0.06);
-    padding: calc(env(safe-area-inset-top,0px) + 0.6rem) 1rem 0.6rem;
+    /* Side insets: landscape notch support (importer.css is the model). */
+    padding: calc(env(safe-area-inset-top,0px) + 0.6rem)
+             calc(1rem + env(safe-area-inset-right, 0px))
+             0.6rem
+             calc(1rem + env(safe-area-inset-left, 0px));
   }
   #home-header-inner {
     display: flex;
@@ -627,7 +663,10 @@
   /* ── Scroll body ── */
   #home-body {
     flex: 1;
-    padding: 1.25rem 1rem 0;
+    padding: 1.25rem
+             calc(1rem + env(safe-area-inset-right, 0px))
+             0
+             calc(1rem + env(safe-area-inset-left, 0px));
     max-width: 860px;
     margin: 0 auto;
     width: 100%;
@@ -810,7 +849,11 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: calc(env(safe-area-inset-top,0px) + 0.65rem) 1rem 0.65rem;
+    /* Side insets: landscape notch support, same pattern as #home-header. */
+    padding: calc(env(safe-area-inset-top,0px) + 0.65rem)
+             calc(1rem + env(safe-area-inset-right, 0px))
+             0.65rem
+             calc(1rem + env(safe-area-inset-left, 0px));
     background: rgba(10,10,10,0.88);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
@@ -828,7 +871,10 @@
   }
 
   #series-body {
-    padding: 1.25rem 1rem;
+    padding: 1.25rem
+             calc(1rem + env(safe-area-inset-right, 0px))
+             1.25rem
+             calc(1rem + env(safe-area-inset-left, 0px));
     max-width: 860px;
     margin: 0 auto;
     width: 100%;
@@ -988,3 +1034,24 @@
     -webkit-tap-highlight-color: transparent;
   }
   #go-offline-btn:active { background: rgba(255,255,255,0.1); }
+
+  /* ── Viewport + tablet adaptations (Phase 2) ── */
+
+  /* Mobile webviews resize 100vh under dynamic toolbars and the keyboard;
+     dvh tracks the real visible viewport. The plain 100vh declarations above
+     stay first as the fallback for engines without dvh support. */
+  @supports (min-height: 100dvh) {
+    html, body { min-height: 100dvh; }
+    #upload-screen { min-height: 100dvh; }
+    #loading-screen { min-height: 100dvh; }
+    #home-screen { min-height: 100dvh; }
+    #series-screen { min-height: 100dvh; }
+  }
+
+  /* iPad / desktop: the 800px page column was tuned for phones; at tablet
+     widths it strands a third of the screen in black. Wider, still centred
+     by #chapter-slot's align-items. No two-page spread — that is an explicit
+     open question (docs/mobile/PLAN.md §11.3), not a silent omission. */
+  @media (min-width: 1024px) {
+    .page-wrapper { max-width: min(100%, 1000px); }
+  }

@@ -435,8 +435,14 @@
         const f = await Store.getChapter(series.id, 'c-0001');
         eq(f.kind, 'image', 'chapter kind is image');
         eq(f.entries, ['001.png', '002.png', '003.png', '010.png'], 'pages sorted naturally, not lexically');
-        ok(Array.isArray(f.pages) && f.pages.length === 4, 'pages rehydrated to 4 object URLs');
-        ok(f.pages.every(function (u) { return u.indexOf('blob:') === 0; }), 'rehydrated pages are blob: URLs');
+        ok(Array.isArray(f.pages) && f.pages.length === 0, 'no page URLs persisted — chapters hydrate lazily from the archive');
+
+        const live = await I.hydrateChapter(series.id, 'c-0001');
+        ok(!!live && Array.isArray(live.pages) && live.pages.length === 4, 'hydrateChapter yields 4 live pages');
+        ok(live.pages.every(function (u) { return u.indexOf('blob:') === 0; }), 'hydrated pages are blob: URLs');
+
+        const persisted = await Store.getChapter(series.id, 'c-0001');
+        ok(Array.isArray(persisted.pages) && persisted.pages.length === 0, 'hydration never writes live URLs back to the store');
       });
 
       await test('URL import saves a series keyed by the normalized URL', async function () {

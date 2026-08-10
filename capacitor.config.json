@@ -1,0 +1,20 @@
+{
+  "appId": "com.offlinereader.app",
+  "appName": "Offline Reader",
+  "webDir": "www",
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0a0a0a",
+      "overlaysWebView": true
+    },
+    "SplashScreen": {
+      "backgroundColor": "#0a0a0a",
+      "showSpinner": false,
+      "launchAutoHide": true
+    },
+    "Keyboard": {
+      "resize": "native"
+    }
+  }
+}

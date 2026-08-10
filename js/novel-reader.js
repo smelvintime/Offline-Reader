@@ -128,6 +128,9 @@
                                    // next page's ink into this one.
   const WINDOW_RADIUS = 2;         // infinite mode keeps 2 chapters either side
   const MAX_STACK     = 12;        // …and at most this many sections in the DOM
+  const MAX_LOADED_DEFAULT = 10;   // state.loaded LRU cap when Platform.tuning()
+                                   // is unavailable — the mid-class row of the
+                                   // memory budget, i.e. today's web behavior
   const PROGRESS_MS   = 1000;      // §4: progress writes ≥1 s apart
   const SWIPE_SLOP    = 10;        // px before a touch counts as a drag
   const RUBBER        = 0.34;      // end-of-book drag resistance
@@ -190,9 +193,18 @@
   // Only http(s)/data:image/blob/relative may reach an <img src>. Mirrors the
   // same guard in catalogue.js: blocks may arrive from a cached ChapterFile that
   // predates that normalization, so the reader re-checks rather than trusting.
+  //
+  // Capacitor's local-file origins are the one addition: iOS serves extracted
+  // illustrations from capacitor://localhost, Android re-serves them under
+  // https://localhost with a /_capacitor_file_/ path. Both are pinned as EXACT
+  // prefixes — origin plus path start, never a substring — so a lookalike
+  // (capacitor://localhost.evil, some capacitor-evil scheme) still falls
+  // through to the drop rule below.
   function safeImageUrl(url) {
     if (!url || typeof url !== 'string') return '';
     const u = url.trim();
+    if (/^capacitor:\/\/localhost\//i.test(u)) return u;
+    if (/^https:\/\/localhost\/_capacitor_file_\//i.test(u)) return u;
     if (/^https?:/i.test(u)) return u;
     if (/^data:image\//i.test(u)) return u;
     if (/^blob:/i.test(u)) return u;
@@ -279,6 +291,7 @@
   let suppressClickUntil = 0;
   let lastFocus = null;
   let fontToken = 0;              // guards out-of-order webfont settle passes
+  let maxLoaded = MAX_LOADED_DEFAULT; // state.loaded cap — re-read once per open()
 
   function on(target, type, fn, opts) {
     target.addEventListener(type, fn, opts);
@@ -995,6 +1008,7 @@
       divider: null,
       collapsed: false,
       height: 0,
+      refilling: false,   // an evicted spacer's async re-load is in flight
     };
   }
 
@@ -1705,7 +1719,14 @@
   function loadChapter(index) {
     const ch = state.chapters[index];
     if (!ch) return Promise.resolve(null);
-    if (state.loaded.has(ch.id)) return Promise.resolve(state.loaded.get(ch.id));
+    if (state.loaded.has(ch.id)) {
+      // Cache hit — re-insert so Map order stays oldest-first, which is the
+      // order pruneLoaded() walks when the cap is exceeded.
+      const hit = state.loaded.get(ch.id);
+      state.loaded.delete(ch.id);
+      state.loaded.set(ch.id, hit);
+      return Promise.resolve(hit);
+    }
     if (state.pending.has(ch.id)) return state.pending.get(ch.id);
     if (typeof window.resolveChapterContent !== 'function') {
       return Promise.resolve(null);
@@ -1716,6 +1737,7 @@
         if (!file || !Array.isArray(file.blocks) || !file.blocks.length) return null;
         const data = chapterData(ch, file.blocks, file.wordCount);
         state.loaded.set(ch.id, data);
+        pruneLoaded();
         return data;
       })
       .catch(function (err) {
@@ -1725,6 +1747,59 @@
       .then(function (r) { state.pending.delete(ch.id); return r; });
     state.pending.set(ch.id, job);
     return job;
+  }
+
+  // ── state.loaded LRU ──────────────────────────────────────────────────────
+
+  // Without a cap, a long endless-scroll session keeps every chapter's full
+  // Block[] text in heap until close() — the module's biggest phone-memory
+  // liability. The cap comes from Platform.tuning() (§9), read once per open()
+  // so a session never changes budgets mid-flight; with no Platform (plain web,
+  // test pages) the default is the mid-class row, i.e. exactly today's budget.
+  function readMaxLoadedChapters() {
+    try {
+      if (window.Platform && typeof window.Platform.tuning === 'function') {
+        const n = num(window.Platform.tuning().maxLoadedChapters, NaN);
+        if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+      }
+    } catch (e) { /* tuning is advisory; the default is current behavior */ }
+    return MAX_LOADED_DEFAULT;
+  }
+
+  // Evict least-recently-loaded chapters over the cap. The DOM is not touched —
+  // sections are applyWindow()'s business — and neither is anything the reader
+  // could be looking at: the live window, the current chapter and the anchor's
+  // chapter are all exempt, so the capture/offset code can keep assuming their
+  // blocks exist. A collapsed spacer whose chapter is evicted also lets go of
+  // its block array (the spacer renders from entry.height alone, so nothing on
+  // screen changes); scrolling back into it goes through expandEntry's refill,
+  // and re-resolution is cheap because resolveChapterContent is cache-first.
+  function pruneLoaded() {
+    if (state.loaded.size <= maxLoaded) return;
+
+    const keep = new Set();
+    if (state.anchor && state.anchor.chapterId != null) keep.add(state.anchor.chapterId);
+    const cur = state.chapters[state.chIndex];
+    if (cur) keep.add(cur.id);
+    if (state.mode === 'infinite') {
+      for (let i = state.chIndex - WINDOW_RADIUS; i <= state.chIndex + WINDOW_RADIUS; i++) {
+        if (state.chapters[i]) keep.add(state.chapters[i].id);
+      }
+    }
+    for (let i = 0; i < state.stack.length; i++) {
+      if (!state.stack[i].collapsed) keep.add(state.stack[i].chapter.id);
+    }
+
+    const victims = [];
+    let over = state.loaded.size - maxLoaded;
+    state.loaded.forEach(function (data, id) {
+      if (over > 0 && !keep.has(id)) { victims.push(id); over--; }
+    });
+    for (let i = 0; i < victims.length; i++) {
+      state.loaded.delete(victims[i]);
+      const e = entryFor(victims[i]);
+      if (e && e.collapsed) { e.blocks = null; e.blockEls = []; e._chars = null; }
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1926,6 +2001,10 @@
 
   function expandEntry(entry, above) {
     if (!entry.collapsed || !entry.section) return;
+    // The LRU let go of this chapter's blocks while it was a spacer. Re-resolve
+    // them and come back through applyWindow, which re-decides expansion — and
+    // the above/below compensation — against wherever the reader is by then.
+    if (!Array.isArray(entry.blocks)) { refillEntry(entry); return; }
     const sec = entry.section;
     const before = sec.offsetHeight;
     entry.collapsed = false;
@@ -1939,6 +2018,27 @@
       suppressSync(200);
       dom.viewport.scrollTop = Math.max(0, dom.viewport.scrollTop + (after - before));
     }
+  }
+
+  // Async half of expandEntry, for entries the LRU evicted. The spacer keeps
+  // its frozen height while the chapter re-resolves, so nothing on screen moves
+  // until the real section is swapped back in — at which point the normal
+  // expandEntry scrollTop compensation applies. Failures leave the spacer in
+  // place; the next window pass simply tries again.
+  function refillEntry(entry) {
+    if (entry.refilling) return;
+    const idx = chapterIndexOf(entry.chapter.id);
+    if (idx < 0) return;
+    entry.refilling = true;
+    loadChapter(idx).then(function (data) {
+      entry.refilling = false;
+      if (!data || !state.open) return;
+      if (state.stack.indexOf(entry) === -1) return;   // stack rebuilt meanwhile
+      entry.blocks = data.blocks;
+      entry.wordCount = data.wordCount;
+      entry._chars = null;
+      applyWindow();
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1970,9 +2070,12 @@
       // Keep whatever we already have around the anchor; anything outside the
       // window is dropped rather than turned into a stale spacer, because we
       // are about to re-establish scroll position from the anchor anyway.
+      // An evicted spacer (blocks gone to the LRU) is dropped too — it cannot
+      // be filled synchronously here, and the append chain re-loads it the
+      // same way it loads any chapter it does not have.
       const keep = state.stack.filter(function (e) {
         const i = chapterIndexOf(e.chapter.id);
-        return i >= 0 && Math.abs(i - state.chIndex) <= WINDOW_RADIUS;
+        return i >= 0 && Math.abs(i - state.chIndex) <= WINDOW_RADIUS && Array.isArray(e.blocks);
       });
       keep.forEach(function (e) { e.collapsed = false; e.height = 0; });
       state.stack = keep.length ? keep : rebuildSingle();
@@ -1992,8 +2095,12 @@
     const ch = state.chapters[state.chIndex];
     const data = ch && state.loaded.get(ch.id);
     if (data) return [makeEntry(data)];
+    // The fallback entry must still own its blocks — an evicted spacer at the
+    // head of the stack cannot seed a single-chapter rebuild.
     const existing = state.stack[0];
-    return existing ? [makeEntry({ chapter: existing.chapter, blocks: existing.blocks, wordCount: existing.wordCount })] : [];
+    return existing && Array.isArray(existing.blocks)
+      ? [makeEntry({ chapter: existing.chapter, blocks: existing.blocks, wordCount: existing.wordCount })]
+      : [];
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2281,6 +2388,9 @@
       // the right typeface — no flash of the previous book's settings.
       readPrefs();
       applyPrefs();
+      // The §9 budget for this session, read exactly once — tuning() consumers
+      // re-read at session start, never per frame.
+      maxLoaded = readMaxLoadedChapters();
       closeSheet();
       toggleChrome(false);
 
@@ -2387,6 +2497,9 @@
         anchor: { chapterId: state.anchor.chapterId, blockIdx: state.anchor.blockIdx, charInBlock: state.anchor.charInBlock },
         sections: state.stack.map(function (e) { return e.chapter.id; }),
         collapsed: state.stack.filter(function (e) { return e.collapsed; }).map(function (e) { return e.chapter.id; }),
+        loadedCount: state.loaded.size,
+        loadedIds: Array.from(state.loaded.keys()),
+        maxLoadedChapters: maxLoaded,
         chromeHidden: !!(dom.root && dom.root.classList.contains('nv-chrome-hidden')),
         sheetOpen: sheetOpen,
         prefs: Object.assign({}, state.prefs),

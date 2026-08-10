@@ -4,7 +4,11 @@
 // which must be loaded after this file.
 
 // --- Service Worker ---
-if ('serviceWorker' in navigator) {
+// Skipped inside the native shell: WKWebView's custom scheme has no service
+// worker support, and the bundled app files already ARE the offline cache
+// there — registering would only log errors. platform.js loads first, so
+// Platform.isNative is readable at parse time.
+if ('serviceWorker' in navigator && !(window.Platform && window.Platform.isNative)) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
@@ -49,10 +53,78 @@ const JUMP_DURATION = 250;
 const JUMP_LEVELS = [8, 6, 4, 3, 2, 1.5, 1, 0.75, 0.5];
 
 const SPEED_LEVELS = [1.0, 1.6, 2.5, 4.0, 6.0, 9.0, 13.0, 18.0];
-const MEMORY_WINDOW = 25; // Pages within this distance keep their URL active
-const CACHE_WINDOW  = 60; // Pages within this distance keep decoded bitmap (no flash on scroll-back); beyond this src is cleared to free memory
+
+// Autoscroll speed and mode survive relaunches via or.autoscroll — same
+// silent-catch localStorage pattern as or.gap. The persisted shape is exactly
+// {speedIdx, scrollMode} (contract, docs/ARCHITECTURE.md §3.1); the jump
+// interval stays session-local on purpose. Read at parse time so a relaunch
+// restores the setting before the reader is ever opened; platform.js mirrors
+// the key natively and calls reloadReaderPrefs() after an eviction restore.
+function readAutoscrollPref() {
+  try {
+    const s = JSON.parse(localStorage.getItem('or.autoscroll'));
+    if (s && typeof s === 'object') {
+      if (Number.isInteger(s.speedIdx) && s.speedIdx >= 0 && s.speedIdx < SPEED_LEVELS.length) speedIdx = s.speedIdx;
+      if (s.scrollMode === 'smooth' || s.scrollMode === 'jump') scrollMode = s.scrollMode;
+    }
+  } catch (e) { /* absent or corrupt — keep the defaults */ }
+}
+readAutoscrollPref();
+
+function saveAutoscroll() {
+  try { localStorage.setItem('or.autoscroll', JSON.stringify({ speedIdx: speedIdx, scrollMode: scrollMode })); } catch (e) {}
+}
+
+// Device-classed image windows (docs/mobile/PLAN.md §9). The defaults are the
+// mid-class row — the exact constants this file has always used — so a web
+// session without Platform behaves bit-identically. applyTuning() re-reads the
+// row once per reading session (inside resetReaderState, which BOTH entry
+// paths call), never per frame.
+let MEMORY_WINDOW = 25; // Pages within this distance keep their URL active
+let CACHE_WINDOW  = 60; // Pages within this distance keep decoded bitmap (no flash on scroll-back); beyond this src is cleared to free memory
+let LOOK_BEHIND   = 4;  // Lookahead window: pages decoded behind currentPage…
+let LOOK_AHEAD    = 10; // …and ahead of it, so scrolling stays silky-smooth.
+
+function applyTuning() {
+  if (!(window.Platform && typeof window.Platform.tuning === 'function')) return;
+  try {
+    const t = window.Platform.tuning();
+    if (Number.isInteger(t.memoryWindow) && t.memoryWindow > 0) MEMORY_WINDOW = t.memoryWindow;
+    if (Number.isInteger(t.cacheWindow)  && t.cacheWindow  > 0) CACHE_WINDOW  = t.cacheWindow;
+    if (Number.isInteger(t.lookBehind)   && t.lookBehind   > 0) LOOK_BEHIND   = t.lookBehind;
+    if (Number.isInteger(t.lookAhead)    && t.lookAhead    > 0) LOOK_AHEAD    = t.lookAhead;
+  } catch (e) { /* a broken bridge must never break reading — keep mid defaults */ }
+}
+
 const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 const ARCHIVE_EXT = /\.(cbz|zip)$/i;
+
+// Path-dependent size caps (docs/mobile/PLAN.md §6.3 / §8.14). Any set that
+// materializes ArrayBuffers in the webview — the web, drag-drop, or the
+// <input> fallback on native — keeps the 600 MB heap bound on every platform.
+// Only sets that arrive as native picker URIs may use the 2 GB cap: their
+// bytes never enter JS, so the cap bounds disk, not heap.
+const SIZE_CAP        = 600 * 1024 * 1024;
+const NATIVE_SIZE_CAP = 2 * 1024 * 1024 * 1024;
+
+// --- Native (picked-URI) session state ---
+// A native set's pages are {archiveKey|archiveUri, entryName} refs; page files
+// are extracted per chapter into Cache/pages/<dir>/ and surfaced through the
+// existing directUrl mechanism, so zero archive bytes ever sit in the heap.
+let sessionArchiveManifest = null; // [{name, size, key}] persisted into or.library so "Resume" can reopen from disk
+let nativePageDirs = [];           // rendered chapter page dirs, oldest first — capped at 2 (current + previous)
+let nativeExtractInflight = {};    // chIdx → Promise, so one chapter is only ever extracted once at a time
+let nativeCacheDirBase = '';       // 'upload-<setKey>' — the parent dir of this session's chapter page dirs
+
+// --- Scroll-mode wrapper windowing ---
+// Above SCROLL_WINDOW_THRESHOLD total pages, "∞" mode stops rendering every
+// wrapper (thousands of DOM nodes + observer targets on big native sets) and
+// keeps only chapters within ±SCROLL_WINDOW_SPAN of the current one in the
+// DOM, with fixed-height spacers standing in for the rest. Below the
+// threshold, scroll mode behaves exactly as it always has.
+const SCROLL_WINDOW_THRESHOLD = 800;
+const SCROLL_WINDOW_SPAN = 2;
+let scrollWindowCenter = -1; // chapter idx the window is built around; -1 = windowing inactive
 
 const GEOMETRIC_SVG = `
     <svg width="180" height="16" viewBox="0 0 180 16" fill="currentColor">
@@ -119,11 +191,46 @@ function saveToLibrary() {
     pageInChapter: maxPageInChapter, chapterTotalPages: maxChapterTotalPages,
     totalPages: pages.length, completed,
     lastRead: new Date().toISOString(),
+    // Native archive manifest — lets "Resume" reopen the set from disk with no
+    // re-picking. A plain-File session for the same series keeps the previous
+    // manifest: the disk copies are still there and still resumable.
+    archives: sessionArchiveManifest || prev.archives,
   };
   library = library.filter(function(e) { return e.key !== key; });
   library.unshift(entry);
-  library = library.slice(0, 5);
+  // MRU cap: 10 on native (archives persist on disk, so more slots are useful),
+  // 5 on the web as always. Falling off the list IS library-row removal — the
+  // evicted entry's archive files go with it, or they would leak forever.
+  const libCap = (window.Platform && window.Platform.isNative) ? 10 : 5;
+  const evicted = library.slice(libCap);
+  library = library.slice(0, libCap);
   try { localStorage.setItem('or.library', JSON.stringify(library)); } catch (e) {}
+  evicted.forEach(function (e) {
+    (e.archives || []).forEach(function (a) {
+      try { if (window.Platform) window.Platform.archives.remove(a.key); } catch (err) {}
+    });
+  });
+
+  // Goals feed (docs/mobile/PLAN.md §6.3): deltas against the PREVIOUS stored
+  // entry's high-water marks, so they are ≥ 0 by construction of the
+  // only-ever-advance semantics above (Math.max guards the cross-zip-set edge
+  // where a stale prev could sit further along than the current set).
+  // Upload sessions only: online image sessions also pass through here (they
+  // keep an or.library entry too) but their reading already reaches goals via
+  // Store.putProgress → or:progress, and counting them twice would double
+  // every page.
+  if (window.readerOrigin === 'upload') {
+    try {
+      window.dispatchEvent(new CustomEvent('or:upload-progress', {
+        detail: {
+          libraryKey: key,
+          pagesDelta: Math.max(0, (entry.maxPageIdx || 0) - (prev.maxPageIdx || 0)),
+          chaptersDelta: Math.max(0, (entry.chIdx || 0) - (prev.chIdx || 0)),
+          completed: !!entry.completed,
+        },
+      }));
+    } catch (e) { /* a listener must never break the save path */ }
+  }
 }
 
 // Migrate a single or.session entry into the new or.library format (runs once).
@@ -218,6 +325,15 @@ function initLibraryList() {
 
     row.appendChild(info);
     row.appendChild(date);
+
+    // Native entries with an archive manifest are resumable from disk — the
+    // whole row becomes the "Resume" tap target, no re-picking involved.
+    if (window.Platform && window.Platform.isNative
+        && entry.archives && entry.archives.length) {
+      row.classList.add('library-row-resume');
+      row.addEventListener('click', function () { resumeFromLibrary(entry); });
+    }
+
     listEl.appendChild(row);
   });
   listEl.classList.remove('hidden');
@@ -492,8 +608,15 @@ function renderChapter(idx) {
   ch.wrappers.forEach(w => pageObserver.observe(w));
 }
 
-// Populate the slot with ALL chapters (used in scroll mode).
+// Populate the slot with ALL chapters (used in scroll mode). Above the
+// windowing threshold the full render is replaced by a windowed one — see the
+// scroll-window block below; below it, this is byte-for-byte the old behavior.
 function renderAllChapters() {
+  if (pages.length > SCROLL_WINDOW_THRESHOLD) {
+    renderScrollWindow(currentChIdx);
+    return;
+  }
+  scrollWindowCenter = -1;
   const slot = document.getElementById('chapter-slot');
   const frag = document.createDocumentFragment();
 
@@ -527,6 +650,190 @@ function renderAllChapters() {
   chapters.forEach(ch => ch.wrappers.forEach(w => pageObserver.observe(w)));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Scroll-mode wrapper windowing (docs/mobile/PLAN.md §4.1)
+//
+// The novel reader's collapse/expand pattern applied to "∞" mode: chapters
+// within ±SCROLL_WINDOW_SPAN of the current one get real wrappers; every
+// other chapter is a single fixed-height spacer div. The window moves on
+// chapter change with an explicit scroll compensation, so the viewport never
+// visibly jumps when estimated spacer heights are swapped for real content.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WIDE_LAYOUT_MQ = window.matchMedia ? window.matchMedia('(min-width: 1024px)') : null;
+
+// Estimated pixel height of a chapter when it collapses to a spacer. Locked
+// aspect ratios are exact; unseen pages assume the 2/3 portrait default the
+// CSS placeholder uses. Drift is harmless — the compensation in
+// updateScrollWindow() re-anchors the viewport on every window move.
+function estimateChapterHeight(ch) {
+  const maxW = (WIDE_LAYOUT_MQ && WIDE_LAYOUT_MQ.matches) ? 1000 : 800; // .page-wrapper max-width
+  const width = Math.min(readerPages.clientWidth || window.innerWidth || 360, maxW);
+  let h = 0;
+  for (let i = ch.start; i <= ch.end; i++) {
+    const a = pages[i] && pages[i].aspect;
+    h += (a && isFinite(a) && a > 0) ? width / a : width * 1.5;
+  }
+  const n = ch.end - ch.start + 1;
+  if (chapters.length > 1) h += 42; // the divider the spacer also stands in for
+  h += n * GAP_LEVELS[gapLevel];    // flex gaps the removed elements carried
+  return h;
+}
+
+// Build one chapter's divider + wrappers into a fragment. Same construction
+// as renderChapter/renderAllChapters, plus re-applying any locked aspect
+// ratio up front so previously-seen pages come back at their true height.
+function renderChapterInto(ch, frag) {
+  ch.wrappers  = [];
+  ch.dividerEl = null;
+  ch.spacerEl  = null;
+
+  if (chapters.length > 1) {
+    const div = document.createElement('div');
+    div.className = 'chapter-divider';
+    div.textContent = ch.name;
+    ch.dividerEl = div;
+    frag.appendChild(div);
+  }
+
+  for (let i = ch.start; i <= ch.end; i++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'page-wrapper';
+    wrap.dataset.index = i;
+    const img = document.createElement('img');
+    img.className = 'comic-page placeholder';
+    if (pages[i].aspect) {
+      wrap.style.aspectRatio = String(pages[i].aspect);
+      pages[i].aspectLocked = true;
+    }
+    pages[i].el   = img;
+    pages[i].wrap = wrap;
+    wrap.appendChild(img);
+    ch.wrappers.push(wrap);
+    frag.appendChild(wrap);
+  }
+}
+
+function appendSpacer(ch, frag) {
+  ch.wrappers  = [];
+  ch.dividerEl = null;
+  const sp = document.createElement('div');
+  sp.className = 'chapter-spacer';
+  sp.style.height = Math.round(estimateChapterHeight(ch)) + 'px';
+  ch.spacerEl = sp;
+  frag.appendChild(sp);
+}
+
+// Full windowed render of the slot (initial entry into windowed scroll mode).
+function renderScrollWindow(centerIdx) {
+  const slot = document.getElementById('chapter-slot');
+  const frag = document.createDocumentFragment();
+  scrollWindowCenter = centerIdx;
+
+  chapters.forEach((ch, idx) => {
+    if (Math.abs(idx - centerIdx) <= SCROLL_WINDOW_SPAN) {
+      renderChapterInto(ch, frag);
+    } else {
+      appendSpacer(ch, frag);
+    }
+  });
+
+  slot.appendChild(frag);
+  chapters.forEach(ch => ch.wrappers.forEach(w => pageObserver.observe(w)));
+}
+
+// Swap a spacer for the chapter's real content in place.
+function expandSpacer(ch) {
+  const sp = ch.spacerEl;
+  if (!sp) return;
+  const frag = document.createDocumentFragment();
+  renderChapterInto(ch, frag); // clears spacerEl
+  sp.replaceWith(frag);
+  ch.wrappers.forEach(w => pageObserver.observe(w));
+}
+
+// Collapse a rendered chapter back to a spacer, with the same page-teardown
+// discipline as teardownAll (gen bump, revoke, explicit src='' so WebKit can
+// release the decoded bitmaps) scoped to this chapter only.
+function collapseChapter(ch) {
+  for (let i = ch.start; i <= ch.end; i++) {
+    const p = pages[i];
+    p.gen++;
+    if (p.url && !p.directUrl) URL.revokeObjectURL(p.url);
+    p.url = null;
+    p.loading = false;
+    if (p.el) { p.el.src = ''; p.el.onload = null; }
+    p.el   = null;
+    p.wrap = null;
+    visiblePages.delete(i); // unobserve fires no exit callback — drop stale indices ourselves
+  }
+  const sp = document.createElement('div');
+  sp.className = 'chapter-spacer';
+  sp.style.height = Math.round(estimateChapterHeight(ch)) + 'px';
+  const first = ch.dividerEl || ch.wrappers[0];
+  if (first && first.parentNode) first.parentNode.insertBefore(sp, first);
+  if (ch.dividerEl) ch.dividerEl.remove();
+  ch.wrappers.forEach(w => { pageObserver.unobserve(w); w.remove(); });
+  ch.wrappers  = [];
+  ch.dividerEl = null;
+  ch.spacerEl  = sp;
+}
+
+// Move the window so centerIdx sits in the middle, compensating scroll so the
+// anchor chapter's top stays put on screen while heights above it change.
+function updateScrollWindow(centerIdx) {
+  if (chapterMode || scrollWindowCenter === -1 || centerIdx === scrollWindowCenter) return;
+  const anchorCh = chapters[centerIdx];
+  if (!anchorCh) return;
+  const anchorBefore = (anchorCh.wrappers && anchorCh.wrappers[0]) || anchorCh.dividerEl || anchorCh.spacerEl;
+  const topBefore = anchorBefore ? anchorBefore.getBoundingClientRect().top : 0;
+
+  chapters.forEach((ch, idx) => {
+    const inWindow = Math.abs(idx - centerIdx) <= SCROLL_WINDOW_SPAN;
+    if (inWindow && ch.spacerEl) expandSpacer(ch);
+    else if (!inWindow && !ch.spacerEl && (ch.dividerEl || (ch.wrappers && ch.wrappers.length))) collapseChapter(ch);
+  });
+  scrollWindowCenter = centerIdx;
+
+  const anchorAfter = (anchorCh.wrappers && anchorCh.wrappers[0]) || anchorCh.dividerEl || anchorCh.spacerEl;
+  if (anchorBefore && anchorAfter) {
+    const delta = anchorAfter.getBoundingClientRect().top - topBefore;
+    if (delta) window.scrollBy(0, delta);
+  }
+}
+
+// While the user flings through spacer territory no wrapper intersects, so
+// the IntersectionObserver goes quiet and could never re-center the window.
+// A debounced scroll fallback finds the chapter under the viewport middle by
+// geometry — the novel reader's trackCurrentChapter trick.
+function chapterAtViewportCenter() {
+  const mid = window.innerHeight / 2;
+  for (let i = 0; i < chapters.length; i++) {
+    const ch = chapters[i];
+    const head = ch.spacerEl || ch.dividerEl || (ch.wrappers && ch.wrappers[0]);
+    if (!head) continue;
+    const tail = ch.spacerEl || (ch.wrappers && ch.wrappers[ch.wrappers.length - 1]) || head;
+    if (head.getBoundingClientRect().top <= mid && tail.getBoundingClientRect().bottom >= mid) return i;
+  }
+  return -1;
+}
+
+let windowedScrollTimer = null;
+window.addEventListener('scroll', () => {
+  if (chapterMode || scrollWindowCenter === -1) return;
+  clearTimeout(windowedScrollTimer);
+  windowedScrollTimer = setTimeout(() => {
+    if (chapterMode || scrollWindowCenter === -1) return;
+    if (visiblePages.size > 0) return; // observer path owns it while wrappers are visible
+    const idx = chapterAtViewportCenter();
+    if (idx !== -1 && idx !== scrollWindowCenter) {
+      updateScrollWindow(idx);
+      currentPage = chapters[idx].start;
+      updateIndicator();
+    }
+  }, 150);
+}, { passive: true });
+
 // Revoke all loaded images, clear the slot, reset chapter DOM refs, and
 // invalidate any in-flight blob loads via the generation counter.
 function teardownAll() {
@@ -550,8 +857,9 @@ function teardownAll() {
   const slot = document.getElementById('chapter-slot');
   if (slot) slot.innerHTML = '';
 
-  chapters.forEach(ch => { ch.wrappers = []; ch.dividerEl = null; });
+  chapters.forEach(ch => { ch.wrappers = []; ch.dividerEl = null; ch.spacerEl = null; });
   visiblePages.clear();
+  scrollWindowCenter = -1; // the slot is empty; any window is gone with it
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -563,6 +871,7 @@ function teardownAll() {
 // must call this instead of resetting fields by hand, so the paths can never
 // drift apart (stale chapterDisplayShift/readerOrigin bugs came from exactly that).
 function resetReaderState() {
+  applyTuning(); // both entry paths pass through here, so this IS session start
   pages.forEach(p => { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
   pages = []; chapters = [];
   visiblePages.clear();
@@ -572,6 +881,16 @@ function resetReaderState() {
   baseChapterOffset = 0;
   chapterDisplayShift = 0;
   chapterLabelTotal = 0;
+  scrollWindowCenter = -1;
+  // Native session leftovers: release the previous set's extracted page dirs
+  // (fire-and-forget — a failed delete is reclaimed by the LRU prune later).
+  nativePageDirs.forEach(d => {
+    try { if (window.Platform) window.Platform.archives.releasePages(d.dirKey); } catch (e) {}
+  });
+  nativePageDirs = [];
+  nativeExtractInflight = {};
+  sessionArchiveManifest = null;
+  nativeCacheDirBase = '';
   // Stale resume UI and notices from a previous load.
   const staleResume = document.getElementById('in-reader-resume');
   if (staleResume) staleResume.remove();
@@ -580,22 +899,13 @@ function resetReaderState() {
 }
 
 let isLoading = false;
-fileInput.addEventListener('change', async e => {
-  if (isLoading) return;
-  isLoading = true;
-  const files = Array.from(e.target.files).filter(f => ARCHIVE_EXT.test(f.name));
-  fileInput.value = ''; // Reset so the same file can be re-opened without a page reload
-  if (!files.length) { isLoading = false; return; }
 
-  showScreen('loading-screen');
-  lastLoadedFileNames = files.map(f => f.name).sort();
-  readerOrigin = 'upload'; // close button must reload, not return to a stale series screen
-  resetReaderState();
-
-  // Pre-sort files by chapter number as a minor optimisation — it causes the loading
-  // progress text to read out in chapter order, and means JSZip allocations happen
-  // low-to-high. The 600 MB cap is now applied AFTER a global cross-file chapter
-  // sort in Phase 2, so this pre-sort is no longer the critical correctness path.
+// Pre-sort files by chapter number as a minor optimisation — it causes the loading
+// progress text to read out in chapter order, and means JSZip allocations happen
+// low-to-high. The size cap is applied AFTER a global cross-file chapter sort
+// in Phase 2, so this pre-sort is no longer the critical correctness path.
+// Named so the File path and the native URI path sort identically, always.
+function sortFilesByChapter(files) {
   files.sort((a, b) => {
     const { displayNum: an } = extractChapterInfo(a.name);
     const { displayNum: bn } = extractChapterInfo(b.name);
@@ -604,6 +914,25 @@ fileInput.addEventListener('change', async e => {
     if (bn === null) return -1;
     return an - bn;
   });
+}
+
+// The offline upload pipeline, extracted from the #file-input change handler so
+// the native picker path can reuse it without synthesizing input events
+// (docs/mobile/PLAN.md §6.3). Behavior-preserving: Phase 1 opens every zip with
+// JSZip exactly as before; phases 2+ live in indexGroups(), shared with the
+// native path so the chapter heuristics are literally the same code.
+async function loadArchives(files) {
+  if (isLoading) return;
+  isLoading = true;
+  files = Array.from(files || []).filter(f => ARCHIVE_EXT.test(f.name));
+  if (!files.length) { isLoading = false; return; }
+
+  showScreen('loading-screen');
+  lastLoadedFileNames = files.map(f => f.name).sort();
+  readerOrigin = 'upload'; // close button must reload, not return to a stale series screen
+  resetReaderState();
+
+  sortFilesByChapter(files);
 
   // Multi-series check: if the files appear to be from more than one series,
   // warn the user and stay on the upload screen rather than mixing them.
@@ -617,24 +946,16 @@ fileInput.addEventListener('change', async e => {
     return;
   }
 
-  // 600 MB soft cap applied after sorting all chapters globally so the cap always
-  // trims the highest-numbered chapters, regardless of which zip file they came from
-  // or what order the browser handed the files to us.
+  // Soft size cap applied after sorting all chapters globally so the cap always
+  // trims the highest-numbered chapters, regardless of which zip file they came
+  // from or what order the browser handed the files to us. Plain-File sets get
+  // the 600 MB heap cap unconditionally — this path materializes every
+  // archive's ArrayBuffer (the 2 GB cap belongs to the URI path alone).
   //
   // Phase 1 — open every zip and collect chapter groups (no page construction yet).
   // Phase 2 — sort all groups by chapter number across ALL files.
   // Phase 3 — walk the sorted list, apply the cap, then build pages[]/chapters[].
-  const SIZE_CAP = 600 * 1024 * 1024; // 600 MB in bytes
-
-  // Collect inner archive names across all files so we can:
-  //  (a) fall back to them for the title if outer zip names are bare chapter refs
-  //  (b) run a secondary multi-series check against the actual chapter names
-  const innerArchiveNames = [];
-  const innerSeriesKeys   = new Set();
-  const emptyFiles        = []; // files that had no recognisable chapters
-
-  // allGroups: flat list of { group, groupBytes } across every file, unsorted.
-  const allGroups = [];
+  const ctx = newIndexCtx(files, outerKeys, SIZE_CAP);
 
   // ── Phase 1: open all zips, collect groups ────────────────────────────────────
   for (const f of files) {
@@ -644,15 +965,15 @@ fileInput.addEventListener('change', async e => {
       const groups = await extractEntries(zip, f.name);
 
       if (!groups.length) {
-        emptyFiles.push(f.name);
+        ctx.emptyFiles.push(f.name);
         continue;
       }
 
       // Collect inner names for title fallback + secondary series check.
       groups.forEach(g => {
-        innerArchiveNames.push(g.name);
+        ctx.innerArchiveNames.push(g.name);
         const k = seriesKey(g.name);
-        if (k) innerSeriesKeys.add(k);
+        if (k) ctx.innerSeriesKeys.add(k);
       });
 
       // Prorate this file's compressed size across its groups by image count.
@@ -661,12 +982,50 @@ fileInput.addEventListener('change', async e => {
         const groupBytes = totalImages > 0
           ? Math.round(f.size * g.images.length / totalImages)
           : Math.round(f.size / groups.length);
-        allGroups.push({ group: g, groupBytes });
+        ctx.allGroups.push({ group: g, groupBytes });
       });
     } catch (err) {
       console.error("Failed to read archive: " + f.name, err);
     }
   }
+
+  indexGroups(ctx);
+  isLoading = false;
+}
+
+// The #file-input change handler is now a thin shim over loadArchives().
+fileInput.addEventListener('change', e => {
+  const files = Array.from(e.target.files);
+  fileInput.value = ''; // Reset so the same file can be re-opened without a page reload
+  loadArchives(files);
+});
+
+// Shared indexing context: everything Phase 1 produces (on either path) and
+// phases 2+ consume.
+function newIndexCtx(files, outerKeys, sizeCap) {
+  return {
+    files, outerKeys, sizeCap,
+    allGroups: [],          // flat list of { group, groupBytes } across every file, unsorted
+    innerArchiveNames: [],  // (a) title fallback when outer names are bare chapter refs
+    innerSeriesKeys: new Set(), // (b) secondary multi-series check against real chapter names
+    emptyFiles: [],         // files that had no recognisable chapters
+  };
+}
+
+// Phases 2+ of the upload pipeline: chapter sort, dedupe, size cap, notices,
+// numbering, reader boot. ONE body serves both the JSZip File path and the
+// native URI path — groups whose archive stayed on disk carry archiveKey /
+// archiveUri and produce {entryName} page refs instead of JSZip entries, and
+// every heuristic (extractChapterInfo, seriesKey, dedupe, the 0-index shift)
+// is the same code by construction, fed the same original name strings.
+function indexGroups(ctx) {
+  const files = ctx.files;
+  const outerKeys = ctx.outerKeys;
+  const allGroups = ctx.allGroups;
+  const innerArchiveNames = ctx.innerArchiveNames;
+  const innerSeriesKeys = ctx.innerSeriesKeys;
+  const emptyFiles = ctx.emptyFiles;
+  const capLabel = ctx.sizeCap >= NATIVE_SIZE_CAP ? '2 GB' : '600 MB';
 
   // ── Phase 2: sort ALL groups by chapter number across every file ──────────────
   allGroups.sort((a, b) => {
@@ -704,16 +1063,26 @@ fileInput.addEventListener('change', async e => {
   let capReached     = false;
 
   for (const { group: g, groupBytes } of dedupedGroups) {
-    if (capReached || bytesLoaded + groupBytes > SIZE_CAP) {
+    if (capReached || bytesLoaded + groupBytes > ctx.sizeCap) {
       capReached = true;
       skippedChapters++;
       continue;
     }
 
     const start = pages.length;
-    g.images.forEach(entry => pages.push({
-      entry, url: null, loading: false, aspectLocked: false, gen: 0
-    }));
+    if (g.archiveKey || g.archiveUri) {
+      // Native URI path: pages are {archiveKey, entryName} refs. The bytes stay
+      // on disk until the chapter is rendered (ensureChapterExtracted), which is
+      // what lets ctx.sizeCap bound disk instead of heap here.
+      g.images.forEach(entry => pages.push({
+        entry: null, archiveKey: g.archiveKey || null, archiveUri: g.archiveUri || null,
+        entryName: entry.name, url: null, loading: false, aspectLocked: false, gen: 0
+      }));
+    } else {
+      g.images.forEach(entry => pages.push({
+        entry, url: null, loading: false, aspectLocked: false, gen: 0
+      }));
+    }
     const { displayNum, cleanName } = extractChapterInfo(g.name);
     chapters.push({ name: cleanName, displayNum, start, end: pages.length - 1 });
     bytesLoaded += groupBytes;
@@ -746,8 +1115,8 @@ fileInput.addEventListener('change', async e => {
   if (capReached) {
     const notice = document.getElementById('size-notice');
     document.getElementById('size-notice-text').textContent = skippedChapters > 0
-      ? `${skippedChapters} chapter${skippedChapters > 1 ? 's' : ''} not loaded — 600 MB limit reached`
-      : 'Some content not loaded — 600 MB limit reached';
+      ? `${skippedChapters} chapter${skippedChapters > 1 ? 's' : ''} not loaded — ${capLabel} limit reached`
+      : `Some content not loaded — ${capLabel} limit reached`;
     showNotice(notice);
   }
 
@@ -765,11 +1134,10 @@ fileInput.addEventListener('change', async e => {
     showScreen('upload-screen');
     if (capReached) {
       const notice = document.getElementById('size-notice');
-      document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed 600 MB limit';
+      document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed ' + capLabel + ' limit';
       showNotice(notice);
     }
-    isLoading = false;
-    return;
+    return false;
   }
 
   const validNums = chapters.map(c => c.displayNum).filter(n => n !== null);
@@ -813,8 +1181,236 @@ fileInput.addEventListener('change', async e => {
   if (chapterMode && chapters.length > 0) {
     jumpToChapter(0);
   }
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Native URI upload path (docs/mobile/PLAN.md §6.3)
+//
+// Picked archives never enter the JS heap: indexing is one central-directory
+// zip.list per archive, the files themselves are MOVED into Data/archives/,
+// and page bytes are extracted natively per chapter at render time. The same
+// heuristics run on the same original filenames — only Phase 1 differs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Upload button: try the native picker first, fall back to the <input>.
+// pickFiles resolves null when there IS no native picker (→ the <input> flow)
+// and [] when the user cancelled the one that opened (→ do nothing).
+async function openArchivePicker() {
+  const P = window.Platform;
+  if (P && typeof P.pickFiles === 'function') {
+    let picked = null;
+    try { picked = await P.pickFiles({ accept: '.cbz,.zip', multiple: true }); } catch (e) { picked = null; }
+    if (picked !== null) {
+      if (picked.length) loadNativeArchives(picked);
+      return;
+    }
+  }
+  fileInput.click();
+}
+
+// The upload button's inline onclick in index.html clicks the <input>
+// directly; assigning .onclick REPLACES that attribute handler, which is the
+// point — otherwise the native picker and the <input> would both open.
+{
+  const uploadBtn = document.getElementById('mobile-upload-btn');
+  if (uploadBtn) uploadBtn.onclick = openArchivePicker;
+}
+
+// "Resume" from the upload-screen library list: reopen a stored native set
+// from disk, no re-picking. The manifest carries the ORIGINAL names/sizes, so
+// titles, chapter numbers and the library key come out identical.
+function resumeFromLibrary(entry) {
+  loadNativeArchives((entry.archives || []).map(a => ({ name: a.name, size: a.size, key: a.key })));
+}
+
+// Native Phase 1 for both fresh picks (sources carry .uri) and resumes
+// (sources carry .key). Mirrors loadArchives() step for step; phases 2+ are
+// the shared indexGroups().
+async function loadNativeArchives(sources) {
+  if (isLoading) return;
+  isLoading = true;
+  const files = (sources || []).filter(f => f && f.name && ARCHIVE_EXT.test(f.name));
+  if (!files.length) { isLoading = false; return; }
+
+  showScreen('loading-screen');
+  lastLoadedFileNames = files.map(f => f.name).sort();
+  readerOrigin = 'upload'; // same close-button contract as the File path
+  resetReaderState();
+
+  sortFilesByChapter(files);
+
+  const outerKeys = new Set(files.map(f => seriesKey(f.name)).filter(k => k));
+  if (outerKeys.size > 1) {
+    showScreen('upload-screen');
+    document.getElementById('order-notice-text').textContent =
+      '⚠ Multiple series detected — please load one series at a time';
+    showNotice(document.getElementById('order-notice'));
+    isLoading = false;
+    return;
+  }
+
+  const P = window.Platform;
+  const fresh = files.some(f => f.uri); // fresh pick vs resume-from-manifest
+
+  // setKey namespaces this set's archive files and page-cache dirs. Falls back
+  // to the raw alnum name when seriesKey() rejects letter-less names, so two
+  // number-titled series can't collide on disk.
+  const setKey = files[0].key
+    ? (String(files[0].key).split(':')[1] || 'set')
+    : (seriesKey(files[0].name) || files[0].name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'set');
+  nativeCacheDirBase = 'upload-' + setKey;
+
+  // ── Phase 1 (native): central-directory listings only ─────────────────────
+  const ctx = newIndexCtx(files, outerKeys, NATIVE_SIZE_CAP);
+  const listed = []; // { f, entries }
+  let nested = false;
+  for (const f of files) {
+    loadingText.textContent = `Reading: ${f.name}`;
+    let entries = null;
+    try { entries = await P.zip.list(f.key ? { key: f.key } : { uri: f.uri }); } catch (e) { entries = null; }
+    if (!entries || !entries.length) { ctx.emptyFiles.push(f.name); continue; }
+    if (fresh && entries.some(en => ARCHIVE_EXT.test(en.name))) { nested = true; break; }
+    listed.push({ f, entries });
+  }
+
+  // Zip-of-CBZs: the platform surface can't round-trip an extracted inner
+  // archive back into zip.list, so nested sets fall back to materializing the
+  // picked files and running the plain-File JSZip pipeline — which also means
+  // the honest 600 MB heap cap applies to them (docs/mobile/PLAN.md §6.3
+  // deviation, flagged in the completion log).
+  if (nested) {
+    loadingText.textContent = 'Nested archives — loading directly…';
+    const realFiles = [];
+    for (const f of files) {
+      const rf = await P.readPickedFile(f);
+      if (rf) realFiles.push(rf);
+    }
+    isLoading = false;
+    loadArchives(realFiles);
+    return;
+  }
+
+  // Fresh picks: move each archive out of the picker cache into
+  // Data/archives/ (a rename — zero bytes in JS) under a stable per-set key.
+  // Stale destinations are removed first so a re-import of the same series
+  // never trips over last time's file.
+  const manifest = [];
+  for (let i = 0; i < listed.length; i++) {
+    const src = listed[i];
+    if (src.f.key) { manifest.push({ name: src.f.name, size: src.f.size, key: src.f.key }); continue; }
+    const key = 'upload:' + setKey + ':' + i;
+    let moved = null;
+    try {
+      await P.archives.remove(key);
+      moved = await P.archives.importFromUri(key, src.f.uri);
+    } catch (e) { moved = null; }
+    if (moved) {
+      src.f.key = key;
+      manifest.push({ name: src.f.name, size: src.f.size, key: key });
+    }
+    // A failed move keeps reading from the picker's cache copy this session;
+    // it just cannot be resumed after the OS reclaims the cache.
+  }
+
+  // Build one group per archive — the native twin of extractEntries' flat-CBZ
+  // case, including its innerArchiveNames bookkeeping (a flat CBZ's group name
+  // IS the outer filename on the web path too).
+  for (const { f, entries } of listed) {
+    const images = entries
+      .filter(en => IMAGE_EXT.test(en.name))
+      .sort((a, b) => naturalSort(a.name, b.name));
+    if (!images.length) { ctx.emptyFiles.push(f.name); continue; }
+    ctx.innerArchiveNames.push(f.name);
+    const k = seriesKey(f.name);
+    if (k) ctx.innerSeriesKeys.add(k);
+    ctx.allGroups.push({
+      group: { images, name: f.name, archiveKey: f.key || null, archiveUri: f.key ? null : f.uri },
+      groupBytes: f.size || 0,
+    });
+  }
+
+  if (indexGroups(ctx)) {
+    sessionArchiveManifest = manifest.length ? manifest : null;
+    // Same-series re-import: drop disk archives the new manifest no longer
+    // references (a shrunken set would otherwise strand files forever).
+    if (fresh && manifest.length) {
+      const rawTitle = comicTitle.textContent.trim();
+      const libKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || seriesKey(lastLoadedFileNames[0]);
+      const prevEntry = loadLibrary().find(e => e.key === libKey);
+      ((prevEntry && prevEntry.archives) || []).forEach(a => {
+        if (!manifest.some(m => m.key === a.key)) {
+          try { P.archives.remove(a.key); } catch (e) {}
+        }
+      });
+    }
+  }
   isLoading = false;
-});
+}
+
+// One zip.extract per chapter: materializes the chapter's pages into
+// Cache/pages/<base>/ch-N/ and fills each page's directUrl, after which the
+// page rides the exact loadPage/unloadDistant machinery online pages use.
+function pageChapterIdx(idx) {
+  return chapters.findIndex(ch => idx >= ch.start && idx <= ch.end);
+}
+
+async function ensureChapterExtracted(chIdx) {
+  const ch = chapters[chIdx];
+  if (!ch) return;
+  if (nativeExtractInflight[chIdx]) return nativeExtractInflight[chIdx];
+  const P = window.Platform;
+  if (!P) return;
+  const job = (async () => {
+    try {
+      const first = pages[ch.start];
+      const src = first.archiveKey ? { key: first.archiveKey } : { uri: first.archiveUri };
+      const names = [];
+      for (let i = ch.start; i <= ch.end; i++) names.push(pages[i].entryName);
+      const dirKey = nativeCacheDirBase + '/ch-' + chIdx;
+      const rels = await P.zip.extract(src, names, dirKey);
+      if (!rels || rels.length !== names.length) {
+        console.warn('[reader] native extract failed for chapter', chIdx);
+        return;
+      }
+      for (let i = 0; i < rels.length; i++) {
+        const u = P.pageUrl(rels[i]);
+        if (u) pages[ch.start + i].directUrl = u;
+      }
+      registerNativeDir(chIdx, dirKey);
+    } catch (e) {
+      // Never let an extraction failure escape into loadPage — the page just
+      // stays a placeholder and the next lookahead pass retries.
+      console.warn('[reader] native extract failed for chapter', chIdx);
+    }
+  })();
+  nativeExtractInflight[chIdx] = job;
+  try { await job; } finally { delete nativeExtractInflight[chIdx]; }
+}
+
+// LRU of extracted chapter dirs, capped at 2 (current + previous — the same
+// bound the importer's hydrate registry uses). Evicted chapters lose their
+// directUrls so a later visit re-extracts instead of pointing at deleted files.
+function registerNativeDir(chIdx, dirKey) {
+  nativePageDirs = nativePageDirs.filter(d => d.chIdx !== chIdx);
+  nativePageDirs.push({ chIdx, dirKey });
+  while (nativePageDirs.length > 2) {
+    const old = nativePageDirs.shift();
+    const ch = chapters[old.chIdx];
+    if (ch) {
+      for (let i = ch.start; i <= ch.end; i++) {
+        const p = pages[i];
+        if (!p) continue;
+        p.gen++;
+        p.directUrl = null;
+        p.url = null;
+        p.loading = false;
+        if (p.el && p.el.src) p.el.src = '';
+      }
+    }
+    try { window.Platform.archives.releasePages(old.dirKey); } catch (e) {}
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Image Loading
@@ -829,6 +1425,17 @@ async function loadPage(idx) {
   p.loading = true;
   const gen = p.gen; // capture before the async gap
 
+  // Native URI page whose chapter isn't extracted yet: one zip.extract per
+  // chapter fills directUrl for every page in it, then this page rides the
+  // ordinary directUrl branch below. A failed extract clears loading so the
+  // next lookahead pass retries.
+  if (!p.directUrl && p.entryName) {
+    await ensureChapterExtracted(pageChapterIdx(idx));
+    if (p.gen !== gen) { p.loading = false; return; }
+    if (!p.directUrl) { p.loading = false; return; }
+    if (!p.el || !p.el.isConnected) { p.loading = false; return; }
+  }
+
   // Online mode: image is a direct CDN/HTTP URL — set src directly, no blob needed.
   if (p.directUrl) {
     if (p.gen !== gen) return;
@@ -839,7 +1446,7 @@ async function loadPage(idx) {
       p.el.classList.remove('placeholder');
       if (!p.aspectLocked) {
         const nw = p.el.naturalWidth, nh = p.el.naturalHeight;
-        if (nw && nh) { p.wrap.style.aspectRatio = `${nw} / ${nh}`; p.aspectLocked = true; }
+        if (nw && nh) { p.wrap.style.aspectRatio = `${nw} / ${nh}`; p.aspectLocked = true; p.aspect = nw / nh; }
       }
     };
     p.el.onerror = () => { p.loading = false; p.url = null; };
@@ -862,6 +1469,7 @@ async function loadPage(idx) {
         if (nw && nh) {
           p.wrap.style.aspectRatio = `${nw} / ${nh}`;
           p.aspectLocked = true;
+          p.aspect = nw / nh; // numeric copy — spacer height estimates need it after teardown
         }
       }
     };
@@ -940,9 +1548,10 @@ function setupObservers() {
       // Debounce image loads: ignore pages the user scrolled past quickly.
       clearTimeout(scrollDebounce);
       scrollDebounce = setTimeout(() => {
-        // Wider lookahead (-4 behind, +10 ahead) so images are decoded well
-        // before the user reaches them, keeping the scroll silky-smooth.
-        for (let i = currentPage - 4; i <= currentPage + 10; i++) {
+        // Wider lookahead (mid class: -4 behind, +10 ahead) so images are
+        // decoded well before the user reaches them, keeping the scroll
+        // silky-smooth. The window sizes come from Platform.tuning() per §9.
+        for (let i = currentPage - LOOK_BEHIND; i <= currentPage + LOOK_AHEAD; i++) {
           if (i >= 0 && i < pages.length) loadPage(i);
         }
         unloadDistant();
@@ -1022,6 +1631,11 @@ function updateIndicator() {
       const nextCh = chapters[chIdx + 1];
       if (nextCh && visiblePages.has(nextCh.start)) currentChIdx = chIdx + 1;
     }
+  }
+  // Windowed scroll mode: a chapter change moves the wrapper window (no-op
+  // when the center is unchanged, so this costs one comparison per call).
+  if (!chapterMode && scrollWindowCenter !== -1 && currentChIdx !== scrollWindowCenter) {
+    updateScrollWindow(currentChIdx);
   }
   const ch = chapters[currentChIdx];
   const atEnd = ch && visiblePages.has(ch.end);
@@ -1140,6 +1754,9 @@ function jumpToChapter(idx, targetPageIdx = null) {
     }, 150);
   } else {
     // Scroll mode: all wrappers already exist; just navigate to the chapter.
+    // Under windowing the target may currently be a spacer — move the window
+    // first so there is a real wrapper to scroll to.
+    if (scrollWindowCenter !== -1) updateScrollWindow(idx);
     currentChIdx = idx;
     const firstWrap = chapters[currentChIdx].wrappers && chapters[currentChIdx].wrappers[0];
     if (firstWrap) firstWrap.scrollIntoView();
@@ -1382,10 +1999,13 @@ function stopAutoScroll() {
   el.addEventListener('click', resetIdle);
 });
 
-document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
-  e.stopPropagation();
-  scrollMode = scrollMode === 'smooth' ? 'jump' : 'smooth';
+// Reflect scrollMode onto the mode-toggle button (icon, colors, speed label).
+// The values duplicate the CSS defaults for the smooth state, so calling this
+// with defaults is a visual no-op — which is what lets the persisted-state
+// restore below reuse the exact styling the click handler always applied.
+function applyAutoscrollUI() {
   const toggleBtn = document.getElementById('as-mode-toggle');
+  if (!toggleBtn) return;
   toggleBtn.innerHTML = scrollMode === 'smooth' ? smoothIcon : jumpIcon;
   if (scrollMode === 'smooth') {
     toggleBtn.style.color       = 'var(--accent)';
@@ -1396,9 +2016,16 @@ document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
     toggleBtn.style.background  = 'rgba(16, 185, 129, 0.15)';
     toggleBtn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
   }
+  updateSpeedLabel();
+}
+
+document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
+  e.stopPropagation();
+  scrollMode = scrollMode === 'smooth' ? 'jump' : 'smooth';
+  applyAutoscrollUI();
   isJumping = false;
   lastTime  = 0;
-  updateSpeedLabel();
+  saveAutoscroll();
   resetIdle();
 });
 
@@ -1409,6 +2036,7 @@ document.getElementById('as-faster').addEventListener('click', (e) => {
   if (scrollMode === 'smooth') { if (speedIdx < SPEED_LEVELS.length - 1) speedIdx++; }
   else { if (jumpIntervalIdx < JUMP_LEVELS.length - 1) jumpIntervalIdx++; }
   updateSpeedLabel();
+  saveAutoscroll();
   resetIdle();
 });
 
@@ -1417,8 +2045,12 @@ document.getElementById('as-slower').addEventListener('click', (e) => {
   if (scrollMode === 'smooth') { if (speedIdx > 0) speedIdx--; }
   else { if (jumpIntervalIdx > 0) jumpIntervalIdx--; }
   updateSpeedLabel();
+  saveAutoscroll();
   resetIdle();
 });
+
+// Apply any restored autoscroll state to the bar on load — mirrors applyGap().
+applyAutoscrollUI();
 
 function updateSpeedLabel() {
   if (scrollMode === 'smooth') {
@@ -1494,6 +2126,21 @@ document.getElementById('prev-ch').addEventListener('click', (e) => {
   jumpToChapter(currentChIdx - 1);
   resetIdle();
 });
+
+// Re-read the reader's raw localStorage keys and re-apply them. platform.js
+// calls this (guarded) after restoring the native Preferences mirror on an
+// evicted launch: this file consumed or.gap / or.autoscroll / or.library at
+// parse time — before that async restore could land — so without this hook
+// the FIRST post-eviction launch would show defaults and an empty library
+// even though the restore succeeded (docs/mobile/PLAN.md §2.2).
+window.reloadReaderPrefs = function () {
+  gapLevel = parseInt(localStorage.getItem('or.gap') || '0');
+  if (!Number.isInteger(gapLevel) || gapLevel < 0 || gapLevel >= GAP_LEVELS.length) gapLevel = 0;
+  applyGap();
+  readAutoscrollPref();
+  applyAutoscrollUI();
+  initLibraryList();
+};
 
 // Migrate any pre-library session and populate the home-screen library list.
 migrateOldSession();

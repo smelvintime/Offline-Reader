@@ -1,0 +1,36 @@
+{
+  "name": "or-zip",
+  "version": "0.1.0",
+  "description": "Minimal Capacitor plugin for Offline Reader: list a zip archive's central directory and stream-extract selected entries to a directory inside the app container. Entry bytes never cross the bridge.",
+  "main": "index.js",
+  "license": "UNLICENSED",
+  "author": "Offline Reader",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smelvintime/Offline-Reader"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "native"
+  ],
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "Package.swift",
+    "OrZip.podspec",
+    "index.js"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

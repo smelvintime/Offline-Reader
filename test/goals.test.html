@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Goals — test harness</title>
+  <link rel="stylesheet" href="../css/goals.css">
+  <style>
+    body { margin: 0; padding: 12px; background: #0a0a0a; color: #f0f0f0;
+           font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    #log { white-space: pre-wrap; }
+    .pass { color: #34d399; }
+    .fail { color: #f0616d; }
+    #summary { margin-top: 10px; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<h1>window.Goals — folding, streak, timer and rollover assertions</h1>
+<div id="log"></div>
+<div id="summary"></div>
+
+<script>
+'use strict';
+// ─────────────────────────────────────────────────────────────────────────────
+// Deterministic clock. The module keys everything on local calendar days and
+// wall-clock deadlines, so the harness pins "now" to Friday 2027-01-15 12:00
+// local and advances it explicitly. Instances stay real Date objects (the
+// constructor returns one), so store.js's toISOString() keeps working; only
+// the zero-argument forms and Date.now() are redirected. Must load before
+// store.js and goals.js so every module shares the same clock.
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+  const RealDate = Date;
+  const target = new RealDate(2027, 0, 15, 12, 0, 0, 0).getTime(); // Friday, local noon
+  let offset = target - RealDate.now();
+  window.__advanceClock = function (ms) { offset += ms; };
+  window.__realNow = function () { return RealDate.now(); };
+  function FakeDate(a, b, c, d, e, f, g) {
+    if (!(this instanceof FakeDate)) return String(new RealDate(RealDate.now() + offset));
+    switch (arguments.length) {
+      case 0:  return new RealDate(RealDate.now() + offset);
+      case 1:  return new RealDate(a);
+      case 2:  return new RealDate(a, b);
+      case 3:  return new RealDate(a, b, c);
+      case 4:  return new RealDate(a, b, c, d);
+      case 5:  return new RealDate(a, b, c, d, e);
+      case 6:  return new RealDate(a, b, c, d, e, f);
+      default: return new RealDate(a, b, c, d, e, f, g);
+    }
+  }
+  FakeDate.now = function () { return RealDate.now() + offset; };
+  FakeDate.parse = RealDate.parse;
+  FakeDate.UTC = RealDate.UTC;
+  FakeDate.prototype = RealDate.prototype;
+  window.Date = FakeDate;
+})();
+
+// Pre-load state: strip goals.* prefs left by earlier runs (goals.js reads
+// them at init, before the test body could clean up), snapshot the originals
+// for restore, and plant an EXPIRED or.timer — the cold-boot silent-discard
+// drill runs against the module's own init, so the seed must exist first.
+(function () {
+  window.__prefsSnapshot = { prefs: null, series: null };
+  try { window.__prefsSnapshot.prefs = localStorage.getItem('or.prefs'); } catch (e) {}
+  try { window.__prefsSnapshot.series = localStorage.getItem('or.prefs.series'); } catch (e) {}
+  try {
+    const p = JSON.parse(localStorage.getItem('or.prefs') || '{}') || {};
+    Object.keys(p).forEach(function (k) { if (k.indexOf('goals.') === 0) delete p[k]; });
+    localStorage.setItem('or.prefs', JSON.stringify(p));
+  } catch (e) {}
+  try {
+    const s = JSON.parse(localStorage.getItem('or.prefs.series') || '{}') || {};
+    Object.keys(s).forEach(function (id) {
+      const bag = s[id];
+      if (bag && typeof bag === 'object') {
+        Object.keys(bag).forEach(function (k) { if (k.indexOf('goals.') === 0) delete bag[k]; });
+      }
+    });
+    localStorage.setItem('or.prefs.series', JSON.stringify(s));
+  } catch (e) {}
+  try {
+    localStorage.setItem('or.timer', JSON.stringify({ deadline: Date.now() - 60000, minutes: 20 }));
+  } catch (e) {}
+})();
+</script>
+
+<script src="../js/store.js"></script>
+<script>
+'use strict';
+// Wipe day logs from earlier runs BEFORE goals.js loads. The readwrite clear
+// transaction is created now, at parse time; goals.js opens its first read at
+// DOMContentLoaded, so IndexedDB serializes the clear ahead of it and the
+// module boots against an empty table.
+window.__cleanup = window.Store.clearDayLogs();
+</script>
+<script src="../js/goals.js"></script>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tiny harness — platform.test.html's shape: every assertion is a line in the
+// log; Playwright (or a human) reads window.__results / #summary.
+// ─────────────────────────────────────────────────────────────────────────────
+const results = { passed: 0, failed: 0, lines: [] };
+window.__results = results;
+
+function report(ok, label, detail) {
+  const div = document.createElement('div');
+  div.className = ok ? 'pass' : 'fail';
+  div.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label + (ok || detail == null ? '' : '  — got: ' + detail);
+  document.getElementById('log').appendChild(div);
+  results[ok ? 'passed' : 'failed']++;
+  results.lines.push(div.textContent);
+}
+
+function assert(cond, label, detail) { report(!!cond, label, detail); }
+
+function assertEq(actual, expected, label) {
+  report(Object.is(actual, expected), label, JSON.stringify(actual) + ' (wanted ' + JSON.stringify(expected) + ')');
+}
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+// Poll a (possibly async) condition on REAL time — the fake clock may be days
+// ahead of the setTimeout scheduler.
+async function until(fn, label, timeoutMs) {
+  const deadline = window.__realNow() + (timeoutMs || 3000);
+  for (;;) {
+    let v = null;
+    try { v = await fn(); } catch (e) {}
+    if (v) { report(true, label); return true; }
+    if (window.__realNow() > deadline) { report(false, label, 'timed out'); return false; }
+    await sleep(50);
+  }
+}
+
+function st() { return window.Goals.state(); }
+
+function fireProgress(seriesId, row) {
+  window.dispatchEvent(new CustomEvent('or:progress', { detail: { seriesId: seriesId, patch: {}, row: row } }));
+}
+
+function fireUpload(libraryKey, detail) {
+  const d = Object.assign({ libraryKey: libraryKey }, detail);
+  window.dispatchEvent(new CustomEvent('or:upload-progress', { detail: d }));
+}
+
+function statValue(i) {
+  const nodes = document.querySelectorAll('#goals-screen .gl-stat-value');
+  return nodes[i] ? nodes[i].textContent : null;
+}
+
+function cardValue(i) {
+  const nodes = document.querySelectorAll('#goals-screen .gl-card-value');
+  return nodes[i] ? nodes[i].textContent : null;
+}
+
+// The catalogue stub — getSeries feeds wordCount lookups and last-chapter
+// detection; goBack is counted for the navigation test. Installed before any
+// events fire; goals.js reaches for window.Catalogue at fold time, never at
+// parse time, so a runtime stub is enough.
+let goBackCalls = 0;
+const CAT = {
+  's-txt':  { id: 's-txt', title: 'Text Series', chapters: [
+    { id: 'c1', num: 1, wordCount: 1000 },
+    { id: 'c2', num: 2, wordCount: 2000 },
+    { id: 'c3', num: 3 },                       // finale, wordCount unknown
+  ] },
+  's-dec':  { id: 's-dec', title: 'Decimal Finale', chapters: [
+    { id: 'd1',   num: 1 },
+    { id: 'd271', num: 271 },
+    { id: 'dfin', num: 271.5 },                 // the decimal finale — num equality would never match
+  ] },
+  's-dec2': { id: 's-dec2', title: 'Period Dedupe', chapters: [
+    { id: 'f1', num: 1 },
+    { id: 'f2', num: 2 },
+  ] },
+  's-img':  { id: 's-img', title: 'Image Series', chapters: [ { id: 'i1', num: 1 } ] },
+  's-x':    { id: 's-x', title: 'Excluded Series', chapters: [ { id: 'x1', num: 1, wordCount: 1000 } ] },
+};
+window.Catalogue = {
+  getSeries: function (id) { return CAT[id] || null; },
+  listSeries: function () { return Object.keys(CAT).map(function (k) { return CAT[k]; }); },
+  goBack: function () { goBackCalls++; },
+};
+
+window.__done = (async function main() {
+  await window.__cleanup;
+
+  // ── Init + cold-boot timer discard ─────────────────────────────────────────
+  await until(function () {
+    const s = window.Goals && st();
+    return s && s.today && s.today.loaded;
+  }, 'init: today loaded');
+  assertEq(st().today.day, '2027-01-15', 'init: fake clock pinned today to 2027-01-15');
+  assertEq(st().timer, null, 'cold boot: expired or.timer discarded (no resumed countdown)');
+  assertEq(localStorage.getItem('or.timer'), null, 'cold boot: expired or.timer removed from localStorage');
+
+  // Chime observability: toast() always rebuilds the text node, so childList
+  // mutations count chimes exactly.
+  let toastCount = 0;
+  const toastEl = document.querySelector('.gl-toast');
+  assert(!!toastEl, 'toast element exists on <body>');
+  if (toastEl) new MutationObserver(function () { toastCount++; }).observe(toastEl, { childList: true });
+
+  // ── API surface (§5.2 — exactly this) ─────────────────────────────────────
+  const keys = Object.keys(window.Goals).sort();
+  assertEq(JSON.stringify(keys), JSON.stringify(['close', 'openScreen', 'startTimer', 'state', 'stopTimer']),
+    'window.Goals is exactly {openScreen, close, startTimer, stopTimer, state}');
+  keys.forEach(function (k) { assertEq(typeof window.Goals[k], 'function', 'Goals.' + k + ' is a function'); });
+
+  // ── DOM presence + modal discipline ───────────────────────────────────────
+  const screen = document.getElementById('goals-screen');
+  assert(!!screen, '#goals-screen built at init');
+  assertEq(getComputedStyle(screen).display, 'none', '#goals-screen hidden until opened');
+  const pill = document.getElementById('gl-pill');
+  assert(!!pill, '#gl-pill built at init');
+  assert(pill.classList.contains('gl-hidden'), 'pill hidden off the reader screens');
+  const sheet = document.querySelector('#goals-screen .gl-sheet');
+  assert(!!sheet && sheet.hidden && sheet.inert, 'sheet starts hidden + inert');
+  assertEq(sheet.getAttribute('role'), 'dialog', 'sheet is role=dialog');
+
+  window.Goals.openScreen();
+  assertEq(document.body.dataset.screen, 'goals-screen', 'openScreen shows the goals screen (fallback path)');
+  const customize = document.querySelector('#goals-screen .gl-header .gl-icon-btn[aria-label="Customize goals"]');
+  assert(!!customize, 'customize button present');
+  customize.click();
+  assert(!sheet.hidden && !sheet.inert, 'sheet opens interactive');
+  assert(document.querySelector('#goals-screen .gl-header').inert === true, 'backdrop inert while the sheet is open');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  assert(sheet.hidden && sheet.inert, 'Escape closes the sheet (hidden + inert again)');
+  window.Goals.close();
+  assertEq(goBackCalls, 1, 'close() delegates to Catalogue.goBack()');
+  document.body.dataset.screen = 'home-screen';
+  await sleep(80); // let the screen observer settle
+
+  // ── Folding: words, clamping, baseline reset (§5.1) ───────────────────────
+  fireProgress('s-txt', { chapterId: 'c1', pct: 0.5, completed: false });
+  assertEq(st().today.words, 0, 'first sight of a chapter folds nothing positional (baseline reset)');
+  fireProgress('s-txt', { chapterId: 'c1', pct: 0.7, completed: false });
+  assertEq(st().today.words, 200, 'pct .5→.7 × wordCount 1000 folds 200 words');
+  fireProgress('s-txt', { chapterId: 'c1', pct: 0.6, completed: false });
+  assertEq(st().today.words, 200, 'backward pct jump clamps to 0, never negative');
+  fireProgress('s-txt', { chapterId: 'c2', pct: 0.9, completed: false });
+  assertEq(st().today.words, 200, 'chapter switch resets the baseline and folds nothing');
+  fireProgress('s-txt', { chapterId: 'c2', pct: 0.95, completed: false });
+  assertEq(st().today.words, 300, 'post-switch delta folds against the new baseline (+100)');
+  assert(st().today.seriesTouched.indexOf('s-txt') !== -1, 'seriesTouched records the series');
+
+  // Missing wordCount: deltas fold 0 words.
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.2, completed: false });
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.5, completed: false });
+  assertEq(st().today.words, 300, 'unknown wordCount contributes 0 words');
+
+  // Chapter completion + book finish (c3 IS the finale of s-txt).
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.5, completed: true });
+  assertEq(st().today.chaptersCompleted, 1, 'completed false→true counts the chapter once');
+  assert(st().today.booksFinished.indexOf('s-txt') !== -1, 'finishing the last chapter finishes the book');
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.6, completed: true });
+  assertEq(st().today.chaptersCompleted, 1, 'already-completed chapter does not re-count');
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.6, completed: false });
+  fireProgress('s-txt', { chapterId: 'c3', pct: 0.7, completed: true });
+  assertEq(st().today.chaptersCompleted, 1, 'per-day set blocks a re-flip of the same chapter');
+  assertEq(st().today.booksFinished.filter(function (b) { return b === 's-txt'; }).length, 1,
+    'book finish recorded exactly once today');
+
+  // Decimal finale: num 271.5 over chapterCount 271 — only chapterId equality
+  // can catch it.
+  fireProgress('s-dec', { chapterId: 'dfin', chapterNum: 271.5, chapterCount: 271, pct: 1, completed: true });
+  assert(st().today.booksFinished.indexOf('s-dec') !== -1, 'decimal-finale book finish via chapterId equality');
+  fireProgress('s-dec', { chapterId: 'dfin', chapterNum: 271.5, chapterCount: 271, pct: 1, completed: true });
+  assertEq(st().today.booksFinished.filter(function (b) { return b === 's-dec'; }).length, 1,
+    'decimal finale not double-counted');
+
+  // Fallback path: series unknown to the catalogue → chapterNum === chapterCount.
+  fireProgress('nf', { chapterId: 'z9', chapterNum: 12, chapterCount: 12, pct: 1, completed: true });
+  assert(st().today.booksFinished.indexOf('nf') !== -1, 'num===count fallback fires only without a series object');
+
+  // ── Folding: image pages (rolling-baseline clamp) ─────────────────────────
+  fireProgress('s-img', { chapterId: 'i1', pct: 0, pageIdx: 0, completed: false });
+  fireProgress('s-img', { chapterId: 'i1', pct: 0.2, pageIdx: 5, completed: false });
+  assertEq(st().today.pages, 5, 'pageIdx 0→5 folds 5 pages');
+  fireProgress('s-img', { chapterId: 'i1', pct: 0.1, pageIdx: 3, completed: false });
+  assertEq(st().today.pages, 5, 'backward pageIdx clamps to 0');
+  fireProgress('s-img', { chapterId: 'i1', pct: 0.3, pageIdx: 6, completed: false });
+  assertEq(st().today.pages, 8, 'delta folds against the rolling previous pageIdx (3→6 = +3)');
+
+  // ── Folding: or:upload-progress under the upload: identity (§6.3) ─────────
+  fireUpload('k1', { pagesDelta: 5, chaptersDelta: 1, completed: false });
+  assertEq(st().today.pages, 13, 'upload pagesDelta folds');
+  assertEq(st().today.chaptersCompleted, 2, 'upload chaptersDelta folds');
+  assert(st().today.seriesTouched.indexOf('upload:k1') !== -1, 'uploads touch under upload:<key>');
+  fireUpload('k1', { pagesDelta: 0, chaptersDelta: 0, completed: true });
+  assert(st().today.booksFinished.indexOf('upload:k1') !== -1, 'upload completion finishes under upload:<key>');
+  fireUpload('k1', { pagesDelta: 0, chaptersDelta: 0, completed: true });
+  assertEq(st().today.booksFinished.filter(function (b) { return b === 'upload:k1'; }).length, 1,
+    'upload finish counted exactly once');
+  fireUpload('k1', { pagesDelta: -3, chaptersDelta: -1, completed: true });
+  assertEq(st().today.pages, 13, 'negative upload deltas clamp to 0');
+  assertEq(st().today.chaptersCompleted, 2, 'negative upload chaptersDelta clamps to 0');
+
+  // ── Session engine: screen + visibility + flush ───────────────────────────
+  document.body.dataset.screen = 'novel-screen';
+  await until(function () { return st().session.reading === true; }, 'reader screen starts the session clock');
+  assert(!pill.classList.contains('gl-hidden'), 'pill visible on a reader screen');
+  const secBefore = st().today.seconds;
+  await sleep(2300);
+  assert(st().today.seconds >= secBefore + 2, 'two visible seconds accrue ~2s',
+    String(st().today.seconds - secBefore));
+
+  // Per-series exclusion stops folds AND the clock (§5.1).
+  window.Store.prefs.setFor('s-x', 'goals.include', false);
+  const wordsBeforeX = st().today.words;
+  fireProgress('s-x', { chapterId: 'x1', pct: 0.1, completed: false });
+  fireProgress('s-x', { chapterId: 'x1', pct: 0.5, completed: false });
+  assertEq(st().today.words, wordsBeforeX, 'excluded series folds nothing');
+  assertEq(st().session.reading, false, 'excluded series pauses the session clock');
+  window.Store.prefs.setFor('s-x', 'goals.include', true);
+  fireProgress('s-x', { chapterId: 'x1', pct: 0.6, completed: false });  // baseline reset (events were skipped)
+  assertEq(st().session.reading, true, 're-including resumes the clock');
+  fireProgress('s-x', { chapterId: 'x1', pct: 0.7, completed: false });
+  assertEq(st().today.words, wordsBeforeX + 100, 're-included series folds again (+100)');
+
+  // Master switch: no tracking, no pill.
+  window.Store.prefs.set('goals.enabled', false);
+  assertEq(st().session.reading, false, 'goals.enabled=false stops the clock');
+  assert(pill.classList.contains('gl-hidden'), 'goals.enabled=false hides the pill');
+  const wordsOff = st().today.words;
+  fireProgress('s-txt', { chapterId: 'c2', pct: 1, completed: true });
+  assertEq(st().today.words, wordsOff, 'disabled goals fold nothing');
+  window.Store.prefs.set('goals.enabled', true);
+  await until(function () { return st().session.reading === true; }, 're-enabling resumes the clock');
+
+  // Leaving the reader flushes to the store.
+  document.body.dataset.screen = 'home-screen';
+  await until(function () { return st().session.reading === false; }, 'leaving the reader stops the clock');
+  await until(async function () {
+    const r = await window.Store.getDayLog('2027-01-15');
+    return r && Math.round(r.words) === 300 + 100 && r.pages === 13;
+  }, 'flush-on-close persisted words=400 pages=13');
+
+  // ── Idle cutoff (fake-clock-compressed minute) ────────────────────────────
+  window.Store.prefs.set('goals.idleCutoff', 1);
+  document.body.dataset.screen = 'novel-screen';
+  await until(function () { return st().session.reading === true; }, 'clock runs again for the idle drill');
+  window.__advanceClock(61000); // a silent minute; the stale-span guard keeps it out of the seconds
+  await until(function () { return st().session.idle === true && st().session.reading === false; },
+    'a minute with no input pauses the clock');
+  document.dispatchEvent(new Event('pointerdown'));
+  await until(function () { return st().session.idle === false && st().session.reading === true; },
+    'input resumes the clock from idle');
+  window.Store.prefs.set('goals.idleCutoff', 5);
+
+  // ── Timer autostart on reader open ────────────────────────────────────────
+  window.Store.prefs.set('goals.timer.autostart', true);
+  window.Store.prefs.set('goals.timer.minutes', 30);
+  document.body.dataset.screen = 'home-screen';
+  await sleep(80);
+  document.body.dataset.screen = 'novel-screen';
+  await until(function () { const t = st().timer; return !!t && t.minutes === 30; },
+    'autostart begins the pref-length countdown when a reader opens');
+  window.Goals.stopTimer();
+  window.Store.prefs.set('goals.timer.autostart', false);
+  window.Store.prefs.set('goals.timer.minutes', 20);
+  document.body.dataset.screen = 'home-screen';
+  await sleep(80);
+
+  // ── Pref validation, observed through the rendered target ─────────────────
+  window.Store.prefs.set('goals.timeTarget', 3);
+  await until(function () { return cardValue(0) === '0 / 5 min'; }, 'timeTarget 3 clamps to 5 (validated on read)');
+  window.Store.prefs.set('goals.timeTarget', 'x');
+  await until(function () { return cardValue(0) === '0 / 20 min'; }, 'non-numeric timeTarget falls back to 20');
+  window.Store.prefs.set('goals.timeTarget', 20);
+
+  // ── Countdown timer: wall-clock, chime-once, mirror (§5.1) ────────────────
+  window.Goals.startTimer(10);
+  let t = st().timer;
+  assert(!!t && t.minutes === 10, 'startTimer(10) runs');
+  let mirror = null;
+  try { mirror = JSON.parse(localStorage.getItem('or.timer')); } catch (e) {}
+  assert(mirror && mirror.deadline === t.deadline && mirror.minutes === 10,
+    'or.timer mirrors {deadline, minutes}');
+  window.__advanceClock(5 * 60000);
+  t = st().timer;
+  assert(t && t.remainingMs <= 5 * 60000 && t.remainingMs > 4.8 * 60000,
+    'remaining time recomputes from the wall clock, not accumulated ticks', String(t && t.remainingMs));
+  window.Goals.stopTimer();
+  assertEq(st().timer, null, 'stopTimer clears the countdown');
+  assertEq(localStorage.getItem('or.timer'), null, 'stopTimer clears the mirror');
+
+  const chimesBefore = toastCount;
+  window.Goals.startTimer(0.03); // 1.8 s — the argument path is deliberately unclamped for tests
+  await until(function () { return st().timer === null; }, 'timer expires at zero', 5000);
+  await until(function () { return toastCount === chimesBefore + 1; }, 'chime fires at zero', 2000);
+  await sleep(1500);
+  assertEq(toastCount, chimesBefore + 1, 'chime fires exactly once per deadline');
+  assertEq(localStorage.getItem('or.timer'), null, 'expired timer removed from the mirror');
+
+  // Expiry discovered by a wall-clock jump — the expired-while-hidden path:
+  // the recompute happens against deadline − now, and the chime fires once on
+  // the tick/resume that discovers it.
+  window.Goals.startTimer(0.05); // 3 s
+  window.__advanceClock(60000);
+  await until(function () { return st().timer === null; }, 'deadline that passed off-screen expires on discovery');
+  assertEq(toastCount, chimesBefore + 2, 'expired-while-hidden chime fires once on discovery');
+
+  // Chime pref off → silent expiry.
+  window.Store.prefs.set('goals.timer.chime', false);
+  window.Goals.startTimer(0.02);
+  await until(function () { return st().timer === null; }, 'timer with chime off still expires');
+  assertEq(toastCount, chimesBefore + 2, 'goals.timer.chime=false silences the chime');
+  window.Store.prefs.set('goals.timer.chime', true);
+
+  // ── Streak math incl. schedule rules (§5.1) ───────────────────────────────
+  // Seeded history: Fri 08, Mon 11 … Thu 14 met; the weekend 09/10 has no
+  // rows. Today (Fri 15) already holds reading from the fold tests.
+  await window.Store.putDayLog('2027-01-08', { seconds: 1500 });
+  await window.Store.putDayLog('2027-01-11', { seconds: 1500 });
+  await window.Store.putDayLog('2027-01-12', { seconds: 1500 });
+  await window.Store.putDayLog('2027-01-13', { seconds: 1500 });
+  await window.Store.putDayLog('2027-01-14', { seconds: 1500, booksFinished: ['s-dec2'] });
+
+  window.Store.prefs.set('goals.streakRule', 'any');
+  window.Store.prefs.set('goals.schedule', 'weekdays');
+  await until(function () { return st().streak === 6; },
+    'weekday schedule skips the weekend without breaking (6)');
+  window.Store.prefs.set('goals.schedule', 'everyday');
+  await until(function () { return st().streak === 5; },
+    'everyday schedule breaks on the empty Sunday (5)');
+  window.Store.prefs.set('goals.streakRule', 'target'); // target 20 min; today has seconds < 1200
+  await until(function () { return st().streak === 4; },
+    'target rule: unmet today is skipped, not breaking (4)');
+  window.Store.prefs.set('goals.schedule', 'weekdays');
+  await until(function () { return st().streak === 5; },
+    'target rule + weekday schedule (5)');
+  window.Store.prefs.set('goals.streakRule', 'any');
+  window.Store.prefs.set('goals.schedule', 'custom');
+  window.Store.prefs.set('goals.scheduleDays', 'abc');
+  await until(function () { return st().streak === 5; },
+    'invalid scheduleDays validates back to everyday (5)');
+  window.Store.prefs.set('goals.scheduleDays', '1111100');
+  await until(function () { return st().streak === 6; },
+    'custom Mon–Fri behaves like the weekday schedule (6)');
+  window.Store.prefs.set('goals.schedule', 'everyday');
+
+  // ── Books deduped across days within the period (§5.1) ────────────────────
+  // 's-dec2' was finished on the 14th (seeded). Today: 's-txt', 's-dec',
+  // 'nf', 'upload:k1' → 5 distinct finishes this month.
+  await until(function () { return statValue(3) === '5'; }, 'books-this-period counts the seeded finish (5)');
+  fireProgress('s-dec2', { chapterId: 'f2', pct: 1, completed: true });
+  assertEq(st().today.booksFinished.indexOf('s-dec2'), -1,
+    'a series finished earlier in the period is not re-counted today');
+  await sleep(200);
+  assertEq(statValue(3), '5', 'books count unchanged after the deduped finale');
+
+  // ── Day rollover ──────────────────────────────────────────────────────────
+  window.dispatchEvent(new Event('pagehide')); // flush whatever is pending
+  await until(async function () {
+    const r = await window.Store.getDayLog('2027-01-15');
+    return r && Math.round(r.words) === 400 && r.pages === 13 && r.seconds >= 2;
+  }, 'pre-rollover flush persisted the day');
+
+  window.__advanceClock(24 * 3600 * 1000);
+  await until(function () {
+    const s = st().today;
+    return s && s.day === '2027-01-16' && s.loaded;
+  }, 'tick rolls the day over to 2027-01-16', 5000);
+  assertEq(st().today.words, 0, 'new day starts with zero words');
+  assertEq(st().today.pages, 0, 'new day starts with zero pages');
+  assertEq(st().today.chaptersCompleted, 0, 'new day starts with zero chapters');
+  const old = await window.Store.getDayLog('2027-01-15');
+  assert(old && Math.round(old.words) === 400, 'yesterday kept its words after rollover');
+  assert(old && old.booksFinished && old.booksFinished.indexOf('s-txt') !== -1
+    && old.booksFinished.indexOf('upload:k1') !== -1, 'yesterday kept its finished books');
+
+  // A same-chapter fold lands on the NEW day.
+  fireProgress('s-txt', { chapterId: 'c1', pct: 0.1, completed: false });
+  fireProgress('s-txt', { chapterId: 'c1', pct: 0.2, completed: false });
+  assertEq(st().today.words, 100, 'post-rollover folds land on the new day');
+
+  // ── Cleanup: this origin is also the dev origin ───────────────────────────
+  try {
+    if (window.__prefsSnapshot.prefs === null) localStorage.removeItem('or.prefs');
+    else localStorage.setItem('or.prefs', window.__prefsSnapshot.prefs);
+    if (window.__prefsSnapshot.series === null) localStorage.removeItem('or.prefs.series');
+    else localStorage.setItem('or.prefs.series', window.__prefsSnapshot.series);
+    localStorage.removeItem('or.timer');
+  } catch (e) {}
+  try { await window.Store.clearDayLogs(); } catch (e) {}
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const s = document.getElementById('summary');
+  s.textContent = results.failed === 0
+    ? 'ALL GREEN — ' + results.passed + ' assertions'
+    : results.failed + ' FAILED / ' + results.passed + ' passed';
+  s.className = results.failed === 0 ? 'pass' : 'fail';
+  document.title = (results.failed === 0 ? 'PASS' : 'FAIL') + ' — Goals test harness';
+  return results;
+})();
+</script>
+</body>
+</html>

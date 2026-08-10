@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deliberately empty: the plugin needs no permissions, no components, no
+     network. It only touches files inside the app's own container. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+</manifest>

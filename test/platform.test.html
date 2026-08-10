@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Platform — test harness</title>
+  <style>
+    body { margin: 0; padding: 12px; background: #0a0a0a; color: #f0f0f0;
+           font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    #log { white-space: pre-wrap; }
+    .pass { color: #34d399; }
+    .fail { color: #f0616d; }
+    #summary { margin-top: 10px; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<h1>window.Platform — web-fallback assertions</h1>
+<div id="log"></div>
+<div id="summary"></div>
+
+<!-- Contract load order has platform.js BEFORE store.js (index.html §2), and
+     the bridge must be loadable standalone — so it goes first here, with
+     nothing at all in front of it. store.js follows only because the
+     platform.memoryClass override test needs the real prefs facade. -->
+<script src="../js/platform.js"></script>
+<script src="../js/store.js"></script>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tiny harness. Every assertion is a line in the log; Playwright (or a human)
+// reads window.__results / #summary. No framework, same as the app.
+// ─────────────────────────────────────────────────────────────────────────────
+const results = { passed: 0, failed: 0, lines: [] };
+window.__results = results;
+
+function report(ok, label, detail) {
+  const div = document.createElement('div');
+  div.className = ok ? 'pass' : 'fail';
+  div.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label + (ok || detail == null ? '' : '  — got: ' + detail);
+  document.getElementById('log').appendChild(div);
+  results[ok ? 'passed' : 'failed']++;
+  results.lines.push(div.textContent);
+}
+
+function assert(cond, label, detail) { report(!!cond, label, detail); }
+
+function assertEq(actual, expected, label) {
+  report(Object.is(actual, expected), label, JSON.stringify(actual) + ' (wanted ' + JSON.stringify(expected) + ')');
+}
+
+// Deep-equal for the small flat tuning rows — key count plus per-key identity.
+function assertRow(actual, expected, label) {
+  let ok = actual && typeof actual === 'object'
+    && Object.keys(actual).length === Object.keys(expected).length;
+  if (ok) for (const k in expected) { if (!Object.is(actual[k], expected[k])) { ok = false; break; } }
+  report(ok, label, JSON.stringify(actual));
+}
+
+// The §9 table, restated independently so a typo in platform.js cannot
+// silently agree with itself.
+const ROWS = {
+  low:  { memoryWindow: 12, cacheWindow: 30, lookBehind: 2, lookAhead: 6,  maxLoadedChapters: 6,  chapterCacheMB: 100, pageCacheMB: 200 },
+  mid:  { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10, maxLoadedChapters: 10, chapterCacheMB: 200, pageCacheMB: 400 },
+  high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600 },
+};
+
+window.__done = (async function main() {
+  const P = window.Platform;
+
+  // ── Identity ──────────────────────────────────────────────────────────────
+  assert(!!P, 'window.Platform exists');
+  assertEq(P.isNative, false, 'isNative is false on the plain web');
+  assertEq(P.os, 'web', "os is 'web'");
+
+  // ready must already be settled: on the web it is created without awaiting
+  // anything, so a then-callback lands one microtask after registration —
+  // ahead of this async function's own next continuation.
+  let readyFlag = false;
+  P.ready.then(function () { readyFlag = true; });
+  await Promise.resolve();
+  assert(readyFlag, 'ready resolves in the same microtask on web');
+
+  // ── API surface (PLAN.md §2.2 + §5.2 + §6.1) ─────────────────────────────
+  ['appVersion', 'confirm', 'haptic', 'memoryClass', 'tuning',
+   'pickFiles', 'readPickedFile', 'pageUrl', 'onAppUrlOpen'].forEach(function (m) {
+    assertEq(typeof P[m], 'function', 'Platform.' + m + ' is a function');
+  });
+  ['canNotify', 'scheduleDaily', 'cancelDaily'].forEach(function (m) {
+    assertEq(typeof P.notify[m], 'function', 'Platform.notify.' + m + ' is a function');
+  });
+  ['list', 'extract'].forEach(function (m) {
+    assertEq(typeof P.zip[m], 'function', 'Platform.zip.' + m + ' is a function');
+  });
+  ['importFromUri', 'save', 'read', 'remove', 'releasePages', 'prunePageCache', 'usage', 'migrateBlob']
+    .forEach(function (m) {
+      assertEq(typeof P.archives[m], 'function', 'Platform.archives.' + m + ' is a function');
+    });
+  ['write', 'readLatest'].forEach(function (m) {
+    assertEq(typeof P.backup[m], 'function', 'Platform.backup.' + m + ' is a function');
+  });
+
+  // ── Core web fallbacks ────────────────────────────────────────────────────
+  assertEq(await P.appVersion(), null, 'appVersion() resolves null on web');
+
+  // confirm() must fall back to window.confirm(message).
+  const origConfirm = window.confirm;
+  let confirmMsg = null;
+  window.confirm = function (m) { confirmMsg = m; return true; };
+  const confirmed = await P.confirm({ title: 'Delete', message: 'Really delete?', okLabel: 'Delete', cancelLabel: 'Keep' });
+  window.confirm = origConfirm;
+  assertEq(confirmed, true, 'confirm() resolves the window.confirm result');
+  assertEq(confirmMsg, 'Really delete?', 'confirm() falls back to window.confirm(message)');
+
+  let hapticThrew = false;
+  try { P.haptic('light'); P.haptic('success'); P.haptic('nonsense'); } catch (e) { hapticThrew = true; }
+  assert(!hapticThrew, 'haptic() is a silent no-op on web (any kind)');
+
+  // ── Reminders stub (§5.2) ─────────────────────────────────────────────────
+  assertEq(P.notify.canNotify(), false, 'notify.canNotify() is false');
+  assertEq(await P.notify.scheduleDaily({ hour: 20, minute: 0, title: 't', body: 'b' }), false,
+    'notify.scheduleDaily() resolves false');
+  assertEq(await P.notify.cancelDaily(), undefined, 'notify.cancelDaily() resolves');
+
+  // ── memoryClass / tuning (§2.2, §9) ───────────────────────────────────────
+  // Snapshot or.prefs so the override tests leave this origin's real
+  // preferences exactly as they were.
+  let prefsBefore = null;
+  try { prefsBefore = localStorage.getItem('or.prefs'); } catch (e) {}
+
+  assertEq(P.memoryClass(), 'mid', "memoryClass() defaults to 'mid' on web");
+  assertRow(P.tuning(), ROWS.mid, 'tuning() returns the §9 mid row by default');
+
+  Store.prefs.set('platform.memoryClass', 'low');
+  assertEq(P.memoryClass(), 'low', 'pref platform.memoryClass=low overrides');
+  assertRow(P.tuning(), ROWS.low, 'tuning() returns the §9 low row under the override');
+
+  Store.prefs.set('platform.memoryClass', 'high');
+  assertRow(P.tuning(), ROWS.high, 'tuning() returns the §9 high row under the override');
+
+  Store.prefs.set('platform.memoryClass', 'banana');
+  assertEq(P.memoryClass(), 'mid', 'an invalid override value falls back to mid (validated on read)');
+
+  Store.prefs.set('platform.memoryClass', 'auto');
+  assertEq(P.memoryClass(), 'mid', "the 'auto' sentinel is not a class — resolution continues to mid");
+
+  // tuning() hands out copies — mutating one must not poison the table.
+  const row = P.tuning();
+  row.memoryWindow = 9999;
+  assertEq(P.tuning().memoryWindow, 25, 'tuning() returns a fresh copy each call');
+
+  try {
+    if (prefsBefore === null) localStorage.removeItem('or.prefs');
+    else localStorage.setItem('or.prefs', prefsBefore);
+  } catch (e) {}
+
+  // ── File picking (§6.1) ───────────────────────────────────────────────────
+  assertEq(await P.pickFiles({ accept: '.cbz,.zip', multiple: true }), null,
+    'pickFiles() resolves null on web (caller falls back to its <input>)');
+  assertEq(await P.readPickedFile({ name: 'a.cbz', size: 3, uri: '/tmp/a.cbz' }), null,
+    'readPickedFile() resolves null on web');
+
+  // ── zip + pageUrl (§6.1) ──────────────────────────────────────────────────
+  assertEq(await P.zip.list({ key: 'abc' }), null, 'zip.list() resolves null on web');
+  assertEq(await P.zip.extract({ key: 'abc' }, ['001.jpg'], 'dir'), null, 'zip.extract() resolves null on web');
+  assertEq(P.pageUrl('pages/dir/001.jpg'), null, 'pageUrl() returns null on web');
+  assertEq(P.pageUrl('pages/../../etc/passwd'), null, 'pageUrl() rejects .. traversal');
+
+  // ── archives (§6.1 + delegation addendum) ─────────────────────────────────
+  // The 64 MB refusal must fire BEFORE the native check, so it is observable
+  // on the web via the warn. A duck-typed blob keeps the test from actually
+  // allocating 65 MB.
+  const bigBlob = { size: 65 * 1024 * 1024 };
+  const warns = [];
+  const origWarn = console.warn;
+  console.warn = function () { warns.push(Array.prototype.join.call(arguments, ' ')); origWarn.apply(console, arguments); };
+  const savedBig = await P.archives.save('too-big', bigBlob);
+  console.warn = origWarn;
+  assertEq(savedBig, null, 'archives.save refuses a >64 MB blob (null)');
+  assert(warns.some(function (w) { return w.indexOf('64 MB') !== -1; }),
+    'archives.save warns about the 64 MB bound', warns.join(' | '));
+
+  const warns2 = [];
+  console.warn = function () { warns2.push(1); origWarn.apply(console, arguments); };
+  const savedSmall = await P.archives.save('small', new Blob(['x']));
+  console.warn = origWarn;
+  assertEq(savedSmall, null, 'archives.save resolves null on web for a small blob too');
+  assertEq(warns2.length, 0, 'the small-blob web fallback does not warn (it is expected, not an error)');
+
+  assertEq(await P.archives.importFromUri('k', 'file:///tmp/a.cbz'), null, 'archives.importFromUri resolves null on web');
+  assertEq(await P.archives.read('k'), null, 'archives.read resolves null on web');
+  assertEq(await P.archives.remove('k'), undefined, 'archives.remove resolves on web');
+  assertEq(await P.archives.releasePages('dir'), undefined, 'archives.releasePages resolves on web');
+
+  const pruned = await P.archives.prunePageCache(0);
+  assert(pruned && pruned.removedDirs === 0 && pruned.bytes === 0,
+    'archives.prunePageCache resolves {removedDirs:0, bytes:0} on web', JSON.stringify(pruned));
+
+  assertEq(await P.archives.usage(), null, 'archives.usage resolves null on web');
+
+  let migrateProgress = 0;
+  const migrated = await P.archives.migrateBlob('k', new Blob(['y']), function () { migrateProgress++; });
+  assertEq(migrated, null, 'archives.migrateBlob resolves null on web');
+  assertEq(migrateProgress, 0, 'migrateBlob reports no progress on web');
+
+  // ── Deep links + backup (§6.1) ────────────────────────────────────────────
+  let urlOpenThrew = false;
+  try { P.onAppUrlOpen(function () {}); } catch (e) { urlOpenThrew = true; }
+  assert(!urlOpenThrew, 'onAppUrlOpen() accepts a listener without throwing on web');
+
+  assertEq(await P.backup.write('{"series":[]}'), false, 'backup.write resolves false on web');
+  assertEq(await P.backup.readLatest(), null, 'backup.readLatest resolves null on web');
+
+  // ── Behavioral guarantees ─────────────────────────────────────────────────
+  // The bridge never registers a service worker; on this harness page nothing
+  // else does either, so any registration would be the bridge's doing.
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations().catch(function () { return []; });
+    const scope = location.href.replace(/[^/]*$/, '');
+    assert(!regs.some(function (r) { return r.scope === scope; }),
+      'platform.js registered no service worker for this page');
+  }
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const s = document.getElementById('summary');
+  s.textContent = results.failed === 0
+    ? 'ALL GREEN — ' + results.passed + ' assertions'
+    : results.failed + ' FAILED / ' + results.passed + ' passed';
+  s.className = results.failed === 0 ? 'pass' : 'fail';
+  document.title = (results.failed === 0 ? 'PASS' : 'FAIL') + ' — Platform test harness';
+  return results;
+})();
+</script>
+</body>
+</html>

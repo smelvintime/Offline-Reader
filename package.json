@@ -1,0 +1,31 @@
+{
+  "name": "offline-reader",
+  "version": "1.0.0",
+  "description": "Native (Capacitor) packaging for the Offline Reader static web app. The web app itself has no build step and none of this is needed to serve it — these dependencies exist only to wrap it into the iOS/Android shells. See docs/mobile/NATIVE_BUILD.md.",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "sync": "bash scripts/sync-www.sh && cap sync",
+    "ios": "npm run sync && cap open ios",
+    "android": "npm run sync && cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/device": "^8.0.3",
+    "@capacitor/dialog": "^8.0.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
+    "@capawesome/capacitor-file-picker": "^8.0.4",
+    "or-zip": "file:native/or-zip"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0"
+  }
+}

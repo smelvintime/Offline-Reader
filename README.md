@@ -23,6 +23,20 @@ python3 -m http.server 8000
 Open `http://localhost:8000`. Five sample series ship with the repo, so there is
 something to read immediately.
 
+## Install as an app
+
+Two ways, depending on how native you want to go:
+
+- **Web app (PWA).** Open the served page and use the browser's install
+  option — "Add to Home Screen" in iOS Safari, "Install app" in Chrome or
+  Edge. The shell is precached by the service worker, so the installed app
+  opens with no network at all.
+- **Native app (iOS / Android).** The same files double as the web layer of a
+  Capacitor app — no build step, no separate codebase; the native projects
+  are generated locally and never committed. The full walkthrough (Xcode,
+  signing, icons, the committed unzip plugin) is in
+  [docs/mobile/NATIVE_BUILD.md](docs/mobile/NATIVE_BUILD.md).
+
 ## What it does
 
 **Three light novel reading modes**, switchable mid-sentence without losing your

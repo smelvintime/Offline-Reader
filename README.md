@@ -78,6 +78,11 @@ way you want to read a breezy web serial.
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.
 
+**Reading goals, streaks and a timer.** Optional daily minutes, chapters and
+books-per-period goals with schedule-aware streaks, a floating session pill,
+and a wall-clock countdown timer — all local, all off by default beyond the
+basics, and the app runs identically if you never open them.
+
 **Offline first.** The app shell is precached, chapters you have opened are kept
 in IndexedDB, and reading progress never needs a network. Open a CBZ or EPUB
 from your device and it works with no server involved at all.
@@ -152,6 +157,8 @@ import a series.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The contract every module is built against — data model, module boundaries, APIs |
 | [docs/CATALOGUE.md](docs/CATALOGUE.md) | Adding your own series to the bundled catalogue, for non-programmers |
 | [docs/HOSTING.md](docs/HOSTING.md) | Why there is no image hosting, and what would change that |
+| [docs/mobile/NATIVE_BUILD.md](docs/mobile/NATIVE_BUILD.md) | Building the iOS/Android apps from a clean checkout |
+| [docs/mobile/TESTING.md](docs/mobile/TESTING.md) | On-device test matrix and the memory verification protocol |
 | [worker/README.md](worker/README.md) | Gateway endpoints, deployment, cost, and limits |
 
 ## Layout
@@ -159,11 +166,14 @@ import a series.
 ```
 index.html          app shell
 js/config.js        deployment settings — the one file you edit to point at a gateway
-js/store.js         IndexedDB: imported series, cached chapters, progress, preferences
+js/platform.js      native bridge — the only module that talks to Capacitor
+js/store.js         IndexedDB: imported series, cached chapters, progress, day logs, preferences
 js/reader.js        image reader (CBZ, manga, manhwa)
 js/novel-reader.js  text reader — the three reading modes
 js/importer.js      add by link, and EPUB/TXT/CBZ import
+js/goals.js         reading goals, streaks and the countdown timer (optional module)
 js/catalogue.js     browsing, routing, chapter resolution
+native/or-zip/      committed Capacitor unzip plugin (the only native code in the repo)
 fonts/              bundled reading faces (SIL OFL — see fonts/LICENSE.md)
 worker/             Cloudflare Worker content gateway
 scraper/            catalogue builder

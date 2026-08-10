@@ -1258,10 +1258,13 @@ async function loadNativeArchives(sources) {
 
   // setKey namespaces this set's archive files and page-cache dirs. Falls back
   // to the raw alnum name when seriesKey() rejects letter-less names, so two
-  // number-titled series can't collide on disk.
-  const setKey = files[0].key
+  // number-titled series can't collide on disk. The manifest branch is stored
+  // data (or.library survives round trips through the native mirror), so path
+  // characters are flattened before the key shapes a filesystem path.
+  const setKey = (files[0].key
     ? (String(files[0].key).split(':')[1] || 'set')
-    : (seriesKey(files[0].name) || files[0].name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'set');
+    : (seriesKey(files[0].name) || files[0].name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'set'))
+    .replace(/[\/\\]/g, '_').replace(/\.{2,}/g, '_');
   nativeCacheDirBase = 'upload-' + setKey;
 
   // ── Phase 1 (native): central-directory listings only ─────────────────────

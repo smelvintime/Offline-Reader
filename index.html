@@ -9,7 +9,9 @@
   <meta name="apple-mobile-web-app-title" content="Offline Reader">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <!-- iOS Safari ignores SVG touch icons and falls back to a page screenshot,
+       so the home-screen icon must be a PNG. -->
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>Offline Reader</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./css/catalogue.css">

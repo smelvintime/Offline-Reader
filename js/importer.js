@@ -1846,7 +1846,11 @@
     // no special case — extraction is idempotent, so we just extract again.
     const P = platform();
     if (P && P.isNative && P.zip && typeof P.zip.extract === 'function' && typeof P.pageUrl === 'function') {
-      const dirKey = seriesId + '/' + chapterId;
+      // Ids come from stored rows, and a restored backup can carry arbitrary
+      // strings — flatten them before they shape a cache path, so containment
+      // never rests on the native side's checks alone.
+      const seg = function (s) { return String(s).replace(/[\/\\]/g, '_').replace(/\.{2,}/g, '_'); };
+      const dirKey = seg(seriesId) + '/' + seg(chapterId);
       const rels = await P.zip.extract({ key: archiveKey }, entries.slice(), dirKey);
       if (rels && rels.length) {
         const urls = [];

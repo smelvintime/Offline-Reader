@@ -346,8 +346,11 @@ function initLibraryList() {
 
 function proxyImageUrl(url) {
   if (!url) return url;
-  // Already-local and data URLs never need the gateway.
+  // Already-local and data URLs never need the gateway. Android's WKWebView
+  // twin serves extracted pages as https://localhost/_capacitor_file_/… —
+  // a local file that only dresses like a remote URL, so it is exempt too.
   if (/^(data:|blob:)/i.test(url) || !/^https?:/i.test(url)) return url;
+  if (/^https:\/\/localhost\/_capacitor_file_\//i.test(url)) return url;
   const gw = window.gatewayUrl ? window.gatewayUrl('/image', { url: url }) : null;
   return gw || url;
 }

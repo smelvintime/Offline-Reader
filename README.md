@@ -10,6 +10,9 @@ your phone with no network at all.
 It is a static progressive web app. No framework, no build step, no accounts, no
 database. Everything you read is stored in your browser.
 
+Accounts may come — the seam for them is in place — but nothing syncs today and
+nothing is uploaded. When that changes, this paragraph changes with it.
+
 ---
 
 ## Try it
@@ -206,6 +209,7 @@ js/goals.js         reading goals, streaks, lifetime totals and the countdown ti
 js/thoughts.js      "depart your thoughts" — end-of-book reflections (optional module)
 js/sources.js       saved sources shelf + browse (optional module)
 js/settings.js      settings screen, app-wide themes, focus, home layout (optional module)
+js/identity.js      account seam — ships device-local only, no server (optional module)
 js/catalogue.js     browsing, routing, chapter resolution
 native/or-zip/      committed Capacitor unzip plugin (the only native code in the repo)
 fonts/              bundled reading faces (SIL OFL — see fonts/LICENSE.md)

@@ -703,6 +703,11 @@
     // inherits, so choosing once dresses the shell AND the books.
     bodyEl.appendChild(focusThemeBlock());
 
+    // Third: where the library lives. Not a question — an answer, given
+    // before they think to worry about it. Guarded on the module so deleting
+    // js/identity.js simply removes the block (§0.5).
+    if (window.Identity) bodyEl.appendChild(focusAccountBlock());
+
     // The tour button renders only when the tutorial actually exists — a
     // catalogue that lost fixture:welcome shows the sheet without a dangling
     // door (§2.1; the validate.js floor guard is the other half).
@@ -784,6 +789,53 @@
     sync();
 
     block.appendChild(grid);
+    return block;
+  }
+
+  /**
+   * The first-run "where does this live" block.
+   *
+   * Written against `Identity.state()` rather than against today's answer, so
+   * the day a provider registers this block starts offering sign-in without
+   * being rewritten. Until then it renders no control at all: a disabled
+   * button that explains itself is still a dead end, and promising an account
+   * that does not exist is the one thing §2.13 forbids.
+   *
+   * Tone is deliberate. This is the reassurance step of an invitation, not a
+   * consent gate — it answers the worry before it is felt and gets out of the
+   * way, which is why it has no buttons and no decision attached.
+   */
+  function focusAccountBlock() {
+    const block = el('div', 'set-account-block');
+    const s = (window.Identity && window.Identity.state) ? window.Identity.state() : null;
+
+    block.appendChild(el('span', 'set-theme-label', 'And your library?'));
+
+    const card = el('div', 'set-account-card');
+    const body = el('p', 'set-account-copy', '');
+
+    if (s && s.signedIn) {
+      body.textContent = 'Signed in' + (s.accountLabel ? ' as ' + s.accountLabel : '') +
+        '. Your shelf follows you between devices.';
+      card.appendChild(body);
+    } else if (s && s.canSignIn) {
+      body.textContent = 'It lives on this device. Sign in whenever you like and your shelf ' +
+        'will follow you between them.';
+      card.appendChild(body);
+      const btn = el('button', 'set-account-btn', 'Sign in');
+      btn.type = 'button';
+      btn.addEventListener('click', function () {
+        window.Identity.signIn().catch(function () { /* provider surfaces its own errors */ });
+      });
+      card.appendChild(btn);
+    } else {
+      // The shipped case: local-only, and honest about it.
+      body.textContent = 'It lives on this device, and nothing here needs an account to read. ' +
+        'You can add one later to carry your shelf between phones — until you ask, nothing leaves.';
+      card.appendChild(body);
+    }
+
+    block.appendChild(card);
     return block;
   }
 

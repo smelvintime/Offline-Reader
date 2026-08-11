@@ -120,6 +120,15 @@
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  /* Snapping must respect the gutter these rows re-pad themselves with.
+     A snap container's snapport is its PADDING box unless scroll-padding says
+     otherwise, so `scroll-snap-align: start` on the children was resting the
+     row at scrollLeft = padding-left — eating the gutter and leaving the first
+     tab/card flush against the physical screen edge. It only showed up once a
+     row actually overflowed, which is why it read as a phone-only bug.
+     Keep these in step with the padding-left/right below. */
+  scroll-padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
+  scroll-padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
 }
 .cat-tabs::-webkit-scrollbar,
 .cat-rail::-webkit-scrollbar { width: 0; height: 0; }

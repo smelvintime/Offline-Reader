@@ -482,6 +482,11 @@
   margin-bottom: 1.75rem;            /* the .cat-section rhythm */
   padding: 0.15rem 0.15rem 0.5rem;
   scroll-snap-type: x proximity;
+  /* Snapport = padding box without this, so the snap rest position would eat
+     the side padding (the .cat-tabs / .cat-rail defect). This rail does not
+     bleed to the screen edge, so the loss is small — but it is the same bug. */
+  scroll-padding-left: 0.15rem;
+  scroll-padding-right: 0.15rem;
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;

@@ -327,9 +327,29 @@ window.__done = (async function main() {
   assertEq(st().today.chaptersCompleted, 2, 'negative upload chaptersDelta clamps to 0');
 
   // ── Session engine: screen + visibility + flush ───────────────────────────
+  // The pill reads the host reader's own chrome class, so the drill needs a
+  // stand-in for #novel-screen. Created before the screen switch so the lazy
+  // observer attaches on the first visibility pass.
+  const novelStub = document.createElement('div');
+  novelStub.id = 'novel-screen';
+  document.body.appendChild(novelStub);
+
   document.body.dataset.screen = 'novel-screen';
   await until(function () { return st().session.reading === true; }, 'reader screen starts the session clock');
-  assert(!pill.classList.contains('gl-hidden'), 'pill visible on a reader screen');
+
+  // Default is off: a reader opening a book gets the book, not a clock.
+  assert(pill.classList.contains('gl-hidden'), 'pill stays down on a reader screen by default');
+
+  // Enabled, it rides the chrome rather than sitting over the prose.
+  window.Store.prefs.set('goals.pill', 'auto');
+  await sleep(120);
+  assert(!pill.classList.contains('gl-hidden'), 'enabled pill shows while the reader chrome is up');
+  novelStub.classList.add('nv-chrome-hidden');
+  await sleep(120);
+  assert(pill.classList.contains('gl-hidden'), 'pill hides when the reader hides its chrome');
+  novelStub.classList.remove('nv-chrome-hidden');
+  await sleep(120);
+  assert(!pill.classList.contains('gl-hidden'), 'pill returns with the chrome');
   const secBefore = st().today.seconds;
   await sleep(2300);
   assert(st().today.seconds >= secBefore + 2, 'two visible seconds accrue ~2s',

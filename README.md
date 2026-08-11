@@ -57,6 +57,12 @@ the text, not a pixel offset.
 nord, forest, light, cream, sepia, tan — plus a **custom** one where you pick
 the background and text colours and the rest of the palette is mixed to match.
 
+The app asks which one you want the first time you open it, and the whole
+thing wears it — shell and books alike. Change it later from the reader and
+the app follows along. Or flip that one switch to **Only this book**, and the
+theme you pick stays with the story in hand: read the ghost story in OLED
+black without dragging your whole shelf into the dark.
+
 Six typefaces, three of which ship with the app rather than hoping your device
 has something suitable:
 
@@ -80,10 +86,14 @@ way you want to read a breezy web serial.
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.
 
 **Reading goals, streaks and a timer.** Optional daily minutes, chapters and
-books-per-period goals with schedule-aware streaks, a floating session pill,
-a wall-clock countdown timer, and a lifetime ledger of everything you have
-read — all local, all off by default beyond the basics, and the app runs
-identically if you never open them.
+books-per-period goals with schedule-aware streaks, a wall-clock countdown
+timer, and a lifetime ledger of everything you have read — all local, all off
+by default beyond the basics, and the app runs identically if you never open
+them.
+
+Nothing hovers over the page while you read. The session pill is off until you
+ask for it, and even then it rides up and down with the reader's own controls
+— tap for the header and your time is there, tap again and both are gone.
 
 **Make it yours.** Pick a focus — books, comics, or both — and the defaults
 follow; theme the whole app with the reader's nine palettes (or your own two

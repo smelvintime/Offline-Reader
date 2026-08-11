@@ -769,8 +769,32 @@ window.AppSettings = {
 
 **The app-wide theme engine.** The shell (home, series, upload, importer,
 goals, settings, sources, thoughts screens) is themed with the novel
-reader's own model; the novel reader keeps its independent `novel.theme`,
-and the image reader stays pinned dark (§2.6).
+reader's own model, and the image reader stays pinned dark (§2.6).
+
+**`app.theme` is the baseline; `novel.theme` is the override (binding).**
+The two are no longer independent:
+
+- **Asked once, up front.** The first-run focus sheet (§2.1) carries a
+  second question — the nine **named** palettes as a swatch grid, writing
+  `app.theme` on tap and repainting live through the ordinary
+  `Store.prefs.on` path, so the choice shows its own result. `custom` is
+  deliberately absent there: two colour pickers do not belong in the first
+  thirty seconds. It stays in Settings.
+- **The reader inherits it.** `readPrefs` defaults `theme` to `app.theme`
+  (and `customBg`/`customFg` to `app.customBg`/`app.customFg`), so a reader
+  who chose sepia opens their first book in sepia. A series with its own
+  stored `novel.theme` still wins — inheritance is the DEFAULT, never an
+  override, which is what keeps per-book looks working.
+- **`novel.themeScope` decides where a pick lands.** `app` (default) writes
+  the per-series theme *and* pushes `app.theme`, re-theming the shell;
+  `series` writes the per-series theme only, leaving the shell alone. The
+  scope is global, not per-series — it describes how the picker behaves,
+  not how one book looks. Switching *to* `app` also pushes the book's
+  current theme immediately, since asking to match is itself the request.
+  Custom colours follow the same scope, and carry `app.theme: custom` with
+  them (a colour the shell is not wearing would be ignored).
+- The scope control renders under the swatch grid with a line of prose,
+  because a reader has no way to guess a per-book look is on offer.
 
 - At **parse time** settings.js reads `app.theme` (+ custom colors) via
   `Store.prefs`, sets `document.documentElement.dataset.apptheme` and, for
@@ -1042,7 +1066,8 @@ renders after the series is gone. A deliberate non-cascade.
 | `novel.lineHeight`    | number, 1.3–2.2                                | novel-reader |
 | `novel.width`         | `narrow` \| `normal` \| `wide` \| `full`       | novel-reader |
 | `novel.align`         | `left` \| `justify`                            | novel-reader |
-| `novel.theme`         | `dark` \| `dim` \| `black` \| `light` \| `cream` \| `sepia` \| `tan` \| `nord` \| `forest` \| `custom` | novel-reader |
+| `novel.theme`         | `dark` \| `dim` \| `black` \| `light` \| `cream` \| `sepia` \| `tan` \| `nord` \| `forest` \| `custom`. **Defaults to `app.theme`** (§2.10) rather than a fixed value — unset means "wear what the shell wears"; a stored per-series value still wins | novel-reader |
+| `novel.themeScope`    | `app` \| `series` (default `app`). **Global, never per-series.** `app` = a theme picked in the reader also writes `app.theme`; `series` = the pick stays with that book. Switching to `app` pushes the book's current theme out at once | novel-reader |
 | `novel.paraSpacing`   | `tight` \| `normal` \| `loose`                 | novel-reader |
 | `novel.indent`        | boolean                                        | novel-reader |
 | `novel.letterSpacing` | em number, 0–0.24                              | novel-reader |
@@ -1064,7 +1089,7 @@ renders after the series is gone. A deliberate non-cascade.
 | `goals.timer.minutes` | int `5..180` (default `20`)                    | goals        |
 | `goals.timer.autostart` | boolean (default `false`)                    | goals        |
 | `goals.timer.chime`   | boolean (default `true`)                       | goals        |
-| `goals.pill`          | `auto` \| `off` (default `auto`)               | goals        |
+| `goals.pill`          | `auto` \| `off` (default **`off`**). `auto` means **with the reader's chrome**, not "always up": the pill shows only while the host reader is showing its own header (`#novel-screen` without `nv-chrome-hidden`, or `#reader-header` without `ui-hidden`), watched with a `MutationObserver` so a tap lands in the same frame. A missing chrome node reads as "no chrome" and keeps the pill down | goals |
 | `goals.idleCutoff`    | int minutes `1..30` (default `5`)              | goals        |
 | `goals.reminder.enabled` | boolean (default `false`; UI only when `Platform.notify.canNotify()`) | goals |
 | `goals.reminder.time` | string `/^([01]\d\|2[0-3]):[0-5]\d$/` (default `20:00`) | goals |

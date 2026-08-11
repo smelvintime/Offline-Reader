@@ -753,6 +753,20 @@
 
 .nv-pickers { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 .nv-pickers[hidden] { display: none; }
+
+/* Where a theme pick lands. Separated from the swatches by a hairline because
+   it governs them rather than being one more choice among them. */
+.nv-theme-scope {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--nv-border);
+}
+.nv-theme-note {
+  margin: 0.45rem 0 0;
+  color: var(--nv-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
 .nv-picker {
   flex: 1 1 8rem;
   min-height: 44px;

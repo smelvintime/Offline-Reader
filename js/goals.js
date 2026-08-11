@@ -299,7 +299,9 @@
       timerMinutes:   readInt('goals.timer.minutes', 20, 5, 180),
       timerAutostart: readBool('goals.timer.autostart', false),
       timerChime:     readBool('goals.timer.chime', true),
-      pill:           readEnum('goals.pill', ['auto', 'off'], 'auto'),
+      // Off by default: a reader opening a book wants the book, not a clock.
+      // 'auto' no longer means "always up" — see updatePillVisibility().
+      pill:           readEnum('goals.pill', ['auto', 'off'], 'off'),
       idleCutoff:     readInt('goals.idleCutoff', 5, 1, 30),
       reminderOn:     readBool('goals.reminder.enabled', false),
       reminderTime:   readPattern('goals.reminder.time', TIME_RE, '20:00'),
@@ -1142,11 +1144,59 @@
     return !!(pillUi.root && !pillUi.root.classList.contains('gl-hidden'));
   }
 
-  // Visibility is managed on data-screen changes only (§5.2) — the pill does
-  // not chase the readers' chrome auto-hide.
+  // Is the host reader currently showing its own chrome?
+  //
+  // Each reader owns a different hide mechanism, so this reads whichever one
+  // belongs to the screen we are on and never assumes both exist: the novel
+  // reader toggles `nv-chrome-hidden` on its root, the image reader slides
+  // #reader-header out with `ui-hidden`. A missing node reads as "no chrome",
+  // which keeps the pill down rather than floating it over bare prose.
+  function readerChromeVisible() {
+    const screen = bodyScreen();
+    if (screen === 'novel-screen') {
+      const root = document.getElementById('novel-screen');
+      return !!root && !root.classList.contains('nv-chrome-hidden');
+    }
+    if (screen === 'reader-screen') {
+      const header = document.getElementById('reader-header');
+      return !!header && !header.classList.contains('ui-hidden');
+    }
+    return false;
+  }
+
+  // The readers hide their chrome without telling anyone, so watch the class
+  // that does it. A 1 Hz poll would lag a tap by up to a second; an observer
+  // lands in the same frame. Attached lazily because #novel-screen is built by
+  // novel-reader.js and does not exist at boot, and only once per node.
+  const chromeObserved = new WeakSet();
+  let chromeObserver = null;
+
+  function ensureChromeObserver() {
+    if (typeof MutationObserver !== 'function') return;
+    if (!chromeObserver) {
+      chromeObserver = new MutationObserver(function () { updatePillVisibility(); });
+    }
+    const nodes = [
+      document.getElementById('novel-screen'),
+      document.getElementById('reader-header'),
+    ];
+    nodes.forEach(function (n) {
+      if (!n || chromeObserved.has(n)) return;
+      chromeObserved.add(n);
+      chromeObserver.observe(n, { attributes: true, attributeFilter: ['class'] });
+    });
+  }
+
+  // Visibility follows the data-screen change AND the host reader's chrome
+  // (§5.2): the pill rides up and down with the header the reader already
+  // taps for, so nothing floats over the text while they are actually reading.
   function updatePillVisibility() {
     if (!pillUi.root) return;
-    const show = trackingOn() && cfg().pill !== 'off' && READER_SCREENS[bodyScreen()] === true;
+    ensureChromeObserver();
+    const show = trackingOn()
+      && cfg().pill !== 'off'
+      && READER_SCREENS[bodyScreen()] === true
+      && readerChromeVisible();
     pillUi.root.classList.toggle('gl-hidden', !show);
     if (!show && pillUi.more && !pillUi.more.hidden) {
       pillUi.more.hidden = true;
@@ -1697,10 +1747,14 @@
       function (c) { return c.timerChime; },
       function (v) { setGoalPref('goals.timer.chime', v); }));
 
+    // 'With controls' rather than 'Auto': the label should say what it does,
+    // and what it does is ride up and down with the reader's own chrome.
     body.appendChild(segRow('In-reader pill', [
-      { value: 'auto', label: 'Auto' },
       { value: 'off',  label: 'Off' },
+      { value: 'auto', label: 'With controls' },
     ], function (c) { return c.pill; }, function (v) { setGoalPref('goals.pill', v); }));
+    body.appendChild(el('p', 'gl-row-note',
+      'Off keeps the page clear. With controls shows your time and timer alongside the reader’s header, and hides again when it does.'));
 
     body.appendChild(stepRow('Idle cutoff', {
       get: function (c) { return c.idleCutoff; },

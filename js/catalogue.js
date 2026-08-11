@@ -795,6 +795,16 @@
     if (!same) {
       want.forEach(function (n) { dom.homeBody.appendChild(n); });
     }
+    // The colophon (the AGPL §13 source offer) is index.html-native and sits
+    // last in the markup, but the re-parenting above appends the five sections
+    // AFTER it — which floated it up under the tab strip. It is a footer, so it
+    // is re-appended here to stay the final child whatever order the sections
+    // take. Cheap and idempotent: appendChild on a node already last is a no-op
+    // move, and the guard keeps it out of the common path entirely.
+    const colophon = dom.homeBody.querySelector(':scope > .colophon');
+    if (colophon && dom.homeBody.lastElementChild !== colophon) {
+      dom.homeBody.appendChild(colophon);
+    }
   }
 
   function buildTabs() {

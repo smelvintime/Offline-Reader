@@ -348,10 +348,16 @@
   font-variant-numeric: tabular-nums;
   min-width: 4.5rem;
 }
-#goals-screen .gl-off-note {
+#goals-screen .gl-off-note,
+#goals-screen .gl-row-note {
   color: var(--gl-muted);
   font-size: 0.82rem;
   line-height: 1.5;
+}
+/* A note explaining the row above it, so it hangs off that row rather than
+   floating between two of them. */
+#goals-screen .gl-row-note {
+  margin: -0.35rem 0 0.9rem;
 }
 
 /* ── Customize sheet — the novel settings-sheet geometry, goals-owned ─────── */

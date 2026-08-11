@@ -697,6 +697,12 @@
     cards.appendChild(focusCard('both', 'Both', 'The whole shelf, side by side.'));
     bodyEl.appendChild(cards);
 
+    // Second question: the look. Asked here because the theme a reader wants
+    // is the first thing they notice and the last thing they think to go
+    // hunting for in Settings. It also becomes the baseline the novel reader
+    // inherits, so choosing once dresses the shell AND the books.
+    bodyEl.appendChild(focusThemeBlock());
+
     // The tour button renders only when the tutorial actually exists — a
     // catalogue that lost fixture:welcome shows the sheet without a dangling
     // door (§2.1; the validate.js floor guard is the other half).
@@ -730,6 +736,55 @@
     focusUi.scrim = scrim;
     focusUi.sheet = sheet;
     focusUi.firstCard = first;
+  }
+
+  /**
+   * The first-run theme grid.
+   *
+   * Named palettes only — `custom` needs two colour pickers and a reason to
+   * care, neither of which belongs in the thirty seconds before someone has
+   * read anything. It stays available in Settings.
+   *
+   * Writes `app.theme` on tap and lets the ordinary Store.prefs.on path
+   * repaint, so the sheet re-themes under the reader's finger: the choice
+   * shows its own result, which is the whole argument for asking here.
+   */
+  function focusThemeBlock() {
+    const block = el('div', 'set-theme-block');
+    block.appendChild(el('span', 'set-theme-label', 'And how should it look?'));
+
+    const grid = el('div', 'set-themes');
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', 'App theme');
+
+    const buttons = THEME_SWATCHES.map(function (t) {
+      const b = el('button', 'set-swatch');
+      b.type = 'button';
+      b.dataset.value = t[0];
+      b.setAttribute('aria-label', t[1]);
+      b.title = t[1];
+      b.style.background = t[2];
+      b.style.color = t[3];
+      b.appendChild(el('span', 'set-swatch-aa', 'Aa'));
+      b.appendChild(el('span', 'set-swatch-name', t[1]));
+      b.addEventListener('click', function () {
+        prefSet('app.theme', t[0]);
+        sync();
+      });
+      grid.appendChild(b);
+      return b;
+    });
+
+    function sync() {
+      const active = readTheme().theme;
+      buttons.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === active));
+      });
+    }
+    sync();
+
+    block.appendChild(grid);
+    return block;
   }
 
   // aria-modal only claims the rest of the page is unavailable; making the

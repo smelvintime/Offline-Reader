@@ -262,13 +262,18 @@ html[data-apptheme='custom'][data-applum='light'] {
 #settings-screen .set-seg button:active { transform: scale(0.97); }
 
 /* ── Theme swatch grid — the novel themeRow design ───────────────────────── */
+/* Shared by the settings screen and the first-run sheet: the same grid asks
+   the same question in both places, so it is one set of rules rather than a
+   copy that can drift. */
 
-#settings-screen .set-themes {
+#settings-screen .set-themes,
+.set-focus-sheet .set-themes {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
   gap: 0.35rem;
 }
-#settings-screen .set-swatch {
+#settings-screen .set-swatch,
+.set-focus-sheet .set-swatch {
   position: relative;
   min-height: 56px;
   display: flex;
@@ -283,16 +288,34 @@ html[data-apptheme='custom'][data-applum='light'] {
   overflow: hidden;
   transition: border-color var(--set-dur), transform 0.1s;
 }
-#settings-screen .set-swatch:active { transform: scale(0.97); }
-#settings-screen .set-swatch[aria-pressed='true'] {
+#settings-screen .set-swatch:active,
+.set-focus-sheet .set-swatch:active { transform: scale(0.97); }
+#settings-screen .set-swatch[aria-pressed='true'],
+.set-focus-sheet .set-swatch[aria-pressed='true'] {
   border-color: var(--set-accent);
   box-shadow: 0 0 0 2px var(--set-accent);
 }
-#settings-screen .set-swatch-aa { font-size: 0.95rem; font-weight: 800; }
-#settings-screen .set-swatch-name { font-size: 0.6rem; font-weight: 700; opacity: 0.75; }
+#settings-screen .set-swatch-aa,
+.set-focus-sheet .set-swatch-aa { font-size: 0.95rem; font-weight: 800; }
+#settings-screen .set-swatch-name,
+.set-focus-sheet .set-swatch-name { font-size: 0.6rem; font-weight: 700; opacity: 0.75; }
 /* Custom carries the reader's own pair as its background once chosen; before
    that it still needs to look like a button. */
-#settings-screen .set-swatch-custom { background: var(--set-surf); }
+#settings-screen .set-swatch-custom,
+.set-focus-sheet .set-swatch-custom { background: var(--set-surf); }
+
+/* The sheet's own framing for the grid: a quiet heading and a little air, so
+   it reads as a second question under "What do you read?". */
+.set-focus-sheet .set-theme-block { margin-top: 1.1rem; }
+.set-focus-sheet .set-theme-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--set-muted);
+}
 
 #settings-screen .set-pickers {
   display: flex;

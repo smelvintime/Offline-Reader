@@ -254,6 +254,72 @@
     } catch (e) { /* prefs are not worth throwing over */ }
   }
 
+  // Global (never per-series) read/write, for the app-wide theme keys. The
+  // reader's own settings are per-series by design; `app.theme` is the one
+  // thing it can push out to the whole shell, so it needs a door past
+  // storeGet/storeSet's series scoping.
+  function appGet(key, fallback) {
+    try {
+      if (!window.Store) return fallback;
+      return window.Store.prefs.get(key, fallback);
+    } catch (e) { return fallback; }
+  }
+  function appSet(key, value) {
+    try {
+      if (window.Store) window.Store.prefs.set(key, value);
+    } catch (e) { /* prefs are not worth throwing over */ }
+  }
+
+  // The reader's baseline look is whatever the shell is wearing (§2.9): a
+  // reader who picked "sepia" at first run opens their first book in sepia
+  // rather than the old hardcoded dark. This is only the DEFAULT — a series
+  // with its own stored theme still wins, which is what keeps per-book looks
+  // working. `custom` carries its colours across too, or inheriting it would
+  // hand the reader someone else's two colours.
+  function inheritedTheme() {
+    const t = appGet('app.theme', DEFAULTS.theme);
+    return THEMES.indexOf(t) !== -1 ? t : DEFAULTS.theme;
+  }
+
+  // Where a theme pick lands. 'app' (the default) re-themes the whole shell as
+  // well as this book, which is what most readers mean when they change the
+  // look. 'series' keeps the pick to the book in hand — the spooky-novel case:
+  // read one thing dark without dragging the rest of the app there.
+  //
+  // Global, not per-series: it describes how the picker behaves, not how this
+  // book looks. Otherwise "only this book" would itself be a per-book setting,
+  // which is the kind of recursion nobody asked for.
+  const THEME_SCOPES = ['app', 'series'];
+  const THEME_SCOPE_KEY = 'novel.themeScope';
+
+  function themeScope() {
+    const v = appGet(THEME_SCOPE_KEY, 'app');
+    return THEME_SCOPES.indexOf(v) !== -1 ? v : 'app';
+  }
+
+  /**
+   * Apply a theme pick at the scope the reader chose.
+   *
+   * The per-series write happens either way, so the book always shows what was
+   * just tapped; 'app' additionally pushes to `app.theme`, which settings.js
+   * picks up through its Store.prefs.on gate and repaints the shell.
+   */
+  function setThemeChoice(value) {
+    setPref('theme', value, false);
+    if (themeScope() === 'app') appSet('app.theme', value);
+  }
+
+  /** The custom colours follow the same scope as the theme they belong to. */
+  function setCustomColour(key, value) {
+    setPref(key, value, false);
+    if (themeScope() !== 'app') return;
+    appSet(key === 'customBg' ? 'app.customBg' : 'app.customFg', value);
+    // A custom colour is meaningless to the shell unless it is also wearing
+    // the custom theme, so carry that across rather than writing a colour the
+    // shell will ignore.
+    if (state.prefs.theme === 'custom') appSet('app.theme', 'custom');
+  }
+
   // The canonical text of a block. Used for both character offsets and word
   // counts, and it must equal the element's DOM textContent character-for-
   // character or anchors drift — see the render functions below.
@@ -694,7 +760,7 @@
       b.style.color = t[3];
       b.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
       b.appendChild(el('span', 'nv-swatch-name', t[1]));
-      b.addEventListener('click', function () { setPref('theme', t[0], false); });
+      b.addEventListener('click', function () { setThemeChoice(t[0]); });
       grid.appendChild(b);
       return b;
     });
@@ -708,7 +774,7 @@
     custom.title = 'Custom colours';
     custom.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
     custom.appendChild(el('span', 'nv-swatch-name', 'Custom'));
-    custom.addEventListener('click', function () { setPref('theme', 'custom', false); });
+    custom.addEventListener('click', function () { setThemeChoice('custom'); });
     grid.appendChild(custom);
     buttons.push(custom);
 
@@ -718,11 +784,47 @@
     // there is nothing for them to change otherwise.
     const pickers = el('div', 'nv-pickers');
     const bgField = colorField('Background', function () { return state.prefs.customBg; },
-      function (v) { setPref('customBg', v, false); });
+      function (v) { setCustomColour('customBg', v); });
     const fgField = colorField('Text', function () { return state.prefs.customFg; },
-      function (v) { setPref('customFg', v, false); });
+      function (v) { setCustomColour('customFg', v); });
     pickers.append(bgField.el, fgField.el);
     row.appendChild(pickers);
+
+    // Where the next pick lands. Sits under the swatches because it changes
+    // what they do, and carries a line of prose because a reader has no way to
+    // guess that a per-book look is on offer.
+    const scopeWrap = el('div', 'nv-theme-scope');
+    const scope = el('div', 'nv-seg');
+    scope.setAttribute('role', 'group');
+    scope.setAttribute('aria-label', 'Apply theme to');
+    const scopeBtns = [
+      ['app', 'Whole app'],
+      ['series', 'Only this book'],
+    ].map(function (o) {
+      const b = el('button', null, o[1]);
+      b.type = 'button';
+      b.dataset.value = o[0];
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () {
+        appSet(THEME_SCOPE_KEY, o[0]);
+        // Switching to "whole app" is itself a request to match, so push the
+        // book's current theme out rather than waiting for another tap.
+        if (o[0] === 'app') {
+          appSet('app.theme', state.prefs.theme);
+          if (state.prefs.theme === 'custom') {
+            appSet('app.customBg', state.prefs.customBg);
+            appSet('app.customFg', state.prefs.customFg);
+          }
+        }
+        syncSheet();
+      });
+      scope.appendChild(b);
+      return b;
+    });
+    scopeWrap.appendChild(scope);
+    const scopeNote = el('p', 'nv-theme-note', '');
+    scopeWrap.appendChild(scopeNote);
+    row.appendChild(scopeWrap);
 
     sheetSync.push(function (p) {
       buttons.forEach(function (b) {
@@ -733,6 +835,13 @@
       pickers.hidden = p.theme !== 'custom';
       bgField.sync();
       fgField.sync();
+      const sc = themeScope();
+      scopeBtns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === sc));
+      });
+      scopeNote.textContent = sc === 'app'
+        ? 'Themes you pick here dress the whole app.'
+        : 'Themes you pick here stay with this book — handy when one story wants a darker room than the rest of your shelf.';
     });
 
     return row;
@@ -1074,13 +1183,15 @@
       lineHeight:  round2(clamp(num(storeGet(PREF_KEY.lineHeight, DEFAULTS.lineHeight), DEFAULTS.lineHeight), LH_MIN, LH_MAX)),
       width:       oneOf(storeGet(PREF_KEY.width, DEFAULTS.width), WIDTHS, DEFAULTS.width),
       align:       oneOf(storeGet(PREF_KEY.align, DEFAULTS.align), ALIGNS, DEFAULTS.align),
-      theme:       oneOf(storeGet(PREF_KEY.theme, DEFAULTS.theme), THEMES, DEFAULTS.theme),
+      theme:       oneOf(storeGet(PREF_KEY.theme, inheritedTheme()), THEMES, inheritedTheme()),
       paraSpacing: oneOf(storeGet(PREF_KEY.paraSpacing, DEFAULTS.paraSpacing), PARAS, DEFAULTS.paraSpacing),
       indent:      !!storeGet(PREF_KEY.indent, DEFAULTS.indent),
       letterSpacing: round2(clamp(num(storeGet(PREF_KEY.letterSpacing, DEFAULTS.letterSpacing), DEFAULTS.letterSpacing), LS_MIN, LS_MAX)),
       wordSpacing:   round2(clamp(num(storeGet(PREF_KEY.wordSpacing, DEFAULTS.wordSpacing), DEFAULTS.wordSpacing), WS_MIN, WS_MAX)),
-      customBg:    hexColor(storeGet(PREF_KEY.customBg, DEFAULTS.customBg), DEFAULTS.customBg),
-      customFg:    hexColor(storeGet(PREF_KEY.customFg, DEFAULTS.customFg), DEFAULTS.customFg),
+      // Custom colours inherit alongside the custom theme itself, so a shell
+      // set to custom does not open books in a stranger's palette.
+      customBg:    hexColor(storeGet(PREF_KEY.customBg, appGet('app.customBg', DEFAULTS.customBg)), DEFAULTS.customBg),
+      customFg:    hexColor(storeGet(PREF_KEY.customFg, appGet('app.customFg', DEFAULTS.customFg)), DEFAULTS.customFg),
     };
     state.prefs = p;
     state.mode = p.mode;

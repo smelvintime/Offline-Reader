@@ -8,6 +8,14 @@
  * Tokens mirror styles.css (--bg/--surf/--border/--accent/--text/--muted) but
  * are re-declared locally with fallbacks: this UI has to look right even on a
  * page that never defined them (the test harness loads it that way).
+ * Phase 7 (§2.9): the goals-screen tokens now point at the app-theme derived
+ * layer (--surf-1/--surf-2/--border-soft/--accent-ink/--ok/--warn/--danger,
+ * defined by css/settings.css under html[data-apptheme]) with their previous
+ * literals as fallbacks — no attribute set, or settings.js deleted, and every
+ * value resolves to exactly what shipped before. The floating pill and the
+ * toast are the exception: they ride over READER surfaces, which theme
+ * themselves (the image reader is pinned dark), so their colours are pinned
+ * dark below rather than following the shell theme.
  *
  * Blur budget: ZERO backdrop-filter in this file. The readers already spend
  * the two concurrent blur layers the GPU budget allows (styles.css:280-282),
@@ -22,26 +30,40 @@
 .gl-toast {
   --gl-bg:          var(--bg, #0a0a0a);
   --gl-surf:        var(--surf, rgba(255, 255, 255, 0.08));
-  --gl-surf-1:      rgba(255, 255, 255, 0.04);
-  --gl-surf-2:      rgba(255, 255, 255, 0.12);
+  --gl-surf-1:      var(--surf-1, rgba(255, 255, 255, 0.04));
+  --gl-surf-2:      var(--surf-2, rgba(255, 255, 255, 0.12));
   --gl-border:      var(--border, rgba(255, 255, 255, 0.1));
-  --gl-border-soft: rgba(255, 255, 255, 0.06);
+  --gl-border-soft: var(--border-soft, rgba(255, 255, 255, 0.06));
   --gl-accent:      var(--accent, #6366f1);
-  --gl-accent-ink:  #a5b4fc;
+  --gl-accent-ink:  var(--accent-ink, #a5b4fc);
   --gl-accent-soft: rgba(99, 102, 241, 0.14);
   --gl-accent-line: rgba(99, 102, 241, 0.42);
   --gl-text:        var(--text, #f0f0f0);
   --gl-muted:       var(--muted, #a0a0a0);
-  --gl-ok:          #34d399;               /* met goals — the .cat-ok green family */
+  --gl-ok:          var(--ok, #34d399);    /* met goals — the .cat-ok green family */
   --gl-ok-soft:     rgba(52, 211, 153, 0.16);
-  --gl-warn:        #e8b23a;
-  --gl-danger:      #f0616d;
+  --gl-warn:        var(--warn, #e8b23a);
+  --gl-danger:      var(--danger, #f0616d);
   --gl-r:           10px;                  /* house card radius */
   --gl-r-sm:        8px;                   /* nested / segments */
   --gl-r-lg:        14px;                  /* panels — nothing past this but the sheet top */
   --gl-tap:         44px;                  /* the floor for a finger */
   --gl-dur:         150ms;
   --gl-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Floating chrome is pinned dark (§2.9 doctrine: reading surfaces are
+   reader-themed, and the pill/toast float over them on their hard-coded
+   0.92-dark backgrounds — see #gl-pill and .gl-toast below). The re-pointed
+   tokens above must not flip these to a light shell theme's ink, or the text
+   would vanish into the dark capsule. Same specificity, later rule wins. */
+#gl-pill,
+.gl-toast {
+  --gl-text:       #f0f0f0;
+  --gl-muted:      #a0a0a0;
+  --gl-border:     rgba(255, 255, 255, 0.1);
+  --gl-accent-ink: #a5b4fc;
+  --gl-ok:         #34d399;
 }
 
 /* ── Screen shell ─────────────────────────────────────────────────────────── */
@@ -79,8 +101,9 @@
   padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
   padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
   border-bottom: 1px solid var(--gl-border);
-  /* Solid, not glass — see the blur-budget note in the header. */
-  background: rgba(10, 10, 10, 0.92);
+  /* Solid, not glass — see the blur-budget note in the header. Follows the
+     app theme (§2.9); the old literal is the no-theme fallback. */
+  background: var(--bg, rgba(10, 10, 10, 0.92));
 }
 
 #goals-screen .gl-title {
@@ -165,6 +188,18 @@
 /* A met daily goal turns its tile's number green — state via attribute, so JS
    writes one dataset flag and this sheet does the rest. */
 #goals-screen .gl-stat[data-met='true'] .gl-stat-value { color: var(--gl-ok); }
+
+/* ── All-time ledger (§2.3) — survives "Reset goal history" ───────────────── */
+
+/* Reuses the .gl-stats tile grammar (and the .gl-card-label heading style)
+   wholesale; only the "since" line is its own. */
+#goals-screen .gl-lifetime-since {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--gl-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── Cards + thin goal bars ───────────────────────────────────────────────── */
 
@@ -570,7 +605,7 @@
   -webkit-tap-highlight-color: transparent;
   transition: background 150ms;
 }
-#goals-home-slot .gl-home-strip:active { background: rgba(255, 255, 255, 0.12); transform: scale(0.99); }
+#goals-home-slot .gl-home-strip:active { background: var(--surf-2, rgba(255, 255, 255, 0.12)); transform: scale(0.99); }
 #goals-home-slot .gl-home-main { flex: 1 1 auto; min-width: 0; }
 #goals-home-slot .gl-home-line {
   display: flex;
@@ -587,11 +622,11 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-mins { color: #34d399; }
+#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-mins { color: var(--ok, #34d399); }
 #goals-home-slot .gl-home-track {
   height: 3px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surf, rgba(255, 255, 255, 0.08));
   overflow: hidden;
 }
 #goals-home-slot .gl-home-bar {
@@ -601,7 +636,7 @@
   background: var(--accent, #6366f1);
   transition: width 0.2s ease;
 }
-#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-bar { background: #34d399; }
+#goals-home-slot .gl-home-strip[data-met='true'] .gl-home-bar { background: var(--ok, #34d399); }
 #goals-home-slot .gl-home-chev { flex-shrink: 0; color: var(--muted, #a0a0a0); display: flex; }
 
 /* ── Toast ────────────────────────────────────────────────────────────────── */
@@ -659,7 +694,7 @@
   #goals-screen .gl-toggle:hover,
   #goals-screen .gl-actions button:hover { background: var(--gl-surf-2); }
   #gl-pill .gl-pill-btn:hover { opacity: 1; }
-  #goals-home-slot .gl-home-strip:hover { background: rgba(255, 255, 255, 0.12); }
+  #goals-home-slot .gl-home-strip:hover { background: var(--surf-2, rgba(255, 255, 255, 0.12)); }
 }
 
 /* ── Reduced motion ───────────────────────────────────────────────────────── */

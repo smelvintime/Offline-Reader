@@ -1,10 +1,16 @@
 // extract.js — the site-agnostic heuristics both generic adapters share.
 //
-// Three jobs, each a separate exported entry point:
+// Four jobs, each a separate exported entry point:
 //
 //   1. pickProseContainer  — readability-style "which element holds the prose?"
 //   2. findTocCluster      — "which group of same-shaped links is the chapter list?"
 //   3. findImageRun        — "which container holds the longest run of page images?"
+//   4. findListingCluster  — "which group of same-shaped links is a series listing?"
+//
+// 2 and 4 are the same structural problem — the largest group of same-shaped
+// links — with a different *text prior*, so both are thin wrappers over the
+// shared `findLinkCluster` core (the prior is pluggable; chapter-ish scoring
+// for the TOC, cover-presence scoring for listings).
 //
 // Everything here is a *guess*. Each function returns a `confidence` of
 // high/medium/low alongside whatever it found, and callers are expected to
@@ -269,17 +275,98 @@ function commonPrefixRatio(hrefs) {
 }
 
 /**
- * Find the largest group of same-shaped links whose text looks chapter-ish.
+ * The chapter-flavoured text prior — the classic TOC scoring, unchanged.
+ * `pre` multiplies the score before the nav/pagination penalties, `post` after,
+ * preserving the exact multiplication order of the pre-refactor code so
+ * existing fixtures score bit-identically.
+ */
+function tocPrior(uniq) {
+  const chapterish =
+    uniq.filter((e) => CHAPTER_TEXT.test(e.text) || BARE_NUMBER.test(e.text)).length / uniq.length;
+  const numbered =
+    uniq.filter((e) => parseChapterNum(e.text, e.href) !== null).length / uniq.length;
+  return {
+    pre: 0.35 + 0.65 * chapterish,
+    post: 0.5 + 0.5 * numbered,
+    stats: { chapterish, numbered },
+  };
+}
+
+/**
+ * Per-entry "card" detection: each entry's card is the highest ancestor (below
+ * the cluster container) that holds no OTHER entry — the per-item unit of a
+ * listing grid. `ancestorAt(levels - 1)` is NOT that: at deeper grouping
+ * levels it resolves to the shared grid, which would hand every item the same
+ * first cover.
+ */
+function cardsFor(entries, container) {
+  const counts = new Map(); // ancestor node -> how many entries it contains
+  for (const e of entries) {
+    for (let n = e.node; n && n !== container; n = n.parent) {
+      counts.set(n, (counts.get(n) || 0) + 1);
+    }
+  }
+  return entries.map((e) => {
+    let card = e.node;
+    for (let n = e.node; n && n !== container; n = n.parent) {
+      if ((counts.get(n) || 0) > 1) break;
+      card = n;
+    }
+    return card;
+  });
+}
+
+/** Memoized "does this subtree contain an <img>?" — keeps the prior O(n). */
+function subtreeHasImage(node, memo) {
+  if (!isElement(node)) return false;
+  const hit = memo.get(node);
+  if (hit !== undefined) return hit;
+  let r = node.tag === 'img' || node.tag === 'image';
+  if (!r) {
+    for (const c of node.children) {
+      if (subtreeHasImage(c, memo)) {
+        r = true;
+        break;
+      }
+    }
+  }
+  memo.set(node, r);
+  return r;
+}
+
+/**
+ * The listing-flavoured text prior: reward a cover image inside each link's
+ * card; no chapter-text reward. (Count and href-prefix similarity are
+ * rewarded by the shared core; the nav-word penalty is kept.)
+ */
+function listingPrior(uniq, { container }, memo) {
+  const cards = cardsFor(uniq, container);
+  const coverish = cards.filter((card) => subtreeHasImage(card, memo)).length / uniq.length;
+  return { pre: 0.55 + 0.45 * coverish, post: 1, stats: { coverish } };
+}
+
+/**
+ * Shared core: find the best-scoring group of same-shaped links.
  *
  * We try grouping at three ancestor depths because layouts differ:
  *   <ul><li><a>            → the list is 2 levels up
  *   <div><div><span><a>    → the list is 3 levels up
  * and take the best-scoring group across all of them.
  *
- * @returns {{links:Array<{href,text,num,node}>,container,score,confidence}|null}
+ * The text-based part of the score is the pluggable `textPrior(uniq, info)` —
+ * chapter-ish scoring for TOCs (the default), cover-presence for listings.
+ * Structural scoring (count, href-prefix similarity, the nav-word penalty and
+ * the pagination penalty) is shared.
+ *
+ * @param {object} root
+ * @param {string} baseUrl
+ * @param {{minLinks?:number, textPrior?:Function, navPenalty?:boolean}} [opts]
+ * @returns {{entries:Array<{node,href,text}>,container,levels:number,score,stats:object}|null}
  */
-export function findTocCluster(root, baseUrl, opts = {}) {
+export function findLinkCluster(root, baseUrl, opts = {}) {
   const minLinks = opts.minLinks || 3;
+  const textPrior = opts.textPrior || tocPrior;
+  const navPenalty = opts.navPenalty !== false;
   const anchors = byTag(root, 'a');
   if (anchors.length < minLinks) return null;
 
@@ -318,29 +405,37 @@ export function findTocCluster(root, baseUrl, opts = {}) {
         }
         if (uniq.length < minLinks) continue;
 
-        const chapterish =
-          uniq.filter((e) => CHAPTER_TEXT.test(e.text) || BARE_NUMBER.test(e.text)).length /
-          uniq.length;
         const navish = uniq.filter((e) => NAV_TEXT.test(e.text)).length / uniq.length;
         const prefix = commonPrefixRatio(uniq.map((e) => e.href));
+        const prior = textPrior(uniq, { levels, container, shape, baseUrl });
 
-        let score = uniq.length * (0.35 + 0.65 * chapterish) * (0.55 + 0.45 * prefix);
-        score *= 1 - Math.min(0.9, navish); // a menu is mostly nav words
+        let score = uniq.length * prior.pre * (0.55 + 0.45 * prefix);
+        if (navPenalty) score *= 1 - Math.min(0.9, navish); // a menu is mostly nav words
         // Pagination rows also look like "same-shaped links with numbers", so
         // check the whole ancestor path, not just the grouping container.
         if (PAGINATION_CLASS.test(shape) || PAGINATION_CLASS.test(classId(container))) {
           score *= 0.15;
         }
-        const numbered = uniq.filter((e) => parseChapterNum(e.text, e.href) !== null).length;
-        score *= 0.5 + 0.5 * (numbered / uniq.length);
+        score *= prior.post;
 
         if (!best || score > best.score) {
-          best = { entries: uniq, container, score, chapterish, numbered: numbered / uniq.length };
+          best = { entries: uniq, container, levels, score, stats: prior.stats || {} };
         }
       }
     }
   }
 
+  return best;
+}
+
+/**
+ * Find the largest group of same-shaped links whose text looks chapter-ish.
+ * Thin wrapper over `findLinkCluster` with the chapter prior.
+ *
+ * @returns {{links:Array<{href,text,num,node}>,container,score,confidence}|null}
+ */
+export function findTocCluster(root, baseUrl, opts = {}) {
+  const best = findLinkCluster(root, baseUrl, { minLinks: opts.minLinks, textPrior: tocPrior });
   if (!best) return null;
 
   const links = best.entries.map((e) => ({
@@ -350,12 +445,55 @@ export function findTocCluster(root, baseUrl, opts = {}) {
     node: e.node,
   }));
 
+  const { chapterish, numbered } = best.stats;
   let confidence = 'low';
-  if (links.length >= 5 && best.chapterish >= 0.6 && best.numbered >= 0.6) confidence = 'high';
-  else if (links.length >= 3 && (best.chapterish >= 0.3 || best.numbered >= 0.5))
-    confidence = 'medium';
+  if (links.length >= 5 && chapterish >= 0.6 && numbered >= 0.6) confidence = 'high';
+  else if (links.length >= 3 && (chapterish >= 0.3 || numbered >= 0.5)) confidence = 'medium';
 
   return { links, container: best.container, score: best.score, confidence };
+}
+
+/**
+ * Find the group of same-shaped links most likely to be a series listing
+ * (a browse/catalogue page). Thin wrapper over `findLinkCluster` with the
+ * listing prior. Covers come from the first usable `<img>` in each link's
+ * card (lazy-load attributes resolved by blocks.js `imageSrc`); titles from
+ * the link text, trimmed and length-capped.
+ *
+ * @returns {{items:Array<{title,url,cover}>,container,score,confidence}|null}
+ */
+export function findListingCluster(root, baseUrl, opts = {}) {
+  const imgMemo = new Map();
+  const best = findLinkCluster(root, baseUrl, {
+    minLinks: opts.minLinks,
+    textPrior: (uniq, info) => listingPrior(uniq, info, imgMemo),
+  });
+  if (!best) return null;
+
+  const cards = cardsFor(best.entries, best.container);
+  const items = [];
+  best.entries.forEach((e, i) => {
+    const title = e.text.replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!title) return; // a listing item without a name is unusable
+    items.push({ title, url: e.href, cover: cardCover(cards[i], baseUrl) });
+  });
+  if (!items.length) return null;
+
+  const coverish = best.stats.coverish || 0;
+  let confidence = 'low';
+  if (items.length >= 8 && coverish >= 0.5) confidence = 'high';
+  else if (items.length >= 4) confidence = 'medium';
+
+  return { items, container: best.container, score: best.score, confidence };
+}
+
+/** First usable image URL inside the entry's card, absolutized; '' when none. */
+function cardCover(card, baseUrl) {
+  for (const img of findAll(card, (n) => n.tag === 'img' || n.tag === 'image')) {
+    const src = absolutize(imageSrc(img), baseUrl);
+    if (src) return src;
+  }
+  return '';
 }
 
 /** Small local text getter that avoids importing getText's options everywhere. */

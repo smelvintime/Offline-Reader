@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Thoughts — test harness</title>
+  <link rel="stylesheet" href="../css/thoughts.css">
+  <style>
+    body { margin: 0; padding: 12px; background: #0a0a0a; color: #f0f0f0;
+           font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    #log { white-space: pre-wrap; }
+    .pass { color: #34d399; }
+    .fail { color: #f0616d; }
+    #summary { margin-top: 10px; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<h1>window.Thoughts — store round-trip (incl. fallback), XSS inertness, book-finish gating</h1>
+<div id="log"></div>
+<div id="summary"></div>
+
+<script src="../js/store.js"></script>
+<script>
+'use strict';
+// Wipe thought rows and the cadence pref left by earlier runs BEFORE the test
+// body runs. thoughts.js reads neither until openScreen / first toggle sync,
+// so awaiting this at the top of main() is early enough.
+window.__cleanup = (async function () {
+  try {
+    const rows = (await window.Store.listThoughts({})) || [];
+    for (const r of rows) await window.Store.deleteThought(r.id);
+  } catch (e) {}
+  try { window.Store.prefs.set('thoughts.chapterPrompt', false); } catch (e) {}
+})();
+</script>
+<script src="../js/thoughts.js"></script>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tiny harness — platform.test.html's shape: every assertion is a line in the
+// log; Playwright (or a human) reads window.__results / #summary.
+// ─────────────────────────────────────────────────────────────────────────────
+const results = { passed: 0, failed: 0, lines: [] };
+window.__results = results;
+
+function report(ok, label, detail) {
+  const div = document.createElement('div');
+  div.className = ok ? 'pass' : 'fail';
+  div.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label + (ok || detail == null ? '' : '  — got: ' + detail);
+  document.getElementById('log').appendChild(div);
+  results[ok ? 'passed' : 'failed']++;
+  results.lines.push(div.textContent);
+}
+
+function assert(cond, label, detail) { report(!!cond, label, detail); }
+
+function assertEq(actual, expected, label) {
+  report(Object.is(actual, expected), label, JSON.stringify(actual) + ' (wanted ' + JSON.stringify(expected) + ')');
+}
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+async function until(fn, label, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 3000);
+  for (;;) {
+    let v = null;
+    try { v = await fn(); } catch (e) {}
+    if (v) { report(true, label); return true; }
+    if (Date.now() > deadline) { report(false, label, 'timed out'); return false; }
+    await sleep(50);
+  }
+}
+
+function q(sel) { return document.querySelector(sel); }
+function qa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+
+function setScreen(id) { document.body.dataset.screen = id; }
+
+function fireProgress(seriesId, row) {
+  window.dispatchEvent(new CustomEvent('or:progress', { detail: { seriesId: seriesId, patch: {}, row: row } }));
+}
+
+function chipVisible() {
+  const c = q('.tho-chip');
+  return !!(c && !c.classList.contains('tho-chip-hidden'));
+}
+
+function sheetOpen() {
+  const s = q('.tho-sheet');
+  return !!(s && !s.hidden);
+}
+
+// The catalogue stub — getSeries feeds last-chapter detection and title
+// lookups; goBack is counted for the navigation test. thoughts.js reaches for
+// window.Catalogue at event/save time only, so a runtime stub is enough.
+let goBackCalls = 0;
+const CAT = {
+  's-img':  { id: 's-img',  title: 'Image Series',   chapters: [ { id: 'i1', num: 1 }, { id: 'i2', num: 2 } ] },
+  's-img2': { id: 's-img2', title: 'Image Series 2', chapters: [ { id: 'j1', num: 1 } ] },
+  's-nov':  { id: 's-nov',  title: 'Novel Series',   chapters: [ { id: 'n1', num: 1 }, { id: 'n2', num: 2 } ] },
+  's-dec':  { id: 's-dec',  title: 'Decimal Finale', chapters: [ { id: 'd1', num: 1 }, { id: 'd271', num: 271 }, { id: 'dfin', num: 271.5 } ] },
+};
+window.Catalogue = {
+  getSeries: function (id) { return CAT[id] || null; },
+  listSeries: function () { return Object.keys(CAT).map(function (k) { return CAT[k]; }); },
+  goBack: function () { goBackCalls++; },
+};
+
+// Controllable confirm — the delete flow asks before destroying.
+let confirmAnswer = true;
+const confirmCalls = [];
+window.Platform = {
+  confirm: function (opts) { confirmCalls.push(opts || {}); return Promise.resolve(confirmAnswer); },
+};
+
+// Every or:thoughts-changed detail, in order — the §1.4 contract under test.
+const thoughtEvents = [];
+window.addEventListener('or:thoughts-changed', function (ev) {
+  thoughtEvents.push(ev && ev.detail ? ev.detail : null);
+});
+
+window.__done = (async function main() {
+  await window.__cleanup;
+
+  // ── Boot + API surface ─────────────────────────────────────────────────────
+  await until(function () { return window.Thoughts && document.getElementById('thoughts-screen'); },
+    'module initialized and thoughts-screen built');
+  assert(typeof window.Thoughts.openScreen === 'function'
+      && typeof window.Thoughts.close === 'function'
+      && typeof window.Thoughts.open === 'function',
+    'public API is exactly openScreen / close / open (§2.7)');
+  assert(!q('.tho-chip'), 'chip is built lazily — no DOM until a book ends');
+  assert(!q('.tho-sheet'), 'composer is built lazily — no DOM until first open');
+
+  // ── Empty state ────────────────────────────────────────────────────────────
+  window.Thoughts.openScreen();
+  assertEq(document.body.dataset.screen, 'thoughts-screen', 'openScreen lands on thoughts-screen (harness fallback path)');
+  await until(function () {
+    const e = q('#thoughts-screen .tho-empty');
+    return e && e.textContent === 'When you finish a book, we will ask what it left behind. Nothing yet.';
+  }, 'empty state renders the house copy');
+
+  // ── Navigation: close() delegates to Catalogue.goBack ──────────────────────
+  window.Thoughts.close();
+  assertEq(goBackCalls, 1, 'close() delegates to Catalogue.goBack (importer precedent)');
+
+  // ── Store round-trip (direct — the §1.3 contract) ──────────────────────────
+  const putA = await window.Store.putThought({
+    seriesId: 's-nov', seriesTitle: 'Novel Series', chapterId: null, chapterTitle: null,
+    kind: 'book', text: 'first', createdAt: '2026-01-01T10:00:00.000Z',
+  });
+  assert(putA && /^t-/.test(String(putA.id)), 'putThought mints a t- id when absent');
+  assert(!!putA.updatedAt, 'putThought stamps updatedAt');
+  assertEq(putA.createdAt, '2026-01-01T10:00:00.000Z', 'putThought keeps a provided createdAt');
+
+  const putB = await window.Store.putThought({
+    seriesId: 's-img', seriesTitle: 'Image Series', chapterId: 'i1', chapterTitle: 'One',
+    kind: 'chapter', text: 'second', createdAt: '2026-01-02T10:00:00.000Z',
+  });
+  const listedAll = await window.Store.listThoughts({});
+  assert(listedAll.length === 2 && listedAll[0].id === putB.id && listedAll[1].id === putA.id,
+    'listThoughts({}) lists all, desc by createdAt');
+  const listedSeries = await window.Store.listThoughts({ seriesId: 's-nov' });
+  assert(listedSeries.length === 1 && listedSeries[0].id === putA.id, 'listThoughts filters by seriesId');
+  const listedLimit = await window.Store.listThoughts({ limit: 1 });
+  assert(listedLimit.length === 1 && listedLimit[0].id === putB.id, 'listThoughts honours limit');
+
+  const updated = await window.Store.putThought(Object.assign({}, putA, { text: 'first, revised' }));
+  assertEq(updated.id, putA.id, 'putThought upserts by id');
+  assertEq((await window.Store.listThoughts({})).length, 2, 'upsert did not add a row');
+
+  assertEq(await window.Store.deleteThought('t-not-a-row'), undefined, 'deleteThought on a missing id is a no-op');
+  await window.Store.deleteThought(putA.id);
+  await window.Store.deleteThought(putB.id);
+  assertEq((await window.Store.listThoughts({})).length, 0, 'deleteThought removes rows');
+
+  // ── Composer: save flow, event, toast, XSS payload ─────────────────────────
+  const XSS = '<img src=x onerror="window.__xss=1"><script>window.__xss=2<\/script>';
+  setScreen('home-screen');
+  window.Thoughts.open({ seriesId: 's-nov', seriesTitle: 'Novel Series', chapterId: null, chapterTitle: null, kind: 'book' });
+  assert(sheetOpen(), 'Thoughts.open opens the composer sheet');
+  assertEq(q('.tho-sheet-title').textContent, 'Novel Series', 'composer header is the series title');
+  assert(q('#log').inert === true, 'backdrop is inert while the composer is open');
+
+  const ta = q('.tho-ta');
+  assertEq(ta.getAttribute('maxlength'), '4000', 'textarea caps at 4000 characters');
+  ta.value = XSS;
+  q('.tho-save').click();
+  await until(async function () {
+    const rows = await window.Store.listThoughts({});
+    return rows.length === 1 && rows[0].text === XSS;
+  }, 'save writes the thought through Store.putThought');
+  assert(!sheetOpen(), 'composer closes on save');
+  assert(q('#log').inert === false, 'backdrop inert is restored after close');
+  const savedRows = await window.Store.listThoughts({});
+  const savedId = savedRows[0].id;
+  assert(thoughtEvents.length === 1 && thoughtEvents[0] && thoughtEvents[0].id === savedId,
+    'or:thoughts-changed fired with { id } (§1.4)');
+  assertEq(savedRows[0].kind, 'book', 'book-kind row saved with kind book');
+  assertEq(savedRows[0].chapterId, null, 'book-kind row carries no chapterId');
+
+  const toastBtn = q('.tho-toast');
+  assert(toastBtn && toastBtn.tagName === 'BUTTON' && toastBtn.classList.contains('visible')
+      && toastBtn.textContent === 'Kept. Tap to read your thoughts.',
+    'post-save toast is a tappable button with the §2.7 copy');
+
+  // The settings-free entrance: tapping the toast opens the reading surface.
+  toastBtn.click();
+  assertEq(document.body.dataset.screen, 'thoughts-screen', 'toast tap opens thoughts-screen (no settings.js needed)');
+
+  // ── XSS inertness on the reading surface ───────────────────────────────────
+  await until(function () {
+    const t = q('#thoughts-screen .tho-item-text');
+    return t && t.textContent === XSS;
+  }, 'saved thought renders on the screen');
+  const textEl = q('#thoughts-screen .tho-item-text');
+  assertEq(textEl.children.length, 0, 'thought text created NO elements — markup stays inert text');
+  assertEq(window.__xss, undefined, 'no script/onerror executed from the thought');
+  const groupHead = q('#thoughts-screen .tho-group-title');
+  assert(groupHead && groupHead.textContent === 'Novel Series', 'group header shows the series title');
+
+  // ── Edit round-trip ────────────────────────────────────────────────────────
+  const editBtn = qa('#thoughts-screen .tho-btn').filter(function (b) { return b.textContent === 'Edit'; })[0];
+  assert(!!editBtn, 'row has an Edit action');
+  editBtn.click();
+  assert(sheetOpen() && q('.tho-ta').value === XSS, 'edit reopens the composer prefilled');
+  q('.tho-ta').value = 'edited thought';
+  q('.tho-save').click();
+  await until(async function () {
+    const rows = await window.Store.listThoughts({});
+    return rows.length === 1 && rows[0].text === 'edited thought';
+  }, 'edit saves in place (still one row)');
+  const afterEdit = (await window.Store.listThoughts({}))[0];
+  assertEq(afterEdit.id, savedId, 'edit keeps the id');
+  assertEq(afterEdit.createdAt, savedRows[0].createdAt, 'edit keeps createdAt');
+  assert(thoughtEvents.length === 2 && thoughtEvents[1].id === savedId, 'edit fired or:thoughts-changed { id }');
+
+  // ── Delete: confirm-gated ──────────────────────────────────────────────────
+  await until(function () {
+    return qa('#thoughts-screen .tho-btn-danger').length === 1;
+  }, 'screen re-rendered after the edit (or:thoughts-changed listener)');
+  confirmAnswer = false;
+  qa('#thoughts-screen .tho-btn-danger')[0].click();
+  await sleep(150);
+  assertEq((await window.Store.listThoughts({})).length, 1, 'a declined confirm deletes nothing');
+  confirmAnswer = true;
+  qa('#thoughts-screen .tho-btn-danger')[0].click();
+  await until(async function () {
+    return (await window.Store.listThoughts({})).length === 0;
+  }, 'confirmed delete removes the row');
+  assert(confirmCalls.length === 2 && confirmCalls[1].title === 'Delete thought', 'delete asked its confirm');
+  const delEvent = thoughtEvents[thoughtEvents.length - 1];
+  assert(delEvent && delEvent.deleted === savedId, 'delete fired or:thoughts-changed { deleted: id } (§1.4)');
+  await until(function () { return !!q('#thoughts-screen .tho-empty'); }, 'empty state returns after the last delete');
+
+  // ── Grouping: newest-first, grouped by series, header carries the count ────
+  await window.Store.putThought({ seriesId: 's-nov', seriesTitle: 'Novel Series', chapterId: null,
+    chapterTitle: null, kind: 'book', text: 'alpha-old', createdAt: '2026-02-01T00:00:00.000Z' });
+  await window.Store.putThought({ seriesId: 's-img', seriesTitle: 'Image Series', chapterId: null,
+    chapterTitle: null, kind: 'book', text: 'beta', createdAt: '2026-02-02T00:00:00.000Z' });
+  await window.Store.putThought({ seriesId: 's-nov', seriesTitle: 'Novel Series', chapterId: 'n1',
+    chapterTitle: 'Chapter One', kind: 'chapter', text: 'alpha-new', createdAt: '2026-02-03T00:00:00.000Z' });
+  window.Thoughts.openScreen();
+  await until(function () { return qa('#thoughts-screen .tho-group-head').length === 2; },
+    'two series groups render');
+  const heads = qa('#thoughts-screen .tho-group-head');
+  assertEq(heads[0].querySelector('.tho-group-title').textContent, 'Novel Series',
+    'groups order by their newest thought');
+  assertEq(heads[0].querySelector('.tho-group-count').textContent, '2', 'group header carries the count');
+  const texts = qa('#thoughts-screen .tho-item-text').map(function (n) { return n.textContent; });
+  assert(texts[0] === 'alpha-new' && texts[1] === 'alpha-old' && texts[2] === 'beta',
+    'rows inside a group stay newest-first', JSON.stringify(texts));
+  const kindChips = qa('#thoughts-screen .tho-kind').map(function (n) { return n.textContent; });
+  assert(kindChips[0] === 'Chapter' && kindChips[1] === 'Book', 'kind chips label Book vs Chapter');
+  for (const r of await window.Store.listThoughts({})) await window.Store.deleteThought(r.id);
+
+  // ── Chunking at 100 rows + Show more ───────────────────────────────────────
+  for (let i = 0; i < 105; i++) {
+    await window.Store.putThought({
+      seriesId: 's-nov', seriesTitle: 'Novel Series', chapterId: null, chapterTitle: null,
+      kind: 'book', text: 'bulk ' + i,
+      createdAt: '2026-03-01T00:00:' + String(100 + i).slice(1) + '.' + String(1000 + i).slice(1) + 'Z',
+    });
+  }
+  window.Thoughts.openScreen();
+  await until(function () { return qa('#thoughts-screen .tho-item').length === 100; },
+    'list chunks at 100 rows (DOM ceiling)');
+  const moreBtn = q('#thoughts-screen .tho-more');
+  assert(!!moreBtn && moreBtn.textContent === 'Show more', 'a Show more row follows the chunk');
+  moreBtn.click();
+  await until(function () {
+    return qa('#thoughts-screen .tho-item').length === 105 && !q('#thoughts-screen .tho-more');
+  }, 'Show more reveals the rest and retires itself');
+  for (const r of await window.Store.listThoughts({})) await window.Store.deleteThought(r.id);
+
+  // ── Chapter-cadence toggle (thoughts.chapterPrompt — default off) ──────────
+  const toggle = q('#thoughts-screen .tho-toggle');
+  assert(!!toggle, 'cadence toggle lives on thoughts-screen');
+  assertEq(toggle.getAttribute('aria-pressed'), 'false', 'chapter prompts default OFF');
+  toggle.click();
+  assertEq(window.Store.prefs.get('thoughts.chapterPrompt', null), true, 'toggle writes thoughts.chapterPrompt true');
+  assertEq(toggle.getAttribute('aria-pressed'), 'true', 'toggle reflects the pref');
+  toggle.click();
+  assertEq(window.Store.prefs.get('thoughts.chapterPrompt', null), false, 'toggle writes back to false');
+
+  // ── Book-finish gating (or:progress → chip) ────────────────────────────────
+  // Screen equality is EXACT: novel completion also rides or:progress with
+  // completed true, and must never grow a chip over the novel surface.
+  setScreen('novel-screen');
+  fireProgress('s-nov', { chapterId: 'n2', completed: true });
+  await sleep(100);
+  assert(!q('.tho-chip'), 'NO chip on novel-screen — not even lazily built');
+
+  setScreen('home-screen');
+  fireProgress('s-nov', { chapterId: 'n2', completed: true });
+  await sleep(100);
+  assert(!q('.tho-chip'), 'no chip outside the readers either');
+
+  setScreen('reader-screen');
+  fireProgress('s-img', { chapterId: 'i1', completed: true });
+  await sleep(100);
+  assert(!chipVisible(), 'a completed NON-last chapter shows no chip');
+  fireProgress('s-img', { chapterId: 'i2', completed: false });
+  await sleep(100);
+  assert(!chipVisible(), 'the last chapter without completed shows no chip');
+  fireProgress('s-img', { chapterId: 'i2', completed: true });
+  assert(chipVisible(), 'last chapter + completed on reader-screen shows the chip');
+  assertEq(q('.tho-chip').textContent, 'Depart your thoughts', 'chip carries the §2.7 copy');
+
+  // Auto-dismiss on screen change, and once-per-series-per-session dedupe.
+  setScreen('series-screen');
+  await sleep(50);
+  assert(!chipVisible(), 'chip dismisses on screen change');
+  setScreen('reader-screen');
+  fireProgress('s-img', { chapterId: 'i2', completed: true });
+  await sleep(100);
+  assert(!chipVisible(), 'a re-finish of the same series is deduped for the session');
+
+  // Decimal finale: ID equality against the catalogue, never num arithmetic.
+  fireProgress('s-dec', { chapterId: 'd271', chapterNum: 271, chapterCount: 271, completed: true });
+  await sleep(100);
+  assert(!chipVisible(), 'decimal finale: chapter 271 of 271.5 is NOT the finale (id rule)');
+  fireProgress('s-dec', { chapterId: 'dfin', completed: true });
+  assert(chipVisible(), 'decimal finale: the 271.5 chapter id IS the finale');
+  setScreen('series-screen');
+  await sleep(50);
+
+  // Unknown series: chapterNum === chapterCount is the last resort only.
+  setScreen('reader-screen');
+  fireProgress('s-ghost', { chapterId: 'g5', chapterNum: 5, chapterCount: 5, completed: true });
+  assert(chipVisible(), 'catalogue-less series falls back to chapterNum === chapterCount');
+
+  // Chip tap opens the composer as a book-level thought for that series.
+  setScreen('series-screen');
+  await sleep(50);
+  setScreen('reader-screen');
+  fireProgress('s-img2', { chapterId: 'j1', completed: true });
+  assert(chipVisible(), 'fresh series shows the chip again');
+  q('.tho-chip').click();
+  assert(!chipVisible(), 'chip retires when tapped');
+  assert(sheetOpen(), 'chip tap opens the composer');
+  assertEq(q('.tho-sheet-title').textContent, 'Image Series 2', 'chip composer carries the catalogue title');
+  q('.tho-discard').click();
+  assert(!sheetOpen(), 'Discard closes without saving');
+  assertEq((await window.Store.listThoughts({})).length, 0, 'Discard wrote nothing');
+
+  // Save-on-empty behaves like Discard — an empty thought is not a thought.
+  window.Thoughts.open({ seriesId: 's-img2', seriesTitle: 'Image Series 2', kind: 'book' });
+  q('.tho-ta').value = '   ';
+  q('.tho-save').click();
+  await sleep(150);
+  assert(!sheetOpen(), 'save on whitespace closes the sheet');
+  assertEq((await window.Store.listThoughts({})).length, 0, 'save on whitespace wrote nothing');
+
+  // Guarded open: no seriesId, no sheet.
+  window.Thoughts.open({});
+  assert(!sheetOpen(), 'open without a seriesId is refused');
+
+  // ── Store fallback: the same round-trip with IndexedDB unavailable ─────────
+  // A same-origin about:blank iframe loads a second store.js against a broken
+  // indexedDB, so the in-memory Map table (§0.8) serves the three thought
+  // methods. Built via document.write (not srcdoc) — same-origin in every
+  // browser, and the one iframe technique headless DOM shims also execute.
+  const storeUrl = new URL('../js/store.js', location.href).href;
+  const ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  document.body.appendChild(ifr);
+  const idoc = ifr.contentDocument;
+  idoc.open();
+  idoc.write([
+    '<!DOCTYPE html><meta charset="utf-8"><body><script>',
+    'Object.defineProperty(window, "indexedDB", { value: { open: function () { throw new Error("unavailable"); } } });',
+    '<\/script><script src="' + storeUrl + '"><\/script><script>',
+    '(async function () {',
+    '  try {',
+    '    const put = await window.Store.putThought({ seriesId: "s-fb", seriesTitle: "Fallback",',
+    '      chapterId: null, chapterTitle: null, kind: "book", text: "kept in RAM" });',
+    '    const listed = await window.Store.listThoughts({});',
+    '    const bySeries = await window.Store.listThoughts({ seriesId: "s-fb" });',
+    '    const byOther = await window.Store.listThoughts({ seriesId: "nope" });',
+    '    await window.Store.deleteThought("t-missing");',
+    '    await window.Store.deleteThought(put.id);',
+    '    const after = await window.Store.listThoughts({});',
+    '    window.__fallbackResult = {',
+    '      memory: window.Store.isMemoryOnly(),',
+    '      stamped: !!(put.id && /^t-/.test(put.id) && put.createdAt && put.updatedAt),',
+    '      listed: listed.length === 1 && listed[0].text === "kept in RAM",',
+    '      filtered: bySeries.length === 1 && byOther.length === 0,',
+    '      deleted: after.length === 0,',
+    '    };',
+    '  } catch (e) { window.__fallbackResult = { error: String(e) }; }',
+    '})();',
+    '<\/script>',
+  ].join('\n'));
+  idoc.close();
+  await until(function () { return ifr.contentWindow && ifr.contentWindow.__fallbackResult; },
+    'fallback iframe ran');
+  const fb = (ifr.contentWindow && ifr.contentWindow.__fallbackResult) || {};
+  assert(fb.error == null, 'fallback round-trip threw nothing', fb.error);
+  assertEq(fb.memory, true, 'store fell back to memory mode');
+  assert(fb.stamped, 'fallback putThought stamps id/createdAt/updatedAt');
+  assert(fb.listed, 'fallback listThoughts round-trips the row');
+  assert(fb.filtered, 'fallback listThoughts filters by seriesId');
+  assert(fb.deleted, 'fallback deleteThought removes (and tolerates a missing id)');
+
+  // ── Cleanup: this origin is also the dev origin ───────────────────────────
+  try {
+    for (const r of await window.Store.listThoughts({})) await window.Store.deleteThought(r.id);
+  } catch (e) {}
+  try { window.Store.prefs.set('thoughts.chapterPrompt', false); } catch (e) {}
+  delete document.body.dataset.screen;
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const s = document.getElementById('summary');
+  s.textContent = results.failed === 0
+    ? 'ALL GREEN — ' + results.passed + ' assertions'
+    : results.failed + ' FAILED / ' + results.passed + ' passed';
+  s.className = results.failed === 0 ? 'pass' : 'fail';
+  document.title = (results.failed === 0 ? 'PASS' : 'FAIL') + ' — Thoughts test harness';
+  return results;
+})();
+</script>
+</body>
+</html>

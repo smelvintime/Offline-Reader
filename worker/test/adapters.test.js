@@ -4,7 +4,15 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ADAPTERS, selectAdapter, listAdapters, adapterIds, getAdapter } from '../src/adapters/index.js';
+import {
+  ADAPTERS,
+  selectAdapter,
+  selectListAdapter,
+  listAdapters,
+  adapterIds,
+  getAdapter,
+  isValidAdapter,
+} from '../src/adapters/index.js';
 import * as mangadex from '../src/adapters/mangadex.js';
 import * as genericNovel from '../src/adapters/generic-novel.js';
 import * as genericManga from '../src/adapters/generic-manga.js';
@@ -61,7 +69,27 @@ describe('registry', () => {
       assert.equal(typeof a.matches, 'function');
       assert.equal(typeof a.resolveSeries, 'function');
       assert.equal(typeof a.resolveChapter, 'function');
+      // The two OPTIONAL listing members: absent OR a function, nothing else.
+      assert.ok(a.listSeries === undefined || typeof a.listSeries === 'function');
+      assert.ok(a.listMatches === undefined || typeof a.listMatches === 'function');
     }
+  });
+
+  test('a malformed optional listing member is a boot error', () => {
+    const base = {
+      id: 'x',
+      label: 'x',
+      priority: 50,
+      matches: () => true,
+      resolveSeries: async () => ({}),
+      resolveChapter: async () => ({}),
+    };
+    assert.equal(isValidAdapter(base), true);
+    assert.equal(isValidAdapter({ ...base, listSeries: async () => ({}) }), true);
+    assert.equal(isValidAdapter({ ...base, listMatches: () => true }), true);
+    assert.equal(isValidAdapter({ ...base, listSeries: 42 }), false);
+    assert.equal(isValidAdapter({ ...base, listSeries: 'yes' }), false);
+    assert.equal(isValidAdapter({ ...base, listMatches: {} }), false);
   });
 
   test('ids are unique', () => {
@@ -69,9 +97,10 @@ describe('registry', () => {
     assert.equal(new Set(ids).size, ids.length);
   });
 
-  test('listAdapters reports id/label/priority', () => {
+  test('listAdapters reports id/label/priority/canList', () => {
     for (const a of listAdapters()) {
-      assert.deepEqual(Object.keys(a).sort(), ['id', 'label', 'priority']);
+      assert.deepEqual(Object.keys(a).sort(), ['canList', 'id', 'label', 'priority']);
+      assert.equal(typeof a.canList, 'boolean');
     }
   });
 
@@ -128,6 +157,156 @@ describe('selectAdapter — lowest priority among matches wins', () => {
     assert.equal(genericNovel.matches('https://anything.example.com/'), true);
     assert.equal(genericNovel.priority > genericManga.priority, true);
     assert.equal(genericManga.priority > mangadex.priority, true);
+  });
+});
+
+describe('selectListAdapter — §6.6 listing capability routing', () => {
+  test('MangaDex browse/search/root URLs list through the mangadex adapter', () => {
+    assert.equal(selectListAdapter('https://mangadex.org/').id, 'mangadex');
+    assert.equal(selectListAdapter('https://mangadex.org/titles/latest').id, 'mangadex');
+    assert.equal(selectListAdapter('https://www.mangadex.org/search?q=leveling').id, 'mangadex');
+  });
+
+  test('a MangaDex title URL does NOT list through mangadex (listMatches gates it)', () => {
+    // It falls through the ladder — the hostname is comic-shaped, so
+    // generic-manga claims it (the priority rule, documented fall-through).
+    assert.equal(selectListAdapter(`https://mangadex.org/title/${MD_UUID}`).id, 'generic-manga');
+  });
+
+  test('comic-shaped URLs list through generic-manga, everything else generic-novel', () => {
+    assert.equal(selectListAdapter('https://scansite.test/manga/').id, 'generic-manga');
+    assert.equal(selectListAdapter('https://wandering-ink.test/browse/').id, 'generic-novel');
+  });
+
+  test('force pins by id but never onto a non-listing adapter or a ghost', () => {
+    assert.equal(
+      selectListAdapter('https://anything.example.com/', { force: 'generic-manga' }).id,
+      'generic-manga',
+    );
+    assert.equal(selectListAdapter('https://anything.example.com/', { force: 'ghost' }), null);
+  });
+
+  test('mangadex.listMatches is strict about the host', () => {
+    assert.equal(mangadex.listMatches('https://mangadex.org/titles'), true);
+    assert.equal(mangadex.listMatches('https://mangadex.org.evil.test/titles'), false);
+    assert.equal(mangadex.listMatches('https://api.mangadex.org/manga'), false);
+    assert.equal(mangadex.listMatches(`https://mangadex.org/chapter/${MD_UUID}`), false);
+    assert.equal(mangadex.listMatches('not a url'), false);
+  });
+});
+
+describe('generic listSeries against the listing fixture', () => {
+  const listUrl = 'https://wandering-ink.test/browse/';
+
+  test('extracts source, items with covers, and the nextUrl', async () => {
+    const ctx = fakeCtx({ [listUrl]: fixture('listing-page.html') });
+    const out = await genericNovel.listSeries(listUrl, ctx);
+
+    assert.ok(out, 'expected a listing');
+    assert.equal(out.source.title, 'Wandering Ink');
+    assert.equal(out.source.url, listUrl);
+    assert.equal(out.items.length, 20);
+    assert.equal(out.nextUrl, 'https://wandering-ink.test/browse/?page=2');
+
+    const first = out.items[0];
+    assert.equal(first.title, 'The Salt Road');
+    assert.equal(first.url, 'https://wandering-ink.test/series/the-salt-road/');
+    assert.equal(first.cover, 'https://cdn1.wi-img.gwfixture.org/thumbs/salt-road.jpg');
+    assert.equal(first.type, 'webnovel');
+  });
+
+  test('every item keeps its own cover — no shared-grid bleed', async () => {
+    const ctx = fakeCtx({ [listUrl]: fixture('listing-page.html') });
+    const out = await genericNovel.listSeries(listUrl, ctx);
+    const covers = out.items.map((i) => i.cover).filter(Boolean);
+    assert.equal(covers.length, 18, 'two fixture cards have no cover');
+    assert.equal(new Set(covers).size, covers.length, 'covers must be per-item, not repeated');
+  });
+
+  test('the listing never mints ids and never leaks nav/pagination links', async () => {
+    const ctx = fakeCtx({ [listUrl]: fixture('listing-page.html') });
+    const out = await genericNovel.listSeries(listUrl, ctx);
+    for (const it of out.items) {
+      assert.equal('id' in it, false, 'listing items must not carry series ids');
+      assert.match(it.url, /\/series\//);
+    }
+  });
+
+  test('generic-manga hints type manga instead', async () => {
+    const ctx = fakeCtx({ [listUrl]: fixture('listing-page.html') });
+    const out = await genericManga.listSeries(listUrl, ctx);
+    assert.equal(out.items[0].type, 'manga');
+  });
+
+  test('returns null on a page with no listing (the handler turns it into list_failed)', async () => {
+    const url = 'https://thin.example.com/';
+    const ctx = fakeCtx({ [url]: '<html><body><p>Nothing to browse.</p></body></html>' });
+    assert.equal(await genericNovel.listSeries(url, ctx), null);
+  });
+});
+
+describe('mangadex listSeries — search API', () => {
+  const ID_A = 'bbbbbbbb-0000-4000-8000-000000000001';
+  const ID_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+
+  const listPayload = {
+    total: 100,
+    data: [
+      {
+        id: ID_A,
+        attributes: { title: { en: 'Solo Leveling' } },
+        relationships: [{ type: 'cover_art', attributes: { fileName: 'cover-a.jpg' } }],
+      },
+      {
+        id: ID_B,
+        attributes: { title: { ja: '呪術廻戦' } },
+        relationships: [], // no cover_art — cover omitted, item kept
+      },
+    ],
+  };
+
+  test('maps the API response onto listing items', async () => {
+    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
+    const out = await mangadex.listSeries('https://mangadex.org/titles', ctx);
+
+    assert.equal(out.source.title, 'MangaDex');
+    assert.equal(out.items.length, 2);
+    assert.deepEqual(out.items[0], {
+      title: 'Solo Leveling',
+      url: `https://mangadex.org/title/${ID_A}`,
+      type: 'manga',
+      cover: `https://uploads.mangadex.org/covers/${ID_A}/cover-a.jpg.256.jpg`,
+    });
+    assert.equal(out.items[1].cover, undefined);
+    assert.equal(out.items[1].title, '呪術廻戦');
+  });
+
+  test('maps the q param onto the API title filter', async () => {
+    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
+    const out = await mangadex.listSeries('https://mangadex.org/search?q=solo%20leveling', ctx);
+    assert.equal(ctx.fetched.length, 1);
+    const called = new URL(ctx.fetched[0]);
+    assert.equal(called.searchParams.get('title'), 'solo leveling');
+    assert.equal(called.searchParams.get('limit'), '32');
+    assert.equal(called.searchParams.get('order[followedCount]'), 'desc');
+    assert.equal(called.searchParams.get('availableTranslatedLanguage[]'), 'en');
+    assert.equal(out.source.title, 'MangaDex — solo leveling');
+  });
+
+  test('pages by offset while total remains, on a URL /list accepts back', async () => {
+    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
+    const out = await mangadex.listSeries('https://mangadex.org/titles?offset=32', ctx);
+    const called = new URL(ctx.fetched[0]);
+    assert.equal(called.searchParams.get('offset'), '32');
+    assert.equal(out.nextUrl, 'https://mangadex.org/titles?offset=64');
+    assert.equal(mangadex.listMatches(out.nextUrl), true, 'nextUrl must round-trip /list');
+  });
+
+  test('the last page carries no nextUrl', async () => {
+    const lastPage = { ...listPayload, total: 34 };
+    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': lastPage });
+    const out = await mangadex.listSeries('https://mangadex.org/titles?offset=32', ctx);
+    assert.equal(out.nextUrl, undefined);
   });
 });
 

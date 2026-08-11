@@ -9,13 +9,18 @@
   <meta name="apple-mobile-web-app-title" content="Offline Reader">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <!-- iOS Safari ignores SVG touch icons and falls back to a page screenshot,
+       so the home-screen icon must be a PNG. -->
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>Offline Reader</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./css/catalogue.css">
   <link rel="stylesheet" href="./css/novel.css">
   <link rel="stylesheet" href="./css/importer.css">
   <link rel="stylesheet" href="./css/goals.css">
+  <link rel="stylesheet" href="./css/thoughts.css">
+  <link rel="stylesheet" href="./css/sources.css">
+  <link rel="stylesheet" href="./css/settings.css">
 </head>
 <body>
 
@@ -148,6 +153,12 @@
           <rect x="15" y="9.5" width="4" height="1" rx="0.5"/>
         </svg>
       </button>
+      <button class="icon-btn" id="home-btn" aria-label="Home">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 3L16 9L10 15L4 9Z"/>
+          <rect x="3" y="16.5" width="14" height="1" rx="0.5"/>
+        </svg>
+      </button>
       <span id="comic-title">Comic</span>
       <button id="mode-toggle" class="hidden" style="font-size: 0.75rem;">Chapter</button>
     </header>
@@ -209,22 +220,30 @@
   </div>
 
   <!-- Load order is part of the contract — see docs/ARCHITECTURE.md §2:
-       config → platform → store → jszip → reader → novel-reader → importer →
-       goals → catalogue. platform sits before store because it is the only
-       file allowed to touch Capacitor and everything after it may probe
-       window.Platform at parse time; then the image reader, the feature
-       modules, and the catalogue, which boots the app. -->
+       config → platform → store → covers → jszip → reader → novel-reader →
+       importer → goals → thoughts → sources → settings → catalogue. platform
+       sits before store because it is the only file allowed to touch
+       Capacitor and everything after it may probe window.Platform at parse
+       time; covers is dependency-free (no screen, no registerScreen) so it
+       loads before the readers; then the image reader, the feature modules,
+       and the catalogue, which boots the app. -->
   <script src="./js/config.js"></script>
   <script src="./js/platform.js"></script>
   <script src="./js/store.js"></script>
+  <script src="./js/covers.js"></script>
   <script src="./jszip.min.js"></script>
   <script src="./js/reader.js"></script>
-  <!-- novel-reader, importer and goals each register their own screen, so
-       they must load after reader.js (which defines registerScreen) and
-       before catalogue.js, which boots the app and calls into them. -->
+  <!-- novel-reader, importer, goals, thoughts, sources and settings each
+       register their own screen, so they must load after reader.js (which
+       defines registerScreen) and before catalogue.js, which boots the app
+       and calls into them. settings.js also applies the app theme at parse
+       time so the first paint is already themed. -->
   <script src="./js/novel-reader.js"></script>
   <script src="./js/importer.js"></script>
   <script src="./js/goals.js"></script>
+  <script src="./js/thoughts.js"></script>
+  <script src="./js/sources.js"></script>
+  <script src="./js/settings.js"></script>
   <script src="./js/catalogue.js"></script>
 </body>
 </html>

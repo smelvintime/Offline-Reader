@@ -1,0 +1,632 @@
+/* Offline Reader — app themes + settings skin. Owned by js/settings.js.
+ *
+ * Two very different things share this file on purpose (PLAN7 §2.9):
+ *
+ *   1. THE APP-WIDE THEME LAYER — everything under html[data-apptheme].
+ *      settings.js stamps the attribute at parse time from `app.theme`; the
+ *      nine named palettes reuse the novel themes' exact bg/fg/accent triples
+ *      (css/novel.css is the source of those values), and every surface,
+ *      border and muted tone is DERIVED from the base pair with color-mix()
+ *      — the novel custom-theme construction, promoted to the shell. The
+ *      custom theme gets --bg/--text as inline properties from JS plus a
+ *      data-applum stamp for its accent. With no attribute set (settings.js
+ *      deleted, or a test page), none of this exists and styles.css's :root
+ *      block renders today's permanent dark, byte for byte. The readers are
+ *      exempt: #reader-screen is pinned dark in styles.css, #novel-screen
+ *      self-themes via --nv-*.
+ *
+ *   2. THE SETTINGS SKIN — #settings-screen, the first-run focus sheet
+ *      (.set-focus-sheet + .set-scrim, parked on <body>), prefix `set-`.
+ *      Tokens consume the derived layer with today's dark literals as
+ *      fallbacks, so the screen looks right even where the layer is absent.
+ *
+ * Blur budget: ZERO backdrop-filter in this file — theming adds no layers.
+ * The one breakpoint is 720px, where the focus sheet docks right (the
+ * novel.css / goals.css precedent). No :root token is (re)defined here —
+ * every app-wide override lives under [data-apptheme], every new token under
+ * this module's own selectors.
+ */
+
+/* ── App theme layer: the derived surfaces (any theme) ───────────────────── */
+
+html[data-apptheme] {
+  --muted:       color-mix(in srgb, var(--text) 58%, var(--bg));
+  --surf-1:      color-mix(in srgb, var(--text) 4%,  transparent);
+  --surf:        color-mix(in srgb, var(--text) 8%,  transparent);
+  --surf-2:      color-mix(in srgb, var(--text) 13%, transparent);
+  --border:      color-mix(in srgb, var(--text) 14%, transparent);
+  --border-soft: color-mix(in srgb, var(--text) 8%,  transparent);
+}
+
+/* ── The nine named palettes ──────────────────────────────────────────────
+ *
+ * Base triples from the novel themes; the semantic anchors keep the
+ * amber-for-prose / indigo-for-images split readable on each background —
+ * the dark set keeps today's literals (#fbbf24 / #4ade80 / #e8b23a /
+ * #f0616d), the light set darkens them for contrast. --accent-ink is the
+ * text-grade accent (segment labels, pressed chips). Note the warm light
+ * themes' accents are amber-family by inheritance from the novel palettes;
+ * --prose is always a DIFFERENT colour than --accent, so the two semantic
+ * families never collapse into one (§2.9 no-change).
+ */
+
+html[data-apptheme='dark'] {
+  --bg: #0a0a0a; --text: #e9e9ec; --accent: #6366f1; --accent-ink: #a5b4fc;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='dim'] {
+  --bg: #1a1b1e; --text: #dcdce1; --accent: #818cf8; --accent-ink: #a5b4fc;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='black'] {
+  --bg: #000000; --text: #d6d6da; --accent: #7c7ff5; --accent-ink: #a5b4fc;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='nord'] {
+  --bg: #2e3440; --text: #e0e4ec; --accent: #88c0d0; --accent-ink: #a9d8e4;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='forest'] {
+  --bg: #1a2420; --text: #dbe4de; --accent: #7fc9a0; --accent-ink: #a8dcc0;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='light'] {
+  --bg: #fbfaf8; --text: #1c1c1f; --accent: #4f46e5; --accent-ink: #4338ca;
+  --prose: #8a6d1f; --ok: #15803d; --warn: #a16207; --danger: #b91c1c;
+}
+html[data-apptheme='cream'] {
+  --bg: #faf3e3; --text: #33302a; --accent: #8a6d1f; --accent-ink: #6f5712;
+  --prose: #7c5d13; --ok: #15803d; --warn: #92600a; --danger: #b91c1c;
+}
+html[data-apptheme='sepia'] {
+  --bg: #f4ecd8; --text: #43341f; --accent: #9a5b1f; --accent-ink: #7b4517;
+  --prose: #7c5613; --ok: #15803d; --warn: #92600a; --danger: #b91c1c;
+}
+/* Deeper than sepia — the aged-paperback palette. Its anchors darken a step
+   further: the tan ground is the darkest of the light backgrounds. */
+html[data-apptheme='tan'] {
+  --bg: #e3d2b0; --text: #3a2c17; --accent: #8a4f16; --accent-ink: #6e3f11;
+  --prose: #6b4e0f; --ok: #0f6b34; --warn: #7c4a09; --danger: #9f1616;
+}
+
+/* Custom — settings.js supplies --bg/--text inline and stamps data-applum
+   from the background's luminance; the accent is picked for that end (the
+   novel custom rule). The bare block is the dark fallback for the one frame
+   before the stamp could land. */
+html[data-apptheme='custom'] {
+  --accent: #8b93ff; --accent-ink: #a5b4fc;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='custom'][data-applum='light'] {
+  --accent: #4f46e5; --accent-ink: #4338ca;
+  --prose: #8a6d1f; --ok: #15803d; --warn: #a16207; --danger: #b91c1c;
+}
+
+/* ── Settings skin tokens ────────────────────────────────────────────────── */
+
+#settings-screen,
+.set-scrim,
+.set-focus-sheet {
+  --set-bg:          var(--bg, #0a0a0a);
+  --set-text:        var(--text, #f0f0f0);
+  --set-muted:       var(--muted, #a0a0a0);
+  --set-surf-1:      var(--surf-1, rgba(255, 255, 255, 0.04));
+  --set-surf:        var(--surf, rgba(255, 255, 255, 0.08));
+  --set-surf-2:      var(--surf-2, rgba(255, 255, 255, 0.12));
+  --set-border:      var(--border, rgba(255, 255, 255, 0.1));
+  --set-border-soft: var(--border-soft, rgba(255, 255, 255, 0.06));
+  --set-accent:      var(--accent, #6366f1);
+  --set-accent-ink:  var(--accent-ink, #a5b4fc);
+  --set-accent-soft: color-mix(in srgb, var(--set-accent) 14%, transparent);
+  --set-prose:       var(--prose, #fbbf24);
+  --set-danger:      var(--danger, #f0616d);
+  --set-r:           10px;                  /* house card radius */
+  --set-r-sm:        8px;                   /* nested / chips */
+  --set-r-lg:        14px;                  /* panels — nothing past this but the sheet top */
+  --set-tap:         44px;                  /* the floor for a finger */
+  --set-dur:         150ms;
+  --set-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Screen shell ────────────────────────────────────────────────────────── */
+
+#settings-screen {
+  display: none;               /* showScreen() flips this to flex */
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 140;                /* the goals-screen tier — the two never show together */
+  background: var(--set-bg);
+  color: var(--set-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#settings-screen :focus-visible,
+.set-focus-sheet :focus-visible {
+  outline: 2px solid var(--set-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+#settings-screen :focus:not(:focus-visible),
+.set-focus-sheet :focus:not(:focus-visible) { outline: none; }
+
+#settings-screen .set-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.75rem;
+  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--set-border);
+  /* Solid, not glass — the blur budget is spent in the readers. Mixed from
+     the theme bg so every palette keeps its own header. */
+  background: color-mix(in srgb, var(--set-bg) 92%, transparent);
+}
+
+#settings-screen .set-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#settings-screen .set-icon-btn,
+.set-focus-sheet .set-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--set-r);
+  background: transparent;
+  color: var(--set-text);
+  cursor: pointer;
+  transition: background var(--set-dur);
+}
+#settings-screen .set-icon-btn:active,
+.set-focus-sheet .set-icon-btn:active { background: var(--set-surf); transform: scale(0.94); }
+#settings-screen .set-icon-btn svg,
+.set-focus-sheet .set-icon-btn svg { flex-shrink: 0; }
+
+#settings-screen .set-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 0.875rem;
+  padding-left: calc(0.875rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.875rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+#settings-screen .set-view {
+  display: flex;
+  flex-direction: column;
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Rows — the sheet grammar (goals/novel), promoted to a whole screen ──── */
+
+#settings-screen .set-row {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--set-border-soft);
+}
+#settings-screen .set-row:last-child { border-bottom: none; }
+#settings-screen .set-row-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--set-muted);
+  margin-bottom: 0.5rem;
+}
+#settings-screen .set-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--set-muted);
+}
+
+#settings-screen .set-seg { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+#settings-screen .set-seg button {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  min-height: 44px;
+  padding: 0.5rem 0.6rem;
+  background: var(--set-surf);
+  border: 1px solid transparent;
+  border-radius: var(--set-r);
+  color: var(--set-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--set-dur), color var(--set-dur);
+}
+#settings-screen .set-seg button[aria-pressed='true'] {
+  background: var(--set-accent-soft);
+  border-color: var(--set-accent);
+  color: var(--set-accent-ink);
+}
+#settings-screen .set-seg button:active { transform: scale(0.97); }
+
+/* ── Theme swatch grid — the novel themeRow design ───────────────────────── */
+
+#settings-screen .set-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+  gap: 0.35rem;
+}
+#settings-screen .set-swatch {
+  position: relative;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.4rem 0.3rem;
+  border: 1px solid var(--set-border);
+  border-radius: var(--set-r);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--set-dur), transform 0.1s;
+}
+#settings-screen .set-swatch:active { transform: scale(0.97); }
+#settings-screen .set-swatch[aria-pressed='true'] {
+  border-color: var(--set-accent);
+  box-shadow: 0 0 0 2px var(--set-accent);
+}
+#settings-screen .set-swatch-aa { font-size: 0.95rem; font-weight: 800; }
+#settings-screen .set-swatch-name { font-size: 0.6rem; font-weight: 700; opacity: 0.75; }
+/* Custom carries the reader's own pair as its background once chosen; before
+   that it still needs to look like a button. */
+#settings-screen .set-swatch-custom { background: var(--set-surf); }
+
+#settings-screen .set-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+#settings-screen .set-pickers[hidden] { display: none; }
+#settings-screen .set-picker {
+  flex: 1 1 8rem;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--set-surf);
+  border: 1px solid var(--set-border);
+  border-radius: var(--set-r);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+#settings-screen .set-picker input[type='color'] {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--set-border);
+  border-radius: var(--set-r-sm);
+  background: none;
+  cursor: pointer;
+}
+
+/* ── Home layout editor ──────────────────────────────────────────────────── */
+
+#settings-screen .set-sec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+#settings-screen .set-sec-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: var(--set-tap);
+  padding: 0.3rem 0.3rem 0.3rem 0.7rem;
+  background: var(--set-surf-1);
+  border: 1px solid var(--set-border-soft);
+  border-radius: var(--set-r);
+}
+#settings-screen .set-sec-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+#settings-screen .set-sec-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#settings-screen .set-sec-note {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--set-muted);
+}
+#settings-screen .set-sec-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+#settings-screen .set-move {
+  background: var(--set-surf);
+}
+#settings-screen .set-move:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+#settings-screen .set-move:disabled:active { background: transparent; transform: none; }
+#settings-screen .set-vis {
+  min-width: 4.2rem;
+  min-height: var(--set-tap);
+  padding: 0 0.6rem;
+  background: var(--set-surf);
+  border: 1px solid transparent;
+  border-radius: var(--set-r);
+  color: var(--set-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--set-dur), color var(--set-dur);
+}
+#settings-screen .set-vis[aria-pressed='true'] {
+  background: var(--set-accent-soft);
+  border-color: var(--set-accent);
+  color: var(--set-accent-ink);
+}
+#settings-screen .set-vis:active { transform: scale(0.97); }
+#settings-screen .set-sec-always {
+  min-width: 4.2rem;
+  padding: 0 0.4rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--set-muted);
+  text-align: center;
+}
+
+#settings-screen .set-text-btn {
+  align-self: flex-start;
+  min-height: var(--set-tap);
+  margin-top: 0.5rem;
+  padding: 0 0.6rem;
+  background: none;
+  border: none;
+  color: var(--set-accent-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--set-r-sm);
+}
+#settings-screen .set-text-btn:active { background: var(--set-surf); transform: scale(0.98); }
+
+/* ── "Your thoughts" nav row ─────────────────────────────────────────────── */
+
+#settings-screen .set-nav-btn {
+  width: 100%;
+  min-height: var(--set-tap);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--set-surf);
+  border: 1px solid transparent;
+  border-radius: var(--set-r);
+  color: var(--set-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--set-dur);
+}
+#settings-screen .set-nav-btn:active { background: var(--set-surf-2); transform: scale(0.99); }
+#settings-screen .set-nav-chev {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--set-muted);
+}
+
+/* ── First-run focus sheet (parked on <body>) ────────────────────────────── */
+
+.set-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 380;                /* over every screen, under the toasts (410) */
+  background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.28s ease;
+}
+.set-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+.set-focus-sheet {
+  position: fixed;
+  z-index: 390;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 88%;
+  display: flex;
+  flex-direction: column;
+  background: var(--set-bg);
+  color: var(--set-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-top: 1px solid var(--set-border);
+  border-radius: 24px 24px 0 0;   /* sheet tops are the one place 24px is allowed */
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.28s var(--set-ease);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+}
+/* [hidden] keeps the sheet displayed but translated off-screen so the hide
+   can animate; `inert` (set in JS) removes it from the tab order. */
+.set-focus-sheet[hidden] { display: flex !important; transform: translateY(101%); pointer-events: none; }
+
+.set-focus-sheet .set-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+}
+.set-focus-sheet .set-sheet-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.set-focus-sheet .set-sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem 1rem 1rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+}
+
+.set-focus-sheet .set-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.set-focus-sheet .set-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: 72px;
+  padding: 0.7rem 0.9rem;
+  background: var(--set-surf-1);
+  border: 1px solid var(--set-border);
+  border-radius: var(--set-r-lg);
+  color: var(--set-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--set-dur), border-color var(--set-dur), transform var(--set-dur);
+}
+.set-focus-sheet .set-card:active {
+  background: var(--set-surf);
+  border-color: var(--set-accent);
+  transform: scale(0.97);
+}
+.set-focus-sheet .set-card-glyph {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--set-r);
+  background: var(--set-surf);
+}
+/* The semantic split, kept: prose is amber, images are indigo, Both is the
+   accent itself. */
+.set-focus-sheet .set-card-books  .set-card-glyph { color: var(--set-prose); }
+.set-focus-sheet .set-card-comics .set-card-glyph { color: var(--set-accent-ink); }
+.set-focus-sheet .set-card-both   .set-card-glyph { color: var(--set-accent); }
+.set-focus-sheet .set-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.set-focus-sheet .set-card-title { font-size: 0.95rem; font-weight: 800; }
+.set-focus-sheet .set-card-copy {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--set-muted);
+}
+
+.set-focus-sheet .set-tour-btn {
+  min-height: var(--set-tap);
+  padding: 0 0.9rem;
+  background: var(--set-surf);
+  border: 1px solid var(--set-border);
+  border-radius: var(--set-r);
+  color: var(--set-accent-ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--set-dur), transform var(--set-dur);
+}
+.set-focus-sheet .set-tour-btn:active { background: var(--set-surf-2); transform: scale(0.98); }
+
+.set-focus-sheet .set-sheet-note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--set-muted);
+  text-align: center;
+}
+
+/* ── Wide screens ────────────────────────────────────────────────────────── */
+
+@media (min-width: 720px) {
+  /* The focus sheet docks as a right-hand panel — the house sheet rule. */
+  .set-focus-sheet {
+    left: auto;
+    top: 0;
+    bottom: 0;
+    width: 26rem;
+    max-height: none;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--set-border);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .set-focus-sheet[hidden] { transform: translateX(101%); }
+}
+
+/* ── Hover — pointer-fine devices only, never the touch default ──────────── */
+
+@media (hover: hover) and (pointer: fine) {
+  #settings-screen .set-icon-btn:hover,
+  .set-focus-sheet .set-icon-btn:hover { background: var(--set-surf); }
+  #settings-screen .set-seg button:hover,
+  #settings-screen .set-vis:hover,
+  #settings-screen .set-move:not(:disabled):hover,
+  #settings-screen .set-nav-btn:hover,
+  #settings-screen .set-text-btn:hover,
+  .set-focus-sheet .set-tour-btn:hover { background: var(--set-surf-2); }
+  #settings-screen .set-swatch:hover { border-color: var(--set-accent); }
+  .set-focus-sheet .set-card:hover { background: var(--set-surf); border-color: var(--set-accent); }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #settings-screen *,
+  .set-scrim,
+  .set-focus-sheet,
+  .set-focus-sheet * {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

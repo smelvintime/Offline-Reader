@@ -14,6 +14,9 @@ import { REPO_ROOT, CATALOG_PATH, CHAPTERS_DIR, dirSize, humanBytes } from './li
 import { BLOCK_TYPES } from './lib/blocks.js';
 
 const SERIES_TYPES = new Set(['manga', 'manhwa', 'lightnovel', 'webnovel']);
+/** The tutorial book — the offline floor. The focus sheet's "Start with the
+ *  tour" button opens exactly this id, so a catalogue without it is an error. */
+const TUTORIAL_ID = 'fixture:welcome';
 const IMAGE_TYPES = new Set(['manga', 'manhwa']);
 const STATUSES = new Set(['ongoing', 'completed', 'hiatus', 'cancelled', 'unknown']);
 const DIRECTIONS = new Set(['ltr', 'rtl', 'vertical']);
@@ -156,6 +159,7 @@ function validateChapter(ch, where, rep, ctx) {
     const abs = join(REPO_ROOT, ch.src);
     if (!existsSync(abs)) { rep.err(where, `src file is missing on disk: ${ch.src}`); return; }
     ctx.seenFiles.add(abs);
+    if (ctx.seriesId === TUTORIAL_ID) ctx.tutorialFiles.add(abs);
     let parsed;
     try {
       parsed = JSON.parse(readFileSync(abs, 'utf8'));
@@ -239,6 +243,7 @@ export function validateCatalog(catalog, opts = {}) {
     ids: new Set(),
     checkFiles: opts.checkFiles !== false,
     seenFiles: new Set(),
+    tutorialFiles: new Set(),   // chapter files walked for the tutorial series
   };
 
   if (!catalog || typeof catalog !== 'object') {
@@ -254,6 +259,28 @@ export function validateCatalog(catalog, opts = {}) {
   catalog.series.forEach((s, i) => {
     validateSeries(s, `series[${i}]${s?.id ? ` (${s.id})` : ''}`, rep, ctx);
   });
+
+  // ── Offline-floor guards (Phase 7 §4.4) — ERRORS, not warnings ─────────────
+  // The bundled catalogue is the app's offline floor: it must ship at least one
+  // readable book, and specifically the tutorial. Counting alone is not enough
+  // (six carried-over classics would keep guard (b) green while the tutorial
+  // silently vanished and the focus sheet's tour button dangled), so the
+  // tutorial gets its own guard (c). Every series in catalog.json is an
+  // enabled series by construction — disabled entries never reach the output.
+  // Guards (b) and (c) need the chapter files on disk, so they only run when
+  // files are being checked (a --dry-run writes nothing and cannot know).
+  if (catalog.series.length === 0) {
+    rep.err('catalog.json', 'empty catalogue — nothing would ship');
+  }
+  if (ctx.checkFiles) {
+    if (ctx.seenFiles.size === 0) {
+      rep.err('catalog.json', 'no bundled chapter files');
+    }
+    if (ctx.tutorialFiles.size === 0) {
+      rep.err('catalog.json', "the tutorial book is missing — the offline floor and the focus sheet's tour depend on it");
+    }
+  }
+
   rep.seenFiles = ctx.seenFiles;
   return rep;
 }

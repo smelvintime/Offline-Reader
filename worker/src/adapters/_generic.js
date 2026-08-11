@@ -17,6 +17,7 @@ import {
   measure,
   pickProseContainer,
   findTocCluster,
+  findListingCluster,
   findImageRun,
   findNextLink,
   parseChapterNum,
@@ -183,6 +184,54 @@ function addHost(set, u) {
   } catch {
     /* ignore */
   }
+}
+
+// ── Listing (§6.6 — /list) ───────────────────────────────────────────────────
+
+/**
+ * Extract a series listing (a browse/catalogue page) as `{ source, items,
+ * nextUrl? }`. One page fetch only — pagination is client-driven via `nextUrl`
+ * (the /list response contract), never walked server-side.
+ *
+ * Items carry the raw absolute URL the client feeds back into /resolve; the
+ * listing NEVER mints series ids — the client and /resolve own id hashing.
+ *
+ * Returns null when the page yields no usable listing (the handler turns that
+ * into `list_failed`).
+ *
+ * @param {string} url
+ * @param {object} ctx  { fetchHtml, … }
+ * @param {{adapterId:string, type?:string}} opts  `type` is a hint, never trusted.
+ */
+export async function genericListSeries(url, ctx, opts) {
+  const page = await ctx.fetchHtml(url);
+  const baseUrl = page.finalUrl || url;
+  const meta = extractMeta(page.root, baseUrl);
+
+  // Same light prune as the TOC path — a full prune would delete listings that
+  // live in `class="nav"`-ish containers.
+  prune(page.root, 'light');
+
+  const cluster = findListingCluster(page.root, baseUrl);
+  if (!cluster || !cluster.items.length) return null;
+
+  const items = cluster.items.map((it) => {
+    const out = { title: it.title, url: it.url };
+    if (it.cover) out.cover = it.cover;
+    if (opts.type) out.type = opts.type;
+    return out;
+  });
+
+  const out = {
+    source: {
+      title: (meta.siteName || meta.title || hostOf(baseUrl)).slice(0, 200),
+      url: baseUrl,
+    },
+    items,
+  };
+  const nextUrl = findNextLink(page.root, baseUrl, baseUrl);
+  if (nextUrl) out.nextUrl = nextUrl;
+  return out;
 }
 
 // ── Chapter ──────────────────────────────────────────────────────────────────

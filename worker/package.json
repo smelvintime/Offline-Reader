@@ -1,6 +1,6 @@
 {
   "name": "offline-reader-gateway",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Cloudflare Worker content gateway for the Offline Reader PWA — CORS/referer bypass and HTML→JSON normalization. Stores nothing.",

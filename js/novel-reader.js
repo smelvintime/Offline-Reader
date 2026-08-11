@@ -113,6 +113,28 @@
     customBg: 'novel.customBg', customFg: 'novel.customFg',
   };
 
+  // ── Reader-mode presets (PLAN7 §2.6) ──────────────────────────────────────
+  // One-tap bundles over the EXISTING novel.* keys — no new settings system.
+  // The preset LIST is the one new pref (novel.presets, global: the shelf of
+  // saved setups is app-wide); APPLYING a preset writes ordinary per-series
+  // prefs through the same storeSet path as every other sheet control.
+  const PRESETS_KEY     = 'novel.presets';
+  const MAX_PRESETS     = 6;      // saved presets; the 7th save refuses, never evicts
+  const PRESET_NAME_MAX = 40;
+
+  // Built-ins. Every value sits inside the ranges above/below and is
+  // re-validated at apply time anyway (the same validators readPrefs uses), so
+  // an edit here can never smuggle an out-of-range value past the knobs.
+  // Custom theme colours are deliberately absent: customBg/customFg are only
+  // ever part of a preset the reader saved themselves.
+  const BUILTIN_PRESETS = [
+    { name: 'Classic paperback', prefs: { mode: 'paged',    fontFamily: 'literata', fontSize: 19, lineHeight: 1.6,  width: 'normal', align: 'justify', paraSpacing: 'tight',  indent: true,  letterSpacing: 0,    wordSpacing: 0,    theme: 'cream'  } },
+    { name: 'Night scroll',      prefs: { mode: 'infinite', fontFamily: 'sans',     fontSize: 18, lineHeight: 1.75, width: 'narrow', align: 'left',    paraSpacing: 'normal', indent: false, letterSpacing: 0,    wordSpacing: 0,    theme: 'black'  } },
+    { name: 'Dyslexia-friendly', prefs: { mode: 'chapter',  fontFamily: 'dyslexic', fontSize: 20, lineHeight: 1.9,  width: 'narrow', align: 'left',    paraSpacing: 'loose',  indent: false, letterSpacing: 0.06, wordSpacing: 0.24, theme: 'cream'  } },
+    { name: 'Dense terminal',    prefs: { mode: 'chapter',  fontFamily: 'mono',     fontSize: 15, lineHeight: 1.5,  width: 'wide',   align: 'left',    paraSpacing: 'tight',  indent: false, letterSpacing: 0,    wordSpacing: 0,    theme: 'forest' } },
+    { name: 'Large print',       prefs: { mode: 'paged',    fontFamily: 'atkinson', fontSize: 26, lineHeight: 1.8,  width: 'normal', align: 'left',    paraSpacing: 'normal', indent: false, letterSpacing: 0.02, wordSpacing: 0.08, theme: 'light'  } },
+  ];
+
   const FONT_MIN = 14, FONT_MAX = 32, FONT_STEP = 1;
   const LH_MIN = 1.3,  LH_MAX = 2.2,  LH_STEP = 0.05;
   // Letter and word spacing are in em, so they hold their proportion when the
@@ -292,6 +314,7 @@
   let lastFocus = null;
   let fontToken = 0;              // guards out-of-order webfont settle passes
   let maxLoaded = MAX_LOADED_DEFAULT; // state.loaded cap — re-read once per open()
+  let layoutCount = 0;            // diagnostics: how many layout() passes have run
 
   function on(target, type, fn, opts) {
     target.addEventListener(type, fn, opts);
@@ -341,13 +364,17 @@
     // ── Header ────────────────────────────────────────────────────────────
     const header = el('header', 'nv-header');
     const back = iconBtn('Close reader', 'back');
+    // Home is one tap from anywhere in the book (PLAN7 §2.11-C). Same .nv-btn
+    // chrome; the ::after pad in novel.css lifts the hit area to 44px.
+    const homeBtn = iconBtn('Home', 'home');
+    homeBtn.classList.add('nv-home');
     const titles = el('div', 'nv-titles');
     const title = el('span', 'nv-title');
     const subtitle = el('span', 'nv-subtitle');
     titles.append(title, subtitle);
     const settingsBtn = iconBtn('Reading settings', 'aa');
     settingsBtn.setAttribute('aria-expanded', 'false');
-    header.append(back, titles, settingsBtn);
+    header.append(back, homeBtn, titles, settingsBtn);
     root.appendChild(header);
 
     // ── Footer ────────────────────────────────────────────────────────────
@@ -386,7 +413,7 @@
     Object.assign(dom, {
       root, viewport, stage, measure, doc,
       zones, zPrev, zMid, zNext,
-      header, back, title, subtitle, settingsBtn,
+      header, back, homeBtn, title, subtitle, settingsBtn,
       footer, prevCh, nextCh, statusLine, bar,
       scrim, sheet, toast,
     });
@@ -409,6 +436,8 @@
     prev: 'M15 18 L9 12 L15 6',
     next: 'M9 18 L15 12 L9 6',
     close:'M18 6 L6 18 M6 6 L18 18',
+    // The app logo's diamond over a baseline — "home" (PLAN7 §2.11-C).
+    home: 'M12 3.5 L18.5 10 L12 16.5 L5.5 10 Z M5 20.5 L19 20.5',
   };
 
   function iconBtn(label, kind) {
@@ -469,6 +498,10 @@
 
     const body = el('div', 'nv-sheet-body');
     sheet.appendChild(body);
+
+    // Presets first (PLAN7 §2.6): one-tap starting points sit above the
+    // individual knobs they set. Every existing row keeps its order below.
+    body.appendChild(presetsRow());
 
     body.appendChild(segRow('Reading mode', [
       { value: 'paged',    label: 'Paged' },
@@ -743,6 +776,256 @@
 
   function syncSheet() { sheetSync.forEach(function (fn) { fn(state.prefs); }); }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reader-mode presets (PLAN7 §2.6)
+  //
+  // A preset is a bundle of ordinary novel.* values — nothing here invents a
+  // key or a range. Application is ONE batch: capture the anchor once, write
+  // every key, then a single applyPrefs() + layout() + settleLayout() pass
+  // (the setMode/resetPrefs shape — never one relayout per knob). No "active
+  // preset" is ever stored: a preset is a starting point, and tweaking a knob
+  // afterwards is normal and tracked by nothing.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let refreshPresets = null;   // set by presetsRow(); re-renders the chip rail
+  let presetUndo = null;       // single-level delete undo, held in memory only
+
+  // The same validation rules readPrefs applies, expressed per key. null means
+  // "invalid — leave that knob alone"; numbers clamp exactly like readPrefs.
+  const PRESET_VALIDATORS = {
+    mode:        function (v) { return oneOf(v, MODES, null); },
+    fontFamily:  function (v) { return oneOf(v, FONTS, null); },
+    fontSize:    function (v) { const n = num(v, NaN); return Number.isFinite(n) ? clamp(Math.round(n), FONT_MIN, FONT_MAX) : null; },
+    lineHeight:  function (v) { const n = num(v, NaN); return Number.isFinite(n) ? round2(clamp(n, LH_MIN, LH_MAX)) : null; },
+    width:       function (v) { return oneOf(v, WIDTHS, null); },
+    align:       function (v) { return oneOf(v, ALIGNS, null); },
+    theme:       function (v) { return oneOf(v, THEMES, null); },
+    paraSpacing: function (v) { return oneOf(v, PARAS, null); },
+    indent:      function (v) { return !!v; },                     // readPrefs coerces the same way
+    letterSpacing: function (v) { const n = num(v, NaN); return Number.isFinite(n) ? round2(clamp(n, LS_MIN, LS_MAX)) : null; },
+    wordSpacing:   function (v) { const n = num(v, NaN); return Number.isFinite(n) ? round2(clamp(n, WS_MIN, WS_MAX)) : null; },
+    customBg:    function (v) { return hexColor(v, null); },
+    customFg:    function (v) { return hexColor(v, null); },
+  };
+
+  // Keep only the keys that survive their own validator. Unknown keys are
+  // dropped; a preset carries customBg/customFg only when it recorded them.
+  function sanitizePresetPrefs(map) {
+    const out = {};
+    if (!map || typeof map !== 'object') return out;
+    Object.keys(PRESET_VALIDATORS).forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(map, k)) return;
+      const v = PRESET_VALIDATORS[k](map[k]);
+      if (v !== null && v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+
+  // novel.presets, validated on read: an array of { name, prefs } — anything
+  // else (hand-corrupted entries included) is dropped silently. Value-level
+  // validation happens at apply time, exactly once, in sanitizePresetPrefs.
+  function readSavedPresets() {
+    let raw;
+    try { raw = window.Store ? window.Store.prefs.get(PRESETS_KEY, []) : []; }
+    catch (e) { raw = []; }
+    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { raw = []; } }
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (let i = 0; i < raw.length && out.length < MAX_PRESETS; i++) {
+      const p = raw[i];
+      if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+      if (typeof p.name !== 'string' || !p.name.trim()) continue;
+      if (!p.prefs || typeof p.prefs !== 'object' || Array.isArray(p.prefs)) continue;
+      out.push({ name: p.name.slice(0, PRESET_NAME_MAX), prefs: p.prefs });
+    }
+    return out;
+  }
+
+  function writeSavedPresets(list) {
+    try { if (window.Store) window.Store.prefs.set(PRESETS_KEY, list.slice(0, MAX_PRESETS)); }
+    catch (e) { /* prefs are not worth throwing over */ }
+  }
+
+  // The swatch pair a chip paints itself in — the THEME_SWATCHES idiom. A
+  // custom-theme preset uses its own recorded pair; an unknown theme leaves
+  // the chip in the sheet's surface colours.
+  function presetColors(prefs) {
+    if (!prefs || typeof prefs !== 'object') return null;
+    if (prefs.theme === 'custom') {
+      const bg = hexColor(prefs.customBg, null), fg = hexColor(prefs.customFg, null);
+      return bg && fg ? [bg, fg] : null;
+    }
+    for (let i = 0; i < THEME_SWATCHES.length; i++) {
+      if (THEME_SWATCHES[i][0] === prefs.theme) return [THEME_SWATCHES[i][2], THEME_SWATCHES[i][3]];
+    }
+    return null;
+  }
+
+  // What "Save current" snapshots: the CURRENT effective prefs — post-readPrefs,
+  // i.e. what the reader is looking at. Custom colours ride along only when the
+  // custom theme is the one being looked at.
+  function snapshotCurrentPrefs() {
+    const p = state.prefs;
+    const snap = {
+      mode: state.mode, fontFamily: p.fontFamily, fontSize: p.fontSize,
+      lineHeight: p.lineHeight, width: p.width, align: p.align,
+      paraSpacing: p.paraSpacing, indent: !!p.indent,
+      letterSpacing: p.letterSpacing, wordSpacing: p.wordSpacing, theme: p.theme,
+    };
+    if (p.theme === 'custom') { snap.customBg = p.customBg; snap.customFg = p.customFg; }
+    return snap;
+  }
+
+  // Apply a preset to THIS series (storeSet — the same per-series path as
+  // every sheet edit; "Apply to all series" generalises it, unchanged). One
+  // anchor capture, one relayout batch, rebuild only when the mode changed.
+  function applyPreset(name, map) {
+    const p = sanitizePresetPrefs(map);
+    const keys = Object.keys(p);
+    if (!keys.length) return;
+    const anchor = currentAnchor();
+    const wasMode = state.mode;
+    keys.forEach(function (k) {
+      state.prefs[k] = p[k];
+      storeSet(PREF_KEY[k], p[k]);
+    });
+    if (p.mode) state.mode = p.mode;
+    applyPrefs();
+    syncSheet();
+    if (state.mode !== wasMode) rebuildForMode(anchor);
+    else layout();
+    settleLayout(anchor);
+    settleWhenFontLands(state.prefs.fontFamily);
+    toast('Applied “' + name + '”');
+  }
+
+  function deleteSavedPreset(idx) {
+    const list = readSavedPresets();
+    if (idx < 0 || idx >= list.length) return;
+    const gone = list.splice(idx, 1)[0];
+    writeSavedPresets(list);
+    presetUndo = { preset: gone, index: idx };
+    if (refreshPresets) refreshPresets();
+    undoToast('Deleted “' + gone.name + '”', function () {
+      if (!presetUndo) return;
+      const cur = readSavedPresets();
+      if (cur.length < MAX_PRESETS) {
+        cur.splice(Math.min(presetUndo.index, cur.length), 0, presetUndo.preset);
+        writeSavedPresets(cur);
+      }
+      presetUndo = null;
+      if (refreshPresets) refreshPresets();
+    });
+  }
+
+  function presetsRow() {
+    const row = el('div', 'nv-row');
+    row.appendChild(el('span', 'nv-row-label', 'Presets'));
+
+    const strip = el('div', 'nv-presets');
+    strip.setAttribute('role', 'group');
+    strip.setAttribute('aria-label', 'Reading presets');
+
+    // The save-current mini-form, swapped in for the rail while naming.
+    const form = el('div', 'nv-preset-form');
+    form.hidden = true;
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.maxLength = PRESET_NAME_MAX;
+    nameInput.setAttribute('aria-label', 'Preset name');
+    // The known iOS keyboard-overlap risk, accepted and noted (PLAN7 §2.6):
+    // nudge the input into view when the keyboard would cover it. At ≥720px
+    // the sheet is a side panel and unaffected.
+    nameInput.addEventListener('focus', function () {
+      try { nameInput.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+    });
+    const saveBtn = el('button', null, 'Save');
+    const cancelBtn = el('button', null, 'Cancel');
+    saveBtn.type = cancelBtn.type = 'button';
+    form.append(nameInput, saveBtn, cancelBtn);
+
+    function closeForm() { form.hidden = true; strip.hidden = false; }
+
+    function openForm() {
+      const count = readSavedPresets().length;
+      if (count >= MAX_PRESETS) {
+        toast('Presets are full — remove one first.');
+        return;
+      }
+      strip.hidden = true;
+      form.hidden = false;
+      nameInput.value = 'My preset ' + (count + 1);
+      try { nameInput.focus(); nameInput.select(); } catch (e) {}
+    }
+
+    saveBtn.addEventListener('click', function () {
+      const list = readSavedPresets();
+      if (list.length >= MAX_PRESETS) {           // cap 6 refuses, never evicts
+        toast('Presets are full — remove one first.');
+        closeForm();
+        return;
+      }
+      const name = (nameInput.value || '').trim().slice(0, PRESET_NAME_MAX)
+        || ('My preset ' + (list.length + 1));
+      list.push({ name: name, prefs: snapshotCurrentPrefs() });
+      writeSavedPresets(list);
+      closeForm();
+      render();
+      toast('Saved “' + name + '”');
+    });
+    cancelBtn.addEventListener('click', closeForm);
+    nameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter')  { e.preventDefault(); saveBtn.click(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeForm(); }
+    });
+
+    // One chip. Preset names are third-party strings: textContent only,
+    // clamped to PRESET_NAME_MAX on every path in and out.
+    function presetItem(preset, savedIdx) {
+      const item = el('div', 'nv-preset-item');
+      const name = String(preset.name).slice(0, PRESET_NAME_MAX);
+      const chip = el('button', 'nv-preset-chip', name);
+      chip.type = 'button';
+      chip.title = name;
+      chip.setAttribute('aria-label', 'Apply preset ' + name);
+      // Painted in its preset's theme pair, set in its preset's face — the
+      // swatch + data-font specimen idioms.
+      const face = preset.prefs ? oneOf(preset.prefs.fontFamily, FONTS, null) : null;
+      if (face) chip.dataset.font = face;
+      const colors = presetColors(preset.prefs);
+      if (colors) { chip.style.background = colors[0]; chip.style.color = colors[1]; }
+      chip.addEventListener('click', function () { applyPreset(name, preset.prefs); });
+      item.appendChild(chip);
+      if (savedIdx >= 0) {
+        const del = el('button', 'nv-preset-del', '×');
+        del.type = 'button';
+        del.setAttribute('aria-label', 'Delete preset ' + name);
+        del.title = 'Delete preset';
+        del.addEventListener('click', function () { deleteSavedPreset(savedIdx); });
+        item.appendChild(del);
+      }
+      return item;
+    }
+
+    const saveChip = el('button', 'nv-preset-chip nv-preset-save', '+ Save current');
+    saveChip.type = 'button';
+    saveChip.setAttribute('aria-label', 'Save current settings as a preset');
+    saveChip.addEventListener('click', openForm);
+
+    function render() {
+      strip.textContent = '';
+      BUILTIN_PRESETS.forEach(function (p) { strip.appendChild(presetItem(p, -1)); });
+      readSavedPresets().forEach(function (p, i) { strip.appendChild(presetItem(p, i)); });
+      strip.appendChild(saveChip);
+    }
+
+    render();
+    refreshPresets = render;   // openSheet re-renders so external pref writes land
+
+    row.append(strip, form);
+    return row;
+  }
+
   // aria-modal only claims the rest of the screen is unavailable; `inert` makes
   // it true, so Tab and the virtual cursor cannot wander into the prose behind
   // an open sheet.
@@ -759,6 +1042,7 @@
     dom.sheet.inert = false;
     setBackdropInert(true);
     dom.settingsBtn.setAttribute('aria-expanded', 'true');
+    if (refreshPresets) refreshPresets();   // pick up saves/deletes from elsewhere
     syncSheet();
     const first = dom.sheet.querySelector('.nv-sheet-head .nv-btn');
     if (first) first.focus();
@@ -1080,9 +1364,19 @@
 
     if (state.mode === 'chapter') {
       sec.appendChild(chapterNav(entry, false));
-      if (isLast) sec.appendChild(el('div', 'nv-end', 'You have reached the end of this series.'));
+      if (isLast) {
+        sec.appendChild(el('div', 'nv-end', 'You have reached the end of this series.'));
+        // Book end, in place (§2.7): the quiet CTA directly under the end
+        // marker. Rendered only when window.Thoughts exists.
+        appendThoughtsCta(sec, entry, 'book');
+      } else if (chapterPromptOn()) {
+        // Per-chapter cadence is opt-in (thoughts.chapterPrompt, default off):
+        // a smaller text-button after the bottom chapter nav.
+        appendThoughtsCta(sec, entry, 'chapter');
+      }
     } else if (state.mode === 'infinite' && isLast) {
       sec.appendChild(el('div', 'nv-end', 'You have reached the end of this series.'));
+      appendThoughtsCta(sec, entry, 'book');
     }
   }
 
@@ -1171,6 +1465,42 @@
     return nav;
   }
 
+  // ── "Depart your thoughts" CTAs (PLAN7 §2.7) ─────────────────────────────
+  //
+  // Guarded end to end: with js/thoughts.js deleted the buttons are simply
+  // never rendered (§0.5). They are appended AFTER the block list and never
+  // enter blockEls — anchor indices are sacred, and scrollPct's end-of-prose
+  // measure walks blockEls, so the geometry is untouched by their presence.
+
+  function thoughtsAvailable() {
+    return !!(window.Thoughts && typeof window.Thoughts.open === 'function');
+  }
+
+  // thoughts.chapterPrompt is thoughts-owned and global; off is the default.
+  function chapterPromptOn() {
+    try { return !!(window.Store && window.Store.prefs.get('thoughts.chapterPrompt', false)); }
+    catch (e) { return false; }
+  }
+
+  function appendThoughtsCta(sec, entry, kind) {
+    if (!thoughtsAvailable()) return;
+    const isBook = kind === 'book';
+    const btn = el('button', 'nv-thoughts-cta' + (isBook ? '' : ' nv-thoughts-cta-sm'),
+      'Depart your thoughts');
+    btn.type = 'button';
+    btn.addEventListener('click', function () {
+      if (!thoughtsAvailable() || !state.series) return;
+      window.Thoughts.open({
+        seriesId: state.series.id,
+        seriesTitle: state.series.title || null,
+        chapterId: isBook ? null : entry.chapter.id,
+        chapterTitle: isBook ? null : (entry.chapter.title || null),
+        kind: kind,
+      });
+    });
+    sec.appendChild(btn);
+  }
+
   function chapterIndexOf(id) {
     for (let i = 0; i < state.chapters.length; i++) if (state.chapters[i].id === id) return i;
     return -1;
@@ -1205,6 +1535,7 @@
 
   function layout() {
     if (!state.open) return;
+    layoutCount++;               // diagnostics only — tests assert batch relayouts
     if (state.mode === 'paged') paginate();
     else {
       const d = dom.doc.style;
@@ -1632,6 +1963,26 @@
     dom.toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { dom.toast.hidden = true; }, ms || 2600);
+  }
+
+  // A toast carrying a single Undo action (preset delete, §2.6). Same element,
+  // same timer slot — a later plain toast() simply overwrites it.
+  function undoToast(msg, onUndo) {
+    if (!dom.toast) return;
+    dom.toast.textContent = '';
+    dom.toast.appendChild(el('span', null, msg));
+    const undo = el('button', 'nv-toast-undo', 'Undo');
+    undo.type = 'button';
+    undo.addEventListener('click', function () {
+      clearTimeout(toastTimer);
+      dom.toast.hidden = true;
+      dom.toast.textContent = '';
+      try { onUndo(); } catch (e) { /* undo is best-effort */ }
+    });
+    dom.toast.appendChild(undo);
+    dom.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { dom.toast.hidden = true; }, 6000);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2131,6 +2482,14 @@
     });
 
     on(dom.back, 'click', function () { api.close(); });
+    // Home (§2.11-C): full teardown — final progress flush included — then
+    // hand the screen choice to the catalogue. Guarded; with Catalogue absent
+    // (test pages, stripped builds) fall back the same way navigateAway does.
+    on(dom.homeBtn, 'click', function () {
+      api.close({ navigate: false });
+      if (window.Catalogue && typeof window.Catalogue.goHome === 'function') window.Catalogue.goHome();
+      else if (typeof window.showScreen === 'function') window.showScreen('home-screen');
+    });
     on(dom.settingsBtn, 'click', function () { sheetOpen ? closeSheet() : openSheet(); });
     on(dom.scrim, 'click', function () { closeSheet(); });
     on(dom.prevCh, 'click', function () { goChapter(-1, 'start'); });
@@ -2502,6 +2861,7 @@
         maxLoadedChapters: maxLoaded,
         chromeHidden: !!(dom.root && dom.root.classList.contains('nv-chrome-hidden')),
         sheetOpen: sheetOpen,
+        layoutCount: layoutCount,
         prefs: Object.assign({}, state.prefs),
       };
     },

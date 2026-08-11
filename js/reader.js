@@ -108,13 +108,17 @@ const SIZE_CAP        = 600 * 1024 * 1024;
 const NATIVE_SIZE_CAP = 2 * 1024 * 1024 * 1024;
 
 // --- Native (picked-URI) session state ---
-// A native set's pages are {archiveKey|archiveUri, entryName} refs; page files
-// are extracted per chapter into Cache/pages/<dir>/ and surfaced through the
-// existing directUrl mechanism, so zero archive bytes ever sit in the heap.
+// A native set's pages are {archiveKey|archiveUri|archiveCachePath, entryName}
+// refs; page files are extracted per chapter into Cache/pages/<dir>/ and
+// surfaced through the existing directUrl mechanism, so zero archive bytes
+// ever sit in the heap. archiveCachePath is the nested-zip form (PLAN7
+// §2.11-B): an inner CBZ extracted once into Cache/pages/import-inner/… and
+// read in place via Platform.zip's { cachePath } source.
 let sessionArchiveManifest = null; // [{name, size, key}] persisted into or.library so "Resume" can reopen from disk
 let nativePageDirs = [];           // rendered chapter page dirs, oldest first — capped at 2 (current + previous)
 let nativeExtractInflight = {};    // chIdx → Promise, so one chapter is only ever extracted once at a time
 let nativeCacheDirBase = '';       // 'upload-<setKey>' — the parent dir of this session's chapter page dirs
+let nativeInnerDirs = [];          // extracted inner-CBZ dirs (zip-of-CBZs sets), released with the session
 
 // --- Scroll-mode wrapper windowing ---
 // Above SCROLL_WINDOW_THRESHOLD total pages, "∞" mode stops rendering every
@@ -891,6 +895,12 @@ function resetReaderState() {
     try { if (window.Platform) window.Platform.archives.releasePages(d.dirKey); } catch (e) {}
   });
   nativePageDirs = [];
+  // Same discipline for extracted inner archives (zip-of-CBZs sets): a new
+  // session re-extracts what it needs, so the old copies are pure disk weight.
+  nativeInnerDirs.forEach(d => {
+    try { if (window.Platform) window.Platform.archives.releasePages(d); } catch (e) {}
+  });
+  nativeInnerDirs = [];
   nativeExtractInflight = {};
   sessionArchiveManifest = null;
   nativeCacheDirBase = '';
@@ -1073,12 +1083,14 @@ function indexGroups(ctx) {
     }
 
     const start = pages.length;
-    if (g.archiveKey || g.archiveUri) {
-      // Native URI path: pages are {archiveKey, entryName} refs. The bytes stay
-      // on disk until the chapter is rendered (ensureChapterExtracted), which is
-      // what lets ctx.sizeCap bound disk instead of heap here.
+    if (g.archiveKey || g.archiveUri || g.archiveCachePath) {
+      // Native URI path: pages are {archiveKey|archiveUri|archiveCachePath,
+      // entryName} refs. The bytes stay on disk until the chapter is rendered
+      // (ensureChapterExtracted), which is what lets ctx.sizeCap bound disk
+      // instead of heap here.
       g.images.forEach(entry => pages.push({
         entry: null, archiveKey: g.archiveKey || null, archiveUri: g.archiveUri || null,
+        archiveCachePath: g.archiveCachePath || null,
         entryName: entry.name, url: null, loading: false, aspectLocked: false, gen: 0
       }));
     } else {
@@ -1258,40 +1270,29 @@ async function loadNativeArchives(sources) {
 
   // setKey namespaces this set's archive files and page-cache dirs. Falls back
   // to the raw alnum name when seriesKey() rejects letter-less names, so two
-  // number-titled series can't collide on disk.
-  const setKey = files[0].key
+  // number-titled series can't collide on disk. The manifest branch is stored
+  // data (or.library survives round trips through the native mirror), so path
+  // characters are flattened before the key shapes a filesystem path.
+  const setKey = (files[0].key
     ? (String(files[0].key).split(':')[1] || 'set')
-    : (seriesKey(files[0].name) || files[0].name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'set');
+    : (seriesKey(files[0].name) || files[0].name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40) || 'set'))
+    .replace(/[\/\\]/g, '_').replace(/\.{2,}/g, '_');
   nativeCacheDirBase = 'upload-' + setKey;
 
   // ── Phase 1 (native): central-directory listings only ─────────────────────
+  // Nested sets (zip-of-CBZs) no longer break out to the JSZip blob fallback:
+  // Platform.zip's { cachePath } source form (PLAN7 §2.11-B) lets an inner
+  // archive be extracted to disk once and indexed in place, so every set —
+  // flat or nested — stays on the zero-heap path under the 2 GB disk cap
+  // (PLAN.md §13 deviation 7 closed).
   const ctx = newIndexCtx(files, outerKeys, NATIVE_SIZE_CAP);
   const listed = []; // { f, entries }
-  let nested = false;
   for (const f of files) {
     loadingText.textContent = `Reading: ${f.name}`;
     let entries = null;
     try { entries = await P.zip.list(f.key ? { key: f.key } : { uri: f.uri }); } catch (e) { entries = null; }
     if (!entries || !entries.length) { ctx.emptyFiles.push(f.name); continue; }
-    if (fresh && entries.some(en => ARCHIVE_EXT.test(en.name))) { nested = true; break; }
     listed.push({ f, entries });
-  }
-
-  // Zip-of-CBZs: the platform surface can't round-trip an extracted inner
-  // archive back into zip.list, so nested sets fall back to materializing the
-  // picked files and running the plain-File JSZip pipeline — which also means
-  // the honest 600 MB heap cap applies to them (docs/mobile/PLAN.md §6.3
-  // deviation, flagged in the completion log).
-  if (nested) {
-    loadingText.textContent = 'Nested archives — loading directly…';
-    const realFiles = [];
-    for (const f of files) {
-      const rf = await P.readPickedFile(f);
-      if (rf) realFiles.push(rf);
-    }
-    isLoading = false;
-    loadArchives(realFiles);
-    return;
   }
 
   // Fresh picks: move each archive out of the picker cache into
@@ -1316,21 +1317,74 @@ async function loadNativeArchives(sources) {
     // it just cannot be resumed after the OS reclaims the cache.
   }
 
-  // Build one group per archive — the native twin of extractEntries' flat-CBZ
-  // case, including its innerArchiveNames bookkeeping (a flat CBZ's group name
-  // IS the outer filename on the web path too).
-  for (const { f, entries } of listed) {
+  // Build groups per archive — the native twin of extractEntries, including
+  // its innerArchiveNames bookkeeping. A flat CBZ is one group of the outer
+  // archive's image entries (a flat CBZ's group name IS the outer filename on
+  // the web path too). A zip-of-CBZs extracts its inner archives — a native
+  // disk-to-disk copy, zero JS bytes — into Cache/pages/import-inner/… and
+  // indexes each via zip.list({ cachePath }); loose images alongside inner
+  // archives become the same 'Extras' group the web path builds.
+  for (let fi = 0; fi < listed.length; fi++) {
+    const f = listed[fi].f;
+    const entries = listed[fi].entries;
+    const innerArchives = entries
+      .filter(en => ARCHIVE_EXT.test(en.name))
+      .sort((a, b) => naturalSort(a.name, b.name));
     const images = entries
       .filter(en => IMAGE_EXT.test(en.name))
       .sort((a, b) => naturalSort(a.name, b.name));
-    if (!images.length) { ctx.emptyFiles.push(f.name); continue; }
-    ctx.innerArchiveNames.push(f.name);
-    const k = seriesKey(f.name);
-    if (k) ctx.innerSeriesKeys.add(k);
-    ctx.allGroups.push({
-      group: { images, name: f.name, archiveKey: f.key || null, archiveUri: f.key ? null : f.uri },
-      groupBytes: f.size || 0,
-    });
+
+    if (!innerArchives.length) {
+      if (!images.length) { ctx.emptyFiles.push(f.name); continue; }
+      ctx.innerArchiveNames.push(f.name);
+      const k = seriesKey(f.name);
+      if (k) ctx.innerSeriesKeys.add(k);
+      ctx.allGroups.push({
+        group: { images, name: f.name, archiveKey: f.key || null, archiveUri: f.key ? null : f.uri },
+        groupBytes: f.size || 0,
+      });
+      continue;
+    }
+
+    // Nested: one zip.extract of the inner archives per outer file, then one
+    // central-directory listing per inner archive, all on disk.
+    loadingText.textContent = `Opening: ${f.name}`;
+    const groupsBefore = ctx.allGroups.length;
+    const outerSrc = f.key ? { key: f.key } : { uri: f.uri };
+    const innerDirKey = 'import-inner/' + setKey + '/' + fi;
+    const innerNames = innerArchives.map(en => en.name);
+    let rels = null;
+    try {
+      await P.archives.releasePages(innerDirKey); // stale copies from a previous run of this set
+      rels = await P.zip.extract(outerSrc, innerNames, innerDirKey);
+    } catch (e) { rels = null; }
+    if (rels && rels.length === innerNames.length) {
+      nativeInnerDirs.push(innerDirKey);
+      for (let j = 0; j < innerArchives.length; j++) {
+        const innerName = basename(innerArchives[j].name);
+        loadingText.textContent = `Opening: ${innerName}`;
+        let innerEntries = null;
+        try { innerEntries = await P.zip.list({ cachePath: rels[j] }); } catch (e) { innerEntries = null; }
+        const imgs = (innerEntries || [])
+          .filter(en => IMAGE_EXT.test(en.name))
+          .sort((a, b) => naturalSort(a.name, b.name));
+        if (!imgs.length) continue;
+        ctx.innerArchiveNames.push(innerName);
+        const k = seriesKey(innerName);
+        if (k) ctx.innerSeriesKeys.add(k);
+        ctx.allGroups.push({
+          group: { images: imgs, name: innerName, archiveCachePath: rels[j] },
+          groupBytes: innerArchives[j].size || 0,
+        });
+      }
+    }
+    if (images.length) {
+      ctx.allGroups.push({
+        group: { images, name: 'Extras', archiveKey: f.key || null, archiveUri: f.key ? null : f.uri },
+        groupBytes: images.reduce((s, en) => s + (en.size || 0), 0),
+      });
+    }
+    if (ctx.allGroups.length === groupsBefore) ctx.emptyFiles.push(f.name);
   }
 
   if (indexGroups(ctx)) {
@@ -1367,7 +1421,9 @@ async function ensureChapterExtracted(chIdx) {
   const job = (async () => {
     try {
       const first = pages[ch.start];
-      const src = first.archiveKey ? { key: first.archiveKey } : { uri: first.archiveUri };
+      const src = first.archiveKey ? { key: first.archiveKey }
+        : first.archiveCachePath ? { cachePath: first.archiveCachePath }
+        : { uri: first.archiveUri };
       const names = [];
       for (let i = ch.start; i <= ch.end; i++) names.push(pages[i].entryName);
       const dirKey = nativeCacheDirBase + '/ch-' + chIdx;
@@ -1569,6 +1625,16 @@ function setupObservers() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setupUI() {
+  // Home affordance (PLAN7 §2.11-C): series-origin sessions only. In an
+  // upload-origin or catalogue-error boot, goHome() would land on
+  // home-screen's error/empty state — worse than the upload screen the reader
+  // came from — so the button is simply hidden there and #close-btn's
+  // location.reload() stays the exit, as always. Both entry paths run through
+  // here with readerOrigin already set, so this IS session start for the
+  // header.
+  const homeBtn = document.getElementById('home-btn');
+  if (homeBtn) homeBtn.style.display = window.readerOrigin === 'series' ? '' : 'none';
+
   const multi = chapters.length > 1;
   chapterNav.classList.toggle('hidden', !multi);
   modeToggle.classList.toggle('hidden', !multi);
@@ -2103,6 +2169,30 @@ document.getElementById('close-btn').addEventListener('click', () => {
     location.reload();
   }
 });
+
+// Home button — the second header affordance (PLAN7 §2.11-C), shown by
+// setupUI only in series-origin sessions. Runs the close path's teardown —
+// revoke, clear pages/chapters, with teardownAll's el.src='' discipline —
+// but chooses no screen and never reloads: navigation is handed to the
+// catalogue. catalogue.js attaches its own listener to this button to flush
+// image progress (syncImageProgress + refreshSeriesProgress) — the same
+// two-listener contract as #close-btn.
+{
+  const homeBtn = document.getElementById('home-btn');
+  if (homeBtn) homeBtn.addEventListener('click', () => {
+    if (window.readerOrigin !== 'series') return; // hidden outside series sessions; belt and braces
+    // A queued 150 ms renderChapter must not fire against the cleared state.
+    clearTimeout(chapterJumpTimer);
+    // Flush the debounced position write while chapters still exist, so the
+    // library entry reflects the exact leaving position.
+    clearTimeout(sessionSaveTimer);
+    saveToLibrary();
+    if (autoRunning) stopAutoScroll();
+    teardownAll();
+    pages = []; chapters = [];
+    if (window.Catalogue && typeof window.Catalogue.goHome === 'function') window.Catalogue.goHome();
+  });
+}
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {

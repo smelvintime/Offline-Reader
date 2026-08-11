@@ -8,7 +8,7 @@
 // still return those 200 characters with `confidence: "low"` rather than
 // throwing parse_failed — the user can see what we got and judge for themselves.
 
-import { genericResolveSeries, genericResolveChapter } from './_generic.js';
+import { genericResolveSeries, genericResolveChapter, genericListSeries } from './_generic.js';
 
 export const id = 'generic-novel';
 export const label = 'Generic novel / web-fiction site';
@@ -17,6 +17,12 @@ export const priority = 100;
 /** The last-resort adapter: anything http(s) is fair game. */
 export function matches(/* url */) {
   return true;
+}
+
+// §6.5 optional listing capability. No `listMatches` — `matches()` gates it,
+// so this adapter lists everything (the last resort, same as resolving).
+export async function listSeries(url, ctx) {
+  return genericListSeries(url, ctx, { adapterId: id, type: 'webnovel' });
 }
 
 export async function resolveSeries(url, ctx) {

@@ -8,6 +8,13 @@
  * Tokens mirror styles.css (--bg/--surf/--border/--accent/--text/--muted) but
  * are re-declared locally with fallbacks: this screen has to look right even if
  * it is loaded on a page that never defined them (the test harness does that).
+ * Phase 7 (§2.9): the local tokens now point at the app-theme derived layer
+ * (--surf-1/--surf-2/--ok/--warn/--danger …, defined by css/settings.css under
+ * html[data-apptheme]) with their previous literals as fallbacks, and the
+ * status/accent alpha literals are derived from those tokens via color-mix —
+ * no attribute set, or settings.js deleted, and everything resolves to what
+ * shipped before. The .imp-restore toast is the exception: it is a dark
+ * floating capsule (the .gl-toast precedent) and pins its inks below.
  *
  * Mobile-first. The narrowest target is a 360 px phone in a standalone PWA
  * window, so every horizontal rhythm is set there and widened at 640 px.
@@ -16,14 +23,15 @@
 #import-screen {
   --imp-bg:      var(--bg, #0a0a0a);
   --imp-surf:    var(--surf, rgba(255, 255, 255, .08));
-  --imp-surf-2:  rgba(255, 255, 255, .04);
+  --imp-surf-2:  var(--surf-1, rgba(255, 255, 255, .04));   /* the quiet card fill — maps to derived --surf-1 (4%) */
+  --imp-hover:   var(--surf-2, rgba(255, 255, 255, .12));   /* button hover — maps to derived --surf-2 */
   --imp-border:  var(--border, rgba(255, 255, 255, .1));
   --imp-accent:  var(--accent, #6366f1);
   --imp-text:    var(--text, #f0f0f0);
   --imp-muted:   var(--muted, #a0a0a0);
-  --imp-danger:  #f0616d;
-  --imp-warn:    #e8b23a;
-  --imp-ok:      #4ade80;
+  --imp-danger:  var(--danger, #f0616d);
+  --imp-warn:    var(--warn, #e8b23a);
+  --imp-ok:      var(--ok, #4ade80);
   --imp-radius:  10px;
 
   display: none;               /* showScreen() flips this to flex */
@@ -57,7 +65,9 @@
   padding-left: calc(.75rem + env(safe-area-inset-left, 0px));
   padding-right: calc(.75rem + env(safe-area-inset-right, 0px));
   border-bottom: 1px solid var(--imp-border);
-  background: rgba(10, 10, 10, .85);
+  /* #0a0a0a at 85% — byte-identical to the old rgba(10,10,10,.85) until a
+     theme swaps --bg, at which point the translucent header follows it. */
+  background: color-mix(in srgb, var(--imp-bg) 85%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -154,14 +164,14 @@
   padding: .625rem .75rem;
   border: 1px solid var(--imp-border);
   border-radius: var(--imp-radius);
-  background: rgba(255, 255, 255, .05);
+  background: var(--surf-1, rgba(255, 255, 255, .05));
   color: var(--imp-text);
   /* 16px minimum stops iOS Safari zooming the whole page on focus. */
   font-size: 16px;
   font-family: inherit;
   line-height: 1.35;
 }
-#import-screen .imp-input::placeholder { color: rgba(255, 255, 255, .32); }
+#import-screen .imp-input::placeholder { color: color-mix(in srgb, var(--imp-text) 34%, transparent); }
 #import-screen .imp-input:focus,
 #import-screen .imp-select:focus { border-color: var(--imp-accent); }
 #import-screen .imp-textarea { resize: vertical; min-height: 4.5rem; line-height: 1.5; }
@@ -220,7 +230,7 @@
   cursor: pointer;
   transition: background .15s, border-color .15s, opacity .15s;
 }
-#import-screen .imp-btn:hover { background: rgba(255, 255, 255, .12); }
+#import-screen .imp-btn:hover { background: var(--imp-hover); }
 #import-screen .imp-btn:active { transform: scale(.98); }
 #import-screen .imp-btn:disabled { opacity: .45; cursor: default; transform: none; }
 
@@ -229,10 +239,14 @@
   border-color: var(--imp-accent);
   color: #fff;
 }
-#import-screen .imp-btn--accent:hover { background: #7477f0; }
+#import-screen .imp-btn--accent:hover { background: color-mix(in srgb, var(--imp-accent) 90%, #fff); }
 #import-screen .imp-btn--ghost { background: transparent; }
-#import-screen .imp-btn--danger { color: var(--imp-danger); border-color: rgba(240, 97, 109, .35); background: rgba(240, 97, 109, .1); }
-#import-screen .imp-btn--danger:hover { background: rgba(240, 97, 109, .18); }
+#import-screen .imp-btn--danger {
+  color: var(--imp-danger);
+  border-color: color-mix(in srgb, var(--imp-danger) 35%, transparent);
+  background: color-mix(in srgb, var(--imp-danger) 10%, transparent);
+}
+#import-screen .imp-btn--danger:hover { background: color-mix(in srgb, var(--imp-danger) 18%, transparent); }
 #import-screen .imp-btn--small { min-height: 34px; padding: .35rem .625rem; font-size: .75rem; }
 
 #import-screen .imp-linkbtn {
@@ -289,7 +303,7 @@
   padding: 1.5rem 1rem;
   border: 1px dashed var(--imp-border);
   border-radius: var(--imp-radius);
-  background: rgba(255, 255, 255, .02);
+  background: color-mix(in srgb, var(--imp-text) 2%, transparent);
   color: var(--imp-muted);
   cursor: pointer;
   text-align: center;
@@ -298,11 +312,64 @@
 #import-screen .imp-drop:hover,
 #import-screen .imp-drop.over {
   border-color: var(--imp-accent);
-  background: rgba(99, 102, 241, .08);
+  background: color-mix(in srgb, var(--imp-accent) 8%, transparent);
   color: var(--imp-text);
 }
 #import-screen .imp-drop-title { font-size: .875rem; font-weight: 700; color: var(--imp-text); }
 #import-screen .imp-drop-sub { font-size: .75rem; letter-spacing: .04em; }
+
+/* ── Purchased-books card (§2.10) ─────────────────────────────────────────── */
+
+/* Informational, not a warning: the muted (dashed) frame without the
+   gateway-off card's warn-tinted head. */
+#import-screen .imp-card--bought .imp-card-head { color: var(--imp-text); }
+
+/* Links dressed as buttons (the Gutenberg card) share .imp-btn wholesale. */
+#import-screen a.imp-btn { text-decoration: none; }
+
+/* The "Where is my file?" disclosure row — 44px floor, chevron flips open. */
+#import-screen .imp-disclose {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  min-height: 44px;
+  padding: .5rem .625rem;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  background: transparent;
+  color: var(--imp-text);
+  font-size: .8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s;
+}
+#import-screen .imp-disclose:hover { background: var(--imp-surf); }
+#import-screen .imp-disclose:active { transform: scale(.98); }
+#import-screen .imp-disclose-chev { flex: 0 0 auto; color: var(--imp-muted); transition: transform .15s; }
+#import-screen .imp-disclose.open .imp-disclose-chev { transform: rotate(180deg); }
+
+#import-screen .imp-stores {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--imp-border);
+  border-radius: var(--imp-radius);
+  overflow: hidden;
+}
+#import-screen .imp-stores[hidden] { display: none; }
+#import-screen .imp-store-row {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding: .55rem .75rem;
+  border-bottom: 1px solid var(--imp-border);
+}
+#import-screen .imp-store-row:last-child { border-bottom: 0; }
+#import-screen .imp-store-name { font-size: .8125rem; font-weight: 700; }
+#import-screen .imp-store-copy { font-size: .75rem; line-height: 1.5; color: var(--imp-muted); }
 
 /* ── Status / progress ────────────────────────────────────────────────────── */
 
@@ -313,13 +380,22 @@
   padding: .625rem .75rem;
   border: 1px solid var(--imp-border);
   border-radius: var(--imp-radius);
-  background: rgba(255, 255, 255, .03);
+  background: color-mix(in srgb, var(--imp-text) 3%, transparent);
   font-size: .8125rem;
   line-height: 1.5;
 }
 #import-screen .imp-status[hidden] { display: none; }
-#import-screen .imp-status--error { border-color: rgba(240, 97, 109, .4); background: rgba(240, 97, 109, .08); color: #ffd7da; }
-#import-screen .imp-status--ok    { border-color: rgba(74, 222, 128, .35); background: rgba(74, 222, 128, .08); }
+#import-screen .imp-status--error {
+  border-color: color-mix(in srgb, var(--imp-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--imp-danger) 8%, transparent);
+  /* Error-text ink: the old pale-pink literal until a theme supplies the
+     palette's own danger anchor (readable on light surfaces too). */
+  color: var(--danger, #ffd7da);
+}
+#import-screen .imp-status--ok    {
+  border-color: color-mix(in srgb, var(--imp-ok) 35%, transparent);
+  background: color-mix(in srgb, var(--imp-ok) 8%, transparent);
+}
 #import-screen .imp-status--error svg { color: var(--imp-danger); flex: 0 0 auto; }
 #import-screen .imp-status--ok svg    { color: var(--imp-ok); flex: 0 0 auto; }
 
@@ -358,7 +434,9 @@
   #import-screen .imp-spinner { animation-duration: 2.4s; }
   #import-screen .imp-bar-fill { transition: none; }
   #import-screen .imp-btn:active,
-  #import-screen .imp-icon-btn:active { transform: none; }
+  #import-screen .imp-icon-btn:active,
+  #import-screen .imp-disclose:active { transform: none; }
+  #import-screen .imp-disclose-chev { transition: none; }
 }
 
 /* ── Banners ──────────────────────────────────────────────────────────────── */
@@ -368,17 +446,17 @@
   align-items: flex-start;
   gap: .5rem;
   padding: .625rem .75rem;
-  border: 1px solid rgba(232, 178, 58, .4);
+  border: 1px solid color-mix(in srgb, var(--imp-warn) 40%, transparent);
   border-radius: var(--imp-radius);
-  background: rgba(232, 178, 58, .1);
+  background: color-mix(in srgb, var(--imp-warn) 10%, transparent);
   font-size: .8125rem;
   line-height: 1.5;
 }
 #import-screen .imp-banner[hidden] { display: none; }
 #import-screen .imp-banner svg { flex: 0 0 auto; margin-top: .15rem; color: var(--imp-warn); }
 #import-screen .imp-banner--info {
-  border-color: rgba(99, 102, 241, .4);
-  background: rgba(99, 102, 241, .1);
+  border-color: color-mix(in srgb, var(--imp-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--imp-accent) 10%, transparent);
 }
 #import-screen .imp-banner--info svg { color: var(--imp-accent); }
 
@@ -400,6 +478,8 @@
   background: var(--imp-surf);
 }
 #import-screen .imp-cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Generated fallback cover (§2.8) — Covers.element fills the same 2:3 slot. */
+#import-screen .imp-cover-svg { width: 100%; height: 100%; display: block; }
 #import-screen .imp-cover-ph {
   width: 100%;
   height: 100%;
@@ -462,7 +542,7 @@
 }
 #import-screen .imp-seg:hover { color: var(--imp-text); background: var(--imp-surf); }
 #import-screen .imp-seg.active {
-  background: rgba(99, 102, 241, .18);
+  background: color-mix(in srgb, var(--imp-accent) 18%, transparent);
   border-color: var(--imp-accent);
   color: var(--imp-text);
 }
@@ -578,9 +658,9 @@
   flex-direction: column;
   gap: .5rem;
   padding: .625rem .75rem;
-  border: 1px solid rgba(240, 97, 109, .4);
+  border: 1px solid color-mix(in srgb, var(--imp-danger) 40%, transparent);
   border-radius: var(--imp-radius);
-  background: rgba(240, 97, 109, .08);
+  background: color-mix(in srgb, var(--imp-danger) 8%, transparent);
 }
 #import-screen .imp-confirm-text { font-size: .8125rem; line-height: 1.5; }
 
@@ -602,7 +682,11 @@
 /* Parked on <body> like .cat-toast, because it appears at boot while every
    screen (including this one) is hidden. Self-contained tokens for the same
    reason the screen re-declares them. Solid background, no backdrop-filter —
-   the blur budget is already spent on the app's fixed chrome. */
+   the blur budget is already spent on the app's fixed chrome.
+   §2.9: a dark floating capsule (the .gl-toast precedent), so its inks are
+   PINNED dark literals rather than theme tokens — a light shell theme's
+   near-black --text on this rgba(18,18,18) ground would vanish. Only the
+   accent fill stays themed (white ink reads on every palette's accent). */
 .imp-restore {
   position: fixed;
   z-index: 400;
@@ -617,10 +701,10 @@
   gap: .625rem;
   padding: .8rem .9rem;
   background: rgba(18, 18, 18, .96);
-  border: 1px solid var(--border, rgba(255, 255, 255, .1));
+  border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
-  color: var(--text, #f0f0f0);
+  color: #f0f0f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: .82rem;
   line-height: 1.5;
@@ -638,10 +722,10 @@
 .imp-restore-btn {
   min-height: 44px;
   padding: .5rem .9rem;
-  border: 1px solid var(--border, rgba(255, 255, 255, .1));
+  border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 10px;
-  background: var(--surf, rgba(255, 255, 255, .08));
-  color: var(--text, #f0f0f0);
+  background: rgba(255, 255, 255, .08);
+  color: #f0f0f0;
   font: inherit;
   font-weight: 600;
   cursor: pointer;

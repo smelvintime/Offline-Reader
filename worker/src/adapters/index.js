@@ -9,6 +9,11 @@
 //  100  generic-novel  — matches everything; the last resort
 //
 // Adding an adapter is: write the module, import it here, put it in ADAPTERS.
+//
+// Listing (§6.6) is an OPTIONAL capability: adapters may export
+// `listSeries(url, ctx)` and, to gate it separately from resolving,
+// `listMatches(url)`. `selectListAdapter` routes /list; `listAdapters` reports
+// `canList` so /health tells clients whether browsing works at all.
 
 import * as mangadex from './mangadex.js';
 import * as genericManga from './generic-manga.js';
@@ -19,27 +24,38 @@ export const ADAPTERS = [mangadex, genericManga, genericNovel].sort(
   (a, b) => a.priority - b.priority,
 );
 
-/** Shape check — catches a half-written adapter at boot instead of at runtime. */
-function isValid(a) {
+/**
+ * Shape check — catches a half-written adapter at boot instead of at runtime.
+ * The five §6.5 members stay required; `listSeries`/`listMatches` are OPTIONAL,
+ * but a present member of the wrong type IS a boot error (exported for tests).
+ */
+export function isValidAdapter(a) {
   return (
     a &&
     typeof a.id === 'string' &&
     typeof a.matches === 'function' &&
     typeof a.priority === 'number' &&
     typeof a.resolveSeries === 'function' &&
-    typeof a.resolveChapter === 'function'
+    typeof a.resolveChapter === 'function' &&
+    (a.listSeries === undefined || typeof a.listSeries === 'function') &&
+    (a.listMatches === undefined || typeof a.listMatches === 'function')
   );
 }
 
 for (const a of ADAPTERS) {
-  if (!isValid(a)) {
+  if (!isValidAdapter(a)) {
     throw new Error(`Invalid adapter registered: ${(a && a.id) || '<unknown>'}`);
   }
 }
 
-/** `[{ id, label, priority }]` — the payload /health reports. */
+/** `[{ id, label, priority, canList }]` — the payload /health reports. */
 export function listAdapters() {
-  return ADAPTERS.map((a) => ({ id: a.id, label: a.label || a.id, priority: a.priority }));
+  return ADAPTERS.map((a) => ({
+    id: a.id,
+    label: a.label || a.id,
+    priority: a.priority,
+    canList: typeof a.listSeries === 'function',
+  }));
 }
 
 export function adapterIds() {
@@ -68,6 +84,34 @@ export function selectAdapter(url, ctx = {}) {
     let ok = false;
     try {
       ok = !!a.matches(url, ctx);
+    } catch {
+      ok = false;
+    }
+    if (ok) return a;
+  }
+  return null;
+}
+
+/**
+ * Pick the adapter for a /list URL (§6.6): first adapter in priority order
+ * that implements `listSeries` AND whose `listMatches(url)` — or, when that
+ * optional gate is absent, `matches(url)` — claims the URL. `force` pins by id
+ * (the `?adapter=` debug param), but never onto an adapter that cannot list.
+ *
+ * @param {string} url
+ * @param {{force?:string}} [ctx]
+ * @returns {object|null}
+ */
+export function selectListAdapter(url, ctx = {}) {
+  if (ctx.force) {
+    const pinned = getAdapter(ctx.force);
+    return pinned && typeof pinned.listSeries === 'function' ? pinned : null;
+  }
+  for (const a of ADAPTERS) {
+    if (typeof a.listSeries !== 'function') continue;
+    let ok = false;
+    try {
+      ok = typeof a.listMatches === 'function' ? !!a.listMatches(url) : !!a.matches(url, ctx);
     } catch {
       ok = false;
     }

@@ -5,14 +5,16 @@
 // this is the one server-side component: it fetches, normalizes, and re-serves.
 //
 // IT STORES NOTHING. Bytes stream through; the only persistence is the optional
-// KV allowlist of image hosts learned from /resolve, and the Cloudflare edge
-// cache. See worker/README.md for the honest capability/limitation list.
+// KV allowlist of image hosts learned from /resolve, /chapter and /list, and
+// the Cloudflare edge cache. See worker/README.md for the honest
+// capability/limitation list.
 //
 // Routes (ARCHITECTURE.md §6):
 //   GET /image?url=      stream image bytes with a plausible Referer/Origin
 //   GET /?url=           legacy alias for /image, kept for deployed catalogues
 //   GET /resolve?url=    series page  → { ok, adapter, series }
 //   GET /chapter?url=&kind=  chapter  → { ok, adapter, chapter }
+//   GET /list?url=       listing page → { ok, adapter, source, items, nextUrl? }
 //   GET /health          → { ok, version, adapters, … }
 
 import { json, fail, preflight, withCors, GatewayError } from './lib/respond.js';
@@ -24,12 +26,24 @@ import {
   capStream,
   upstreamHeaders,
 } from './lib/security.js';
-import { isAllowedHost, hasKv, learnHosts, staticList } from './lib/allowlist.js';
+import { isAllowedHost, hasKv, learnHosts, staticList, hostsOf } from './lib/allowlist.js';
 import { checkRateLimit } from './lib/ratelimit.js';
 import { parseHtml } from './lib/html.js';
 import { absolutize } from './lib/meta.js';
-import { VERSION, refererFor } from './lib/gateway.js';
-import { selectAdapter, listAdapters, adapterIds } from './adapters/index.js';
+import {
+  VERSION,
+  refererFor,
+  LIST_LIMITS,
+  MAX_LIST_LEARN,
+  filterUnlearnedHosts,
+  markHostsLearned,
+} from './lib/gateway.js';
+import {
+  selectAdapter,
+  selectListAdapter,
+  listAdapters,
+  adapterIds,
+} from './adapters/index.js';
 
 // NOTE: this module must export ONLY its default handler. workerd validates
 // every named export of the entry module and rejects anything that is not a
@@ -183,7 +197,7 @@ async function handleImage(request, env, execCtx, raw) {
       return fail(
         'blocked_host',
         `Host "${host}" is not in the image allowlist. Hosts are added automatically ` +
-          `by a successful /resolve of a page that uses them.`,
+          `by a successful /resolve, /chapter or /list of a page that uses them.`,
       );
     }
   }
@@ -363,6 +377,85 @@ async function handleChapter(request, env, execCtx, raw, params) {
   );
 }
 
+// ── /list ────────────────────────────────────────────────────────────────────
+
+/**
+ * §6.6 — turn a browse/catalogue page into `{ source, items, nextUrl? }`.
+ * Items carry raw absolute URLs the client feeds back into /resolve; the
+ * listing never mints series ids.
+ */
+async function handleList(request, env, execCtx, raw, params) {
+  // Same fetch-and-parse work class as /resolve — the parse bucket, no new one.
+  const rl = checkRateLimit(request, 'parse', env);
+  if (!rl.ok) {
+    return fail('rate_limited', 'Too many parse requests; slow down', {
+      headers: { 'Retry-After': String(rl.retryAfter) },
+    });
+  }
+
+  const sec = securityOpts(env);
+  const { url: target } = await assertSafeTarget(raw, sec);
+
+  const adapter = selectListAdapter(target.href, { force: params.get('adapter') || undefined });
+  if (!adapter) return fail('no_adapter', `No adapter can list ${target.href}`);
+
+  const ctx = makeCtx(request, env, execCtx);
+  const result = await adapter.listSeries(target.href, ctx);
+  const rawItems = result && Array.isArray(result.items) ? result.items : [];
+  if (!rawItems.length) {
+    return fail('list_failed', `${adapter.id} could not read a series listing from this page`);
+  }
+
+  // Caps: items sliced, titles clamped. The HTML fetch itself already rode the
+  // shared byte/timeout caps inside ctx.fetchHtml.
+  const items = [];
+  for (const it of rawItems.slice(0, LIST_LIMITS.maxItems)) {
+    if (!it || !it.url) continue;
+    const title = String(it.title || '').slice(0, LIST_LIMITS.maxTitleChars);
+    if (!title) continue;
+    const out = { title, url: it.url };
+    if (it.cover) out.cover = it.cover;
+    if (it.type) out.type = it.type;
+    items.push(out);
+  }
+  if (!items.length) {
+    return fail('list_failed', `${adapter.id} could not read a series listing from this page`);
+  }
+
+  // §7.3 amendment — cover hosts become /image-allowlisted so first-browse
+  // thumbnails work, capped at MAX_LIST_LEARN per request and memoized per
+  // isolate so a browse loop cannot burn the KV write budget (lib/gateway.js).
+  const coverHosts = hostsOf(items.map((i) => i.cover).filter(Boolean));
+  const fresh = filterUnlearnedHosts(coverHosts);
+  if (fresh.length) {
+    const learning = learnHosts(fresh, env, { max: MAX_LIST_LEARN })
+      .then((written) => markHostsLearned(written))
+      .catch(() => {});
+    if (execCtx && execCtx.waitUntil) {
+      execCtx.waitUntil(learning);
+    } else {
+      await learning;
+    }
+  }
+
+  const source = result.source && typeof result.source === 'object' ? result.source : {};
+  const body = {
+    ok: true,
+    adapter: adapter.id,
+    source: {
+      title: String(source.title || '').slice(0, LIST_LIMITS.maxTitleChars),
+      url: source.url || target.href,
+    },
+    items,
+  };
+  if (result.nextUrl) body.nextUrl = result.nextUrl;
+
+  return json(body, {
+    headers: { 'X-Or-Adapter': adapter.id },
+    cacheSeconds: 300,
+  });
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 // Not exported: workerd turns named exports of the entry module into named
@@ -392,7 +485,7 @@ async function route(request, env = {}, execCtx = null) {
       ok: true,
       service: 'offline-reader-gateway',
       version: VERSION,
-      endpoints: ['/image?url=', '/resolve?url=', '/chapter?url=&kind=', '/health'],
+      endpoints: ['/image?url=', '/resolve?url=', '/chapter?url=&kind=', '/list?url=', '/health'],
     });
   }
 
@@ -404,6 +497,11 @@ async function route(request, env = {}, execCtx = null) {
   if (path === '/chapter') {
     if (!raw) return fail('bad_url', 'Missing ?url= parameter');
     return handleChapter(request, env, execCtx, raw, params);
+  }
+
+  if (path === '/list') {
+    if (!raw) return fail('bad_url', 'Missing ?url= parameter');
+    return handleList(request, env, execCtx, raw, params);
   }
 
   return fail('not_found', `Unknown endpoint "${url.pathname}"`);

@@ -166,6 +166,20 @@ window.__done = (async function main() {
   // ── zip + pageUrl (§6.1) ──────────────────────────────────────────────────
   assertEq(await P.zip.list({ key: 'abc' }), null, 'zip.list() resolves null on web');
   assertEq(await P.zip.extract({ key: 'abc' }, ['001.jpg'], 'dir'), null, 'zip.extract() resolves null on web');
+
+  // The { cachePath } source form (PLAN7 §2.11-B) — a relative path under the
+  // cache root, only meaningful on native. On web every shape resolves null,
+  // the same degrade as the other source forms (the traversal shapes below
+  // are additionally rejected before the plugin on native).
+  assertEq(await P.zip.list({ cachePath: 'pages/import-inner/k/inner.cbz' }), null,
+    'zip.list({cachePath}) resolves null on web');
+  assertEq(await P.zip.extract({ cachePath: 'pages/import-inner/k/inner.cbz' }, ['001.jpg'], 'dir'), null,
+    'zip.extract({cachePath}) resolves null on web');
+  assertEq(await P.zip.list({ cachePath: 'pages/../../etc/passwd' }), null,
+    'zip.list({cachePath}) with a .. segment resolves null');
+  assertEq(await P.zip.list({ cachePath: '/etc/passwd' }), null,
+    'zip.list({cachePath}) with an absolute path resolves null');
+
   assertEq(P.pageUrl('pages/dir/001.jpg'), null, 'pageUrl() returns null on web');
   assertEq(P.pageUrl('pages/../../etc/passwd'), null, 'pageUrl() rejects .. traversal');
 

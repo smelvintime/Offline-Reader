@@ -10,6 +10,15 @@
     --page-gap: 0px;
   }
 
+  /* App themes (PLAN7 §2.9): css/settings.css overrides the :root tokens above
+     and defines the derived layer (--surf-1, --surf-2, --border-soft,
+     --accent-ink, --prose, --ok, --warn, --danger) under html[data-apptheme].
+     Shell rules below consume the derived tokens with today's literals as
+     fallbacks — with settings.js absent the attribute is never set, every
+     fallback applies, and this file renders exactly as before. The :root block
+     stays the permanent dark default; the image reader further down is PINNED
+     dark and never follows the app theme. */
+
   html, body {
     background-color: var(--bg) !important;
     color: var(--text);
@@ -50,8 +59,8 @@
 
   #mobile-upload-btn {
     width: 100%; max-width: 340px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surf-1, rgba(255,255,255,0.04));
+    border: 1px solid var(--border-soft, rgba(255,255,255,0.08));
     border-radius: 10px; /* reduced from 20px — less pill-shaped */
     padding: 1.2rem;
     display: flex;
@@ -63,7 +72,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   #mobile-upload-btn:active {
-    background: rgba(255,255,255,0.08);
+    background: var(--surf, rgba(255,255,255,0.08));
     transform: scale(0.97);
   }
   .btn-icon {
@@ -75,7 +84,7 @@
     flex-shrink: 0;
   }
   .btn-text { display: flex; flex-direction: column; gap: 0.3rem; }
-  .btn-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
+  .btn-title { font-size: 1.1rem; font-weight: 700; color: var(--text, #fff); }
   .btn-sub { font-size: 0.85rem; color: var(--muted); }
 
   #file-input { display: none; }
@@ -102,10 +111,33 @@
   #loading-text { color: var(--muted); font-size: .9rem; text-align: center; max-width: 280px; }
 
   /* ── Reader Screen ── */
+  /* PINNED DARK (PLAN7 §2.9): reading surfaces are reader-themed, the shell is
+     app-themed. App themes recolor the shell by overriding the :root tokens on
+     html[data-apptheme] (css/settings.css); re-declaring the same tokens here
+     with their dark literals restores them for every var() the reader chrome
+     uses, so a light app theme never bleaches the comic surround. */
   #reader-screen {
     display: none;
     width: 100%;
-    background: var(--bg);
+    background: #0a0a0a;
+    --bg:     #0a0a0a;
+    --surf:   rgba(255, 255, 255, 0.08);
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #6366f1;
+    --text:   #f0f0f0;
+    --muted:  #a0a0a0;
+  }
+
+  /* Touch/overscroll hardening (PLAN7 §2.11-C): stop in-page horizontal
+     scroll chaining and rubber-banding from competing with vertical page
+     scroll on iOS. CSS cannot stop the OS-level Safari edge-swipe itself —
+     the history sentinel in catalogue.js handles that. */
+  body[data-screen='reader-screen'] {
+    overscroll-behavior-x: none;
+    /* Vertical rubber-banding reveals the body behind the reader; keep that
+       ground pinned dark too while the reader is up (same-importance override
+       of the html,body var(--bg) rule via higher specificity). */
+    background-color: #0a0a0a !important;
   }
 
   /* Fixed Glassy Top Header */
@@ -165,6 +197,9 @@
   #reader-pages {
     width: 100%;
     background: var(--bg);
+    /* PLAN7 §2.11-C: vertical pan + pinch only — no horizontal pan gestures
+       for the page column to start, so nothing competes with edge-swipes. */
+    touch-action: pan-y pinch-zoom;
   }
 
   .reader-decor {
@@ -444,6 +479,12 @@
   }
 
   /* ── Notice banners — shared layout ── */
+  /* Deliberately NOT re-pointed at the theme tokens (PLAN7 §2.9 deviation,
+     logged): these banners overlay the pinned-dark reader as well as the
+     themed upload screen, and their hand-tuned opaque backgrounds with white
+     text stay legible over both. Coupling them to the --warn/--danger anchors
+     — which the light themes darken for on-surface text contrast — would
+     change the default dark look and risk white-on-anchor contrast instead. */
   #size-notice, #order-notice {
     position: fixed;
     left: 50%;
@@ -536,7 +577,7 @@
     font-size: 0.78rem;
     color: var(--muted);
     padding: 0.45rem 0;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.08));
     opacity: 0.85;
     gap: 0.75rem; /* padding between the progress bar and the date */
   }
@@ -565,7 +606,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .library-row-resume:active { background: rgba(255,255,255,0.04); }
+  .library-row-resume:active { background: var(--surf-1, rgba(255,255,255,0.04)); }
   .resume-missing {
     font-size: 0.72rem;
     color: var(--muted);
@@ -590,10 +631,14 @@
     position: sticky;
     top: 0;
     z-index: 100;
+    /* Glass over blur derived from the theme bg — the --nv-chrome pattern
+       (novel.css). The literal stays first as the no-color-mix fallback and
+       is byte-identical to the mix over the :root --bg. */
     background: rgba(10,10,10,0.88);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(24px) saturate(150%);
     -webkit-backdrop-filter: blur(24px) saturate(150%);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.06));
     /* Side insets: landscape notch support (importer.css is the model). */
     padding: calc(env(safe-area-inset-top,0px) + 0.6rem)
              calc(1rem + env(safe-area-inset-right, 0px))
@@ -622,8 +667,8 @@
   }
   #home-search {
     width: 100%;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--surf-1, rgba(255,255,255,0.06));
+    border: 1px solid var(--border, rgba(255,255,255,0.1));
     border-radius: 10px;
     padding: 0.55rem 0.9rem 0.55rem 2.4rem;
     color: var(--text);
@@ -649,8 +694,8 @@
     display: none;
     align-items: center;
     gap: 0.4rem;
-    background: rgba(30,30,30,0.95);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--surf-2, rgba(30,30,30,0.95));
+    border: 1px solid var(--border, rgba(255,255,255,0.1));
     border-radius: 8px;
     padding: 0.35rem 0.65rem;
     font-size: 0.72rem;
@@ -688,7 +733,7 @@
     content: '';
     flex: 1;
     height: 1px;
-    background: rgba(255,255,255,0.06);
+    background: var(--border-soft, rgba(255,255,255,0.06));
   }
 
   /* ── Latest updates row ── */
@@ -703,7 +748,7 @@
     align-items: center;
     gap: 0.85rem;
     padding: 0.7rem 0;
-    border-bottom: 1px solid rgba(255,255,255,0.045);
+    border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.045));
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.15s;
@@ -711,14 +756,14 @@
     padding-left: 0.4rem;
     padding-right: 0.4rem;
   }
-  .update-row:active { background: rgba(255,255,255,0.05); }
+  .update-row:active { background: var(--surf-1, rgba(255,255,255,0.05)); }
   .update-thumb {
     width: 42px;
     height: 56px;
     border-radius: 6px;
     object-fit: cover;
     flex-shrink: 0;
-    background: #111;
+    background: var(--surf, #111);
   }
   .update-thumb-ph {
     width: 42px; height: 56px;
@@ -767,7 +812,7 @@
     aspect-ratio: 2/3;
     border-radius: 10px;
     overflow: hidden;
-    background: #111;
+    background: var(--surf, #111);
     margin-bottom: 0.45rem;
   }
   .series-cover {
@@ -854,17 +899,19 @@
              calc(1rem + env(safe-area-inset-right, 0px))
              0.65rem
              calc(1rem + env(safe-area-inset-left, 0px));
+    /* Theme-derived glass — see #home-header. */
     background: rgba(10,10,10,0.88);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.06));
   }
   #series-back-btn {
     background: none; border: none;
     color: var(--accent); padding: 0.4rem; cursor: pointer;
     display: flex; align-items: center; border-radius: 8px; flex-shrink: 0;
   }
-  #series-back-btn:active { background: rgba(255,255,255,0.08); }
+  #series-back-btn:active { background: var(--surf, rgba(255,255,255,0.08)); }
   #series-header-title {
     flex: 1; font-size: 1rem; font-weight: 700; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -893,7 +940,7 @@
     border-radius: 10px;
     object-fit: cover;
     flex-shrink: 0;
-    background: #111;
+    background: var(--surf, #111);
   }
   #series-hero-cover-ph {
     width: 100px;
@@ -955,7 +1002,7 @@
     -webkit-tap-highlight-color: transparent;
     width: 100%; text-align: left;
   }
-  .ch-item:active { background: rgba(255,255,255,0.12); }
+  .ch-item:active { background: var(--surf-2, rgba(255,255,255,0.12)); }
   .ch-num {
     font-size: 0.75rem; font-weight: 700;
     color: var(--accent); min-width: 3.5rem; flex-shrink: 0;
@@ -1009,7 +1056,7 @@
     padding: 0.75rem 1rem;
     font-size: 0.84rem;
     font-weight: 600;
-    color: #a5b4fc;
+    color: var(--accent-ink, #a5b4fc);
     cursor: pointer;
     transition: background 0.18s, border-color 0.18s, transform 0.15s;
     -webkit-tap-highlight-color: transparent;
@@ -1021,8 +1068,8 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--surf-1, rgba(255,255,255,0.05));
+    border: 1px solid var(--border, rgba(255,255,255,0.12));
     border-radius: 8px;
     padding: 0.35rem 0.65rem;
     font-size: 0.72rem;
@@ -1033,7 +1080,7 @@
     transition: background 0.15s, border-color 0.15s;
     -webkit-tap-highlight-color: transparent;
   }
-  #go-offline-btn:active { background: rgba(255,255,255,0.1); }
+  #go-offline-btn:active { background: var(--surf, rgba(255,255,255,0.1)); }
 
   /* ── Viewport + tablet adaptations (Phase 2) ── */
 

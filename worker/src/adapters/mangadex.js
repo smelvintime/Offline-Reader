@@ -9,6 +9,8 @@
 //   GET /manga/<uuid>/feed?translatedLanguage[]=en&order[chapter]=asc&limit&offset
 //   GET /chapter/<uuid>
 //   GET /at-home/server/<uuid>          → { baseUrl, chapter:{ hash, data[] } }
+//   GET /manga?limit&order[followedCount]&availableTranslatedLanguage[]&includes[]&title&offset
+//                                       → the /list capability (§6.6)
 
 import { gwError } from '../lib/respond.js';
 
@@ -25,12 +27,30 @@ const CHAPTER_RE = new RegExp(`/chapter/(${UUID})`);
 const FEED_LIMIT = 100;
 const MAX_FEED_PAGES = 12; // 1,200 chapters
 
+/** Page size for /list — one API call per /list request, offset-paged. */
+const LIST_PAGE = 32;
+
 export function matches(url) {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase().replace(/^www\./, '');
     if (host !== 'mangadex.org' && host !== 'api.mangadex.org') return false;
     return TITLE_RE.test(u.pathname) || CHAPTER_RE.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * §6.5 optional listing gate: MangaDex browse/search/root URLs — anything on
+ * mangadex.org that is NOT a single title or chapter (those go to /resolve).
+ */
+export function listMatches(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    if (host !== 'mangadex.org') return false;
+    return !TITLE_RE.test(u.pathname) && !CHAPTER_RE.test(u.pathname);
   } catch {
     return false;
   }
@@ -187,6 +207,65 @@ async function fetchFeed(uuid, lang, ctx) {
     if (offset >= total || rows.length === 0) break;
   }
 
+  return out;
+}
+
+/**
+ * §6.5 optional listing capability — real listing via the search API.
+ *
+ * The browse URL's `q`/`title` param becomes the API `title` filter; with no
+ * query the default is most-followed, English-available titles (tunable —
+ * PLAN7 §12.3). `nextUrl` pages by `offset` on the same mangadex.org URL so
+ * the client can feed it straight back into /list.
+ */
+export async function listSeries(url, ctx) {
+  const u = new URL(url);
+  const q = (u.searchParams.get('q') || u.searchParams.get('title') || '').trim();
+  const offset = Math.max(0, Math.floor(Number(u.searchParams.get('offset')) || 0));
+
+  const qs = new URLSearchParams();
+  qs.set('limit', String(LIST_PAGE));
+  qs.set('order[followedCount]', 'desc');
+  qs.append('availableTranslatedLanguage[]', 'en');
+  qs.append('includes[]', 'cover_art');
+  if (q) qs.set('title', q);
+  if (offset) qs.set('offset', String(offset));
+
+  const res = await ctx.fetchJson(`${API}/manga?${qs.toString()}`);
+  const rows = (res && res.data) || [];
+
+  const items = [];
+  for (const m of rows) {
+    if (!m || !m.id || !m.attributes) continue;
+    const title = pickLocalized(m.attributes.title);
+    if (!title) continue;
+    const item = {
+      title,
+      // The raw title URL the client feeds back into /resolve — the listing
+      // never mints series ids.
+      url: `https://mangadex.org/title/${m.id}`,
+      type: 'manga', // a hint, never trusted
+    };
+    const coverRel = relOf(m, 'cover_art');
+    const coverFile = coverRel && coverRel.attributes && coverRel.attributes.fileName;
+    if (coverFile) {
+      item.cover = `https://uploads.mangadex.org/covers/${m.id}/${coverFile}.256.jpg`;
+    }
+    items.push(item);
+  }
+
+  const out = {
+    source: { title: q ? `MangaDex — ${q}` : 'MangaDex', url: u.href },
+    items,
+  };
+
+  const total = Number(res && res.total);
+  const next = offset + LIST_PAGE;
+  if (Number.isFinite(total) && next < total && rows.length) {
+    const nu = new URL(u.href);
+    nu.searchParams.set('offset', String(next));
+    out.nextUrl = nu.href;
+  }
   return out;
 }
 

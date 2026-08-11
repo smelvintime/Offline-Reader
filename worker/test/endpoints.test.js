@@ -5,7 +5,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import worker from '../src/index.js';
-import { VERSION, refererFor } from '../src/lib/gateway.js';
+import { VERSION, refererFor, _resetListLearnMemo } from '../src/lib/gateway.js';
 import { _resetRateLimit } from '../src/lib/ratelimit.js';
 import { fixture, kvStub, execCtxStub, fetchStub, html, req } from './helpers.js';
 
@@ -32,6 +32,9 @@ const ROUTES = {
   [`${NOVEL}/salt-road/`]: () => html(fixture('novel-series.html')),
   [`${NOVEL}/salt-road/?page=2`]: () => html(fixture('novel-series-page2.html')),
   [`${NOVEL}/salt-road/chapter-12`]: () => html(fixture('novel-chapter.html')),
+  [`${NOVEL}/browse/`]: () => html(fixture('listing-page.html')),
+  [`${NOVEL}/nothing-here/`]: () =>
+    html('<html><body><p>Just a paragraph, no listing.</p></body></html>'),
   [`${MANGA}/manga/tin-quarter/`]: () => html(fixture('manga-series.html')),
   [`${MANGA}/manga/tin-quarter/chapter-42/`]: () => html(fixture('manga-chapter.html')),
   'uploads.mangadex.org/covers/a.png': () =>
@@ -50,6 +53,7 @@ beforeEach(() => {
   realFetch = globalThis.fetch;
   ctx = execCtxStub();
   _resetRateLimit();
+  _resetListLearnMemo();
   install(ROUTES);
 });
 
@@ -68,6 +72,15 @@ describe('/health', () => {
     assert.equal(body.version, VERSION);
     assert.deepEqual(body.adapters, ['mangadex', 'generic-manga', 'generic-novel']);
     assert.equal(res.headers.get('access-control-allow-origin'), '*');
+  });
+
+  test('adapterDetail reports the §6.5 listing capability', async () => {
+    const body = await (await call('https://gw.example.com/health')).json();
+    for (const row of body.adapterDetail) {
+      assert.equal(typeof row.canList, 'boolean', `${row.id} must report canList`);
+    }
+    // All three shipped adapters can list (generic-novel lists everything).
+    assert.ok(body.adapterDetail.every((r) => r.canList === true));
   });
 
   test('says kv:false and static-only when no namespace is bound', async () => {
@@ -357,6 +370,145 @@ describe('/chapter', () => {
     const body = await res.json();
     assert.ok(['high', 'medium', 'low'].includes(body.confidence));
     assert.equal(res.headers.get('x-or-confidence'), body.confidence);
+  });
+});
+
+describe('/list', () => {
+  const LIST_URL =
+    'https://gw.example.com/list?url=' + encodeURIComponent(`https://${NOVEL}/browse/`);
+
+  test('the / descriptor advertises /list', async () => {
+    const body = await (await call('https://gw.example.com/')).json();
+    assert.ok(body.endpoints.includes('/list?url='), JSON.stringify(body.endpoints));
+  });
+
+  test('missing ?url= is a bad_url', async () => {
+    const res = await call('https://gw.example.com/list');
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'bad_url');
+  });
+
+  test('rejects private and IP-literal targets (SSRF)', async () => {
+    for (const bad of ['http://127.0.0.1/x', 'http://169.254.169.254/x', 'http://10.0.0.1/x']) {
+      const res = await call('https://gw.example.com/list?url=' + encodeURIComponent(bad));
+      assert.equal(res.status, 403, bad);
+      assert.equal((await res.json()).error, 'blocked_host', bad);
+    }
+  });
+
+  test('normalizes a listing page into source + items + nextUrl', async () => {
+    const res = await call(LIST_URL);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-or-adapter'), 'generic-novel');
+    assert.match(res.headers.get('cache-control') || '', /max-age=300/);
+
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.adapter, 'generic-novel');
+    assert.equal(body.source.title, 'Wandering Ink');
+    assert.equal(body.source.url, `https://${NOVEL}/browse/`);
+    assert.equal(body.items.length, 20);
+
+    const first = body.items[0];
+    assert.equal(first.title, 'The Salt Road');
+    assert.equal(first.url, `https://${NOVEL}/series/the-salt-road/`);
+    assert.equal(first.cover, 'https://cdn1.wi-img.gwfixture.org/thumbs/salt-road.jpg');
+    assert.equal(first.type, 'webnovel');
+
+    // Every item is an absolute http(s) URL the client can feed to /resolve,
+    // and no item carries a series id — /resolve owns id minting.
+    for (const it of body.items) {
+      assert.match(it.url, /^https:\/\//);
+      assert.equal('id' in it, false);
+    }
+    // Nav chrome and pagination never leak into the items.
+    const joined = body.items.map((i) => i.url).join(' ');
+    assert.ok(!joined.includes('/login'));
+    assert.ok(!joined.includes('page='));
+
+    assert.equal(body.nextUrl, `https://${NOVEL}/browse/?page=2`);
+  });
+
+  test('items are capped at 60', async () => {
+    const cards = Array.from({ length: 75 }, (_, i) =>
+      `<div class="card"><a href="/series/s-${i}/"><img src="https://cdn9.wi-img.gwfixture.org/t/${i}.jpg" width="220" height="330"><span>Series ${i}</span></a></div>`,
+    ).join('');
+    install({
+      ...ROUTES,
+      [`${NOVEL}/huge/`]: () =>
+        html(`<html><body><div class="grid">${cards}</div></body></html>`),
+    });
+    const body = await (
+      await call('https://gw.example.com/list?url=' + encodeURIComponent(`https://${NOVEL}/huge/`))
+    ).json();
+    assert.equal(body.ok, true);
+    assert.equal(body.items.length, 60);
+  });
+
+  test('a page with no listing is list_failed 422 (the ERR entry, not internal_error)', async () => {
+    const res = await call(
+      'https://gw.example.com/list?url=' + encodeURIComponent(`https://${NOVEL}/nothing-here/`),
+    );
+    assert.equal(res.status, 422);
+    const body = await res.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error, 'list_failed');
+  });
+
+  test('forcing an unknown adapter is no_adapter', async () => {
+    const res = await call(LIST_URL + '&adapter=ghost');
+    assert.equal(res.status, 422);
+    assert.equal((await res.json()).error, 'no_adapter');
+  });
+
+  test('cover-host learning is capped at 4 hosts per request', async () => {
+    const kv = kvStub();
+    const env = { ...baseEnv(), OR_ALLOWLIST: kv };
+    const res = await call(LIST_URL, env);
+    assert.equal(res.status, 200);
+    await ctx.settle();
+    const learned = [...kv.store.keys()].filter((k) => k.startsWith('allow:host:'));
+    // The fixture spreads covers over five CDN hosts; only the first four land.
+    assert.equal(learned.length, 4, JSON.stringify(learned));
+    assert.ok(learned.includes('allow:host:cdn1.wi-img.gwfixture.org'));
+    assert.ok(!learned.includes('allow:host:cdn5.wi-img.gwfixture.org'));
+  });
+
+  test('repeat /list calls in one isolate do not re-put memoized hosts', async () => {
+    const kv = kvStub();
+    const env = { ...baseEnv(), OR_ALLOWLIST: kv };
+    await call(LIST_URL, env);
+    await ctx.settle();
+    assert.equal(kv.puts, 4, 'first browse learns up to the cap');
+
+    // The second call may pick up ONLY the host the cap left behind (cdn5) —
+    // the four memoized hosts are not re-put.
+    await call(LIST_URL, env);
+    await ctx.settle();
+    assert.equal(kv.puts, 5, 'repeat writes only the capped-out host, never re-puts');
+    assert.ok([...kv.store.keys()].includes('allow:host:cdn5.wi-img.gwfixture.org'));
+
+    // Once everything is memoized, a warm-isolate browse loop writes nothing.
+    await call(LIST_URL, env);
+    await ctx.settle();
+    assert.equal(kv.puts, 5, 'fully-memoized repeat must write nothing');
+  });
+
+  test('without KV, learning is a silent no-op and the listing still works', async () => {
+    const res = await call(LIST_URL); // baseEnv has no OR_ALLOWLIST binding
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).ok, true);
+  });
+
+  test('uses the parse rate bucket and 429s past the budget', async () => {
+    const env = { ...baseEnv(), RATE_LIMIT_PARSE: '2' };
+    const headers = { 'cf-connecting-ip': '203.0.113.44' };
+    assert.equal((await call(LIST_URL, env, { headers })).status, 200);
+    assert.equal((await call(LIST_URL, env, { headers })).status, 200);
+    const third = await call(LIST_URL, env, { headers });
+    assert.equal(third.status, 429);
+    assert.equal((await third.json()).error, 'rate_limited');
+    assert.ok(Number(third.headers.get('retry-after')) >= 0);
   });
 });
 

@@ -419,6 +419,16 @@
   // The plugin is central-directory-listing + streamed selective extraction,
   // nothing else. Entry bytes NEVER enter the webview: list returns
   // names+sizes, extract writes to Cache/pages/ and returns paths.
+  //
+  // Three source forms (PLAN7 §2.11-B):
+  //   { uri }       — absolute path or file:// URI (a freshly picked file)
+  //   { key }       — an archive stored under Data/archives
+  //   { cachePath } — a RELATIVE path under the cache root (the pageUrl
+  //                   root), e.g. 'pages/import-inner/<key>/<inner>.cbz' as
+  //                   returned by a prior zip.extract — the nested-zip path:
+  //                   the inner CBZ is extracted to disk once and then
+  //                   indexed/read in place, so its bytes never fall back to
+  //                   the JS blob path.
 
   async function zipSrcPath(src) {
     if (!src) return null;
@@ -426,6 +436,15 @@
     if (src.key) {
       await ensureArchivesDir();
       return await archiveAbsPath(src.key);
+    }
+    if (typeof src.cachePath === 'string') {
+      // Same containment rule as pageUrl(): relative only, no '..' segments.
+      // The joined absolute path still faces or-zip's own outside-container
+      // rejection — this check is the polite refusal, that one is the wall.
+      if (!cacheRootPath) return null; // web, or cache root unresolved
+      const rel = src.cachePath;
+      if (!rel || rel.charAt(0) === '/' || rel.split('/').indexOf('..') !== -1) return null;
+      return cacheRootPath + '/' + rel;
     }
     return null;
   }
@@ -721,6 +740,65 @@
     } catch (e) { return null; }
   }
 
+  // ── Status bar follows the app theme (PLAN7 §2.9) ─────────────────────────
+  //
+  // The shell theme (`app.theme`, written and applied by settings.js) decides
+  // whether the OS status bar draws light-on-dark or dark-on-light text. The
+  // background luminance of the nine named palettes is known, so the two sets
+  // are static data here; `custom` defers to the data-applum attribute
+  // settings.js stamps on <html> from the custom background at apply time.
+  // settings.js absent → the pref is never written → 'dark', which is exactly
+  // the app's permanent-dark fallback (PLAN7 §0.5).
+  const LIGHT_APP_THEMES = ['light', 'cream', 'sepia', 'tan'];
+  const DARK_APP_THEMES = ['dark', 'dim', 'black', 'nord', 'forest'];
+
+  function appTheme() {
+    let v = null;
+    try {
+      if (window.Store && window.Store.prefs) v = window.Store.prefs.get('app.theme', null);
+    } catch (e) {}
+    // Validated on read like every pref: anything unknown is the dark default.
+    if (v === 'custom' || LIGHT_APP_THEMES.indexOf(v) !== -1 || DARK_APP_THEMES.indexOf(v) !== -1) return v;
+    return 'dark';
+  }
+
+  // Capacitor style names are about the BAR, not the text: 'DARK' = dark bar,
+  // light text; 'LIGHT' = light bar, dark text.
+  function statusBarStyle() {
+    const theme = appTheme();
+    if (theme === 'custom') {
+      // settings.js computes data-applum ('dark' | 'light') from the custom
+      // bg's luminance — reuse its judgment instead of re-deriving it here.
+      return document.documentElement.dataset.applum === 'light' ? 'LIGHT' : 'DARK';
+    }
+    return LIGHT_APP_THEMES.indexOf(theme) !== -1 ? 'LIGHT' : 'DARK';
+  }
+
+  function applyStatusBarStyle() {
+    const StatusBar = plugin('StatusBar');
+    if (!StatusBar) return;
+    try { StatusBar.setStyle({ style: statusBarStyle() }).catch(function () {}); } catch (e) {}
+  }
+
+  let statusBarTimer = null;
+  function wireStatusBarTheme() {
+    // Key-gated exactly like settings.js's own live re-apply: only app.*
+    // writes and bulk reloads (key null) matter — or:prefs also fires at
+    // persistDay cadence for goals.lifetime (PLAN7 §2.3), and that must not
+    // cost bridge trips.
+    window.addEventListener('or:prefs', function (ev) {
+      const key = ev && ev.detail ? ev.detail.key : undefined;
+      if (key !== null && !(typeof key === 'string' && key.indexOf('app.') === 0)) return;
+      // One task later, debounced: settings.js's listener on this same event
+      // re-applies the theme (and re-stamps data-applum for custom) during
+      // this dispatch, and listener order is not guaranteed — the timeout
+      // reads the settled attribute and coalesces a burst of app.* writes
+      // into one bridge call.
+      clearTimeout(statusBarTimer);
+      statusBarTimer = setTimeout(applyStatusBarStyle, 50);
+    });
+  }
+
   // ── Native boot ───────────────────────────────────────────────────────────
 
   async function nativeInit() {
@@ -759,7 +837,10 @@
 
     const StatusBar = plugin('StatusBar');
     if (StatusBar) {
-      try { await StatusBar.setStyle({ style: 'DARK' }); } catch (e) {}
+      // Style follows app.theme (PLAN7 §2.9): settings.js applied the theme
+      // at parse time and domReady has passed, so a custom theme's
+      // data-applum is already stamped when this reads it.
+      try { await StatusBar.setStyle({ style: statusBarStyle() }); } catch (e) {}
       if (os === 'android') {
         // Android-side option only: iOS WKWebView always draws under the
         // status bar; there the existing black-translucent meta +
@@ -767,6 +848,9 @@
         try { await StatusBar.setOverlaysWebView({ overlay: true }); } catch (e) {}
       }
     }
+    // Live re-style on theme change — wired regardless of the lookup above
+    // (plugins are looked up at call time by design, see plugin()).
+    wireStatusBarTheme();
 
     const App = plugin('App');
     if (App) {
@@ -774,7 +858,11 @@
         // Android hardware back. Dispatch on the current screen; the two
         // reader screens exit through their OWN close paths — a raw goBack()
         // would only switch screens, leaving orphaned key handlers, a live
-        // progress timer, and no final flush (PLAN.md §2.2).
+        // progress timer, and no final flush (PLAN.md §2.2). This table and
+        // catalogue.js's popstate table are the same semantic table
+        // (ARCHITECTURE §2.2 carries it once); every branch is guarded, so a
+        // deleted optional module's row falls through to goBack() harmlessly
+        // (PLAN7 §0.5).
         App.addListener('backButton', function () {
           try {
             const screen = (document.body && document.body.dataset.screen) || '';
@@ -793,6 +881,39 @@
               if (typeof App.minimizeApp === 'function') App.minimizeApp().catch(function () {});
               return;
             }
+            if (screen === 'loading-screen') {
+              // Cancel: a transitional screen — catalogue shows it between
+              // series and reader and it resolves to a reader on its own;
+              // tearing it down mid-fetch from a gesture helps nobody.
+              return;
+            }
+            if (screen === 'import-screen'
+                && window.Importer && typeof window.Importer.close === 'function') {
+              window.Importer.close();
+              return;
+            }
+            if (screen === 'goals-screen'
+                && window.Goals && typeof window.Goals.close === 'function') {
+              window.Goals.close();
+              return;
+            }
+            if (screen === 'settings-screen'
+                && window.AppSettings && typeof window.AppSettings.close === 'function') {
+              window.AppSettings.close();
+              return;
+            }
+            if (screen === 'sources-screen'
+                && window.Sources && typeof window.Sources.close === 'function') {
+              window.Sources.close();
+              return;
+            }
+            if (screen === 'thoughts-screen'
+                && window.Thoughts && typeof window.Thoughts.close === 'function') {
+              window.Thoughts.close();
+              return;
+            }
+            // series-screen (explicit row) — and the fall-through for any
+            // module screen whose module is absent.
             if (window.Catalogue && typeof window.Catalogue.goBack === 'function') {
               window.Catalogue.goBack();
             }

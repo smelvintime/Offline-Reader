@@ -20,8 +20,9 @@ cd Offline-Reader
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000`. Five sample series ship with the repo, so there is
-something to read immediately.
+Open `http://localhost:8000`. A short tutorial book — *We Are Readers Here* —
+plus six public-domain classics ship with the repo, so there is something to
+read immediately.
 
 ## Install as an app
 
@@ -78,6 +79,19 @@ way you want to read a breezy web serial.
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.
 
+**Reading goals, streaks and a timer.** Optional daily minutes, chapters and
+books-per-period goals with schedule-aware streaks, a floating session pill,
+a wall-clock countdown timer, and a lifetime ledger of everything you have
+read — all local, all off by default beyond the basics, and the app runs
+identically if you never open them.
+
+**Make it yours.** Pick a focus — books, comics, or both — and the defaults
+follow; theme the whole app with the reader's nine palettes (or your own two
+colours); reorder the home screen's sections; bundle your typography into
+one-tap reader presets; keep a shelf of sources you like and browse them
+from home; and when you finish a book, a quiet space asks what it left
+behind. Every one of these is an optional module the app runs without.
+
 **Offline first.** The app shell is precached, chapters you have opened are kept
 in IndexedDB, and reading progress never needs a network. Open a CBZ or EPUB
 from your device and it works with no server involved at all.
@@ -115,22 +129,20 @@ call and when it would stop being.
 
 Everything except adding series by link works with no gateway configured.
 
-## Sample content
+## Bundled content
 
-The bundled catalogue is five original series written for this repository —
-prose and artwork both — so the app always has something to open and nothing
-ships that is not ours to ship:
+The bundled catalogue is one book written for this repository plus six
+public-domain classics — all text, all fully readable offline, and nothing
+ships that is not ours (or everyone's) to ship:
 
-| Series | Type | Size |
-| --- | --- | --- |
-| The Ninth Bell of the Meridian Gull | Light novel | 24 chapters |
-| Elevator to Floor Zero | Web novel | 40 chapters |
-| The Weight of Still Water | Light novel | 6 long chapters |
-| Ashfall Courier | Manhwa | 8 chapters, 80 pages |
-| The Lamplighter's Almanac | Light novel | 4 chapters |
+| Series | What it is |
+| --- | --- |
+| **We Are Readers Here** | The owner's tour of the app, written as a book — because around here, the book is the interface. Nine short chapters; each one teaches a feature in place. |
+| Frankenstein · Pride and Prejudice · Moby Dick · The Adventures of Sherlock Holmes · Alice's Adventures in Wonderland · War and Peace | Project Gutenberg classics, so there is something real to read tonight. |
 
-The manhwa pages are SVG committed to the repo, so the image reader works with
-no network and nothing hosted anywhere.
+The tutorial book is also the app's **offline floor**: the catalogue builder
+refuses to ship a catalogue without it (`npm run validate` fails), and the
+first-run focus sheet's "Start with the tour" button opens it.
 
 ## Security
 
@@ -142,8 +154,8 @@ you have to trust.
 
 The gateway refuses private-network targets, rejects IP-literal hosts,
 re-validates after every redirect, forwards no cookies or client headers, and
-gates image proxying behind an allowlist that only grows when you successfully
-import a series.
+gates image proxying behind an allowlist that only grows when a series page,
+chapter, or source listing successfully parses through the gateway.
 
 ## Documentation
 
@@ -152,6 +164,8 @@ import a series.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The contract every module is built against — data model, module boundaries, APIs |
 | [docs/CATALOGUE.md](docs/CATALOGUE.md) | Adding your own series to the bundled catalogue, for non-programmers |
 | [docs/HOSTING.md](docs/HOSTING.md) | Why there is no image hosting, and what would change that |
+| [docs/mobile/NATIVE_BUILD.md](docs/mobile/NATIVE_BUILD.md) | Building the iOS/Android apps from a clean checkout |
+| [docs/mobile/TESTING.md](docs/mobile/TESTING.md) | On-device test matrix and the memory verification protocol |
 | [worker/README.md](worker/README.md) | Gateway endpoints, deployment, cost, and limits |
 
 ## Layout
@@ -159,11 +173,18 @@ import a series.
 ```
 index.html          app shell
 js/config.js        deployment settings — the one file you edit to point at a gateway
-js/store.js         IndexedDB: imported series, cached chapters, progress, preferences
+js/platform.js      native bridge — the only module that talks to Capacitor
+js/store.js         IndexedDB: imported series, cached chapters, progress, day logs, thoughts, preferences
+js/covers.js        generated SVG covers for coverless series (optional module)
 js/reader.js        image reader (CBZ, manga, manhwa)
-js/novel-reader.js  text reader — the three reading modes
+js/novel-reader.js  text reader — the three reading modes, presets
 js/importer.js      add by link, and EPUB/TXT/CBZ import
+js/goals.js         reading goals, streaks, lifetime totals and the countdown timer (optional module)
+js/thoughts.js      "depart your thoughts" — end-of-book reflections (optional module)
+js/sources.js       saved sources shelf + browse (optional module)
+js/settings.js      settings screen, app-wide themes, focus, home layout (optional module)
 js/catalogue.js     browsing, routing, chapter resolution
+native/or-zip/      committed Capacitor unzip plugin (the only native code in the repo)
 fonts/              bundled reading faces (SIL OFL — see fonts/LICENSE.md)
 worker/             Cloudflare Worker content gateway
 scraper/            catalogue builder

@@ -1306,3 +1306,137 @@ dayLogs):** accepted — prune-time backfill (§4.1) and the fallback requiremen
 
 **Minor — `overlaysWebView` misdescribed as an iOS lever:** accepted; §2.1/§2.2
 corrected (Android-only option; iOS relies on the existing meta + `viewport-fit=cover`).
+
+---
+
+## 13. Completion log (all phases landed; deviations recorded)
+
+**Status: implementation complete.** All six phases shipped in a single
+delivery (three implementation rounds per `docs/mobile/tasks/assignments.md`),
+verified by the build checker: headless web boot green with zero console
+errors, and all test pages green — `test/goals.test.html` (97 checks),
+`test/platform.test.html` (65), `test/importer.test.html` (137),
+`test/novel-reader.test.html` (LRU cap + evicted-entry refill suites). The
+contract closure landed with it: `docs/ARCHITECTURE.md` carries all 16 §8
+amendments verified against the landed code, `docs/mobile/TESTING.md` holds
+the §7 device matrix + memory protocol, and this log closes the plan.
+
+**Still pending (requires the user's hardware, by design):** the Phase 1
+on-device origin gates (§2.4 — the `proxyImageUrl` contingency ships as a
+disabled seam in platform.js) and the Phase 6 device-matrix + memory runs.
+TESTING.md and NATIVE_BUILD.md are the runbooks for both.
+
+### Phase-by-phase
+
+- **Phase 1 — foundation:** `js/platform.js` (full bridge in one pass: core
+  API, pref mirror with the DOMContentLoaded ordering rule, hardware-back
+  dispatch, status bar, memory classes + §9 tuning table);
+  `Store.prefs.reload()`; `window.reloadReaderPrefs()`; reader SW gate;
+  catalogue boot-await / native online gating / `Platform.confirm` /
+  version badge; Capacitor scaffolding (`package.json`,
+  `capacitor.config.json`, `scripts/sync-www.sh`, `.gitignore`,
+  `docs/mobile/NATIVE_BUILD.md`).
+- **Phase 2 — responsive polish:** safe-area insets across styles.css /
+  catalogue.css / novel.css / importer.css; `100dvh` behind `@supports`;
+  ≥1024px page-wrapper widening; `overflow-anchor: none` on `.nv-viewport`;
+  `or.autoscroll` persistence + mirror coverage; manifest colors `#0a0a0a`.
+- **Phase 3 — memory:** lazy `Importer.hydrateChapter` (1-archive /
+  2-chapter caps) with `rehydrateAll()` as a scrub-only migration shim;
+  `putChapter` `cachedAt`/`sizeEstimate` stamps; `Store.pruneChapterCache`
+  (≤50 backfills/call, unstamped rows never evicted); the three catalogue
+  prune triggers; 250-row / 200-card chunking + lazy range selects;
+  tuning-driven reader windows + >800-page scroll-mode spacer windowing;
+  novel `state.loaded` LRU at `maxLoadedChapters`; the manage-view
+  Performance row (`platform.memoryClass`).
+- **Phase 4 — goals & timers:** `js/goals.js` + `css/goals.css` complete
+  (folding engine with every §5.1 edge case, session/idle engine, wall-clock
+  countdown with `or.timer`, goals screen + customize sheet + pill + home
+  slot); `or:progress` dispatch in `Store.putProgress`; DB v2 `dayLogs` + the
+  four methods incl. the in-memory fallback; `Platform.notify` stub;
+  catalogue slot + guarded toolbar button.
+- **Phase 5 — native import & storage:** `native/or-zip/` committed plugin
+  (list/extract, zip-slip contained); `pickFiles`/`readPickedFile`/`zip`/
+  `pageUrl`/`archives`/`onAppUrlOpen`/`backup` in platform.js; store blob
+  delegation (≤64 MB, filesystem-first reads, no bulk migration); importer
+  native import/hydration/deep-link/backup+restore/"Move library to device
+  storage"; reader URI upload path (`loadArchives`, `or.library` manifest,
+  cap 10, path-dependent `SIZE_CAP`, `or:upload-progress`); Capacitor-scheme
+  `safeImageUrl` pinning in catalogue/importer/novel-reader.
+- **Phase 6 — verification & docs:** PNG icon set (192/512/maskable +
+  `assets/icon-1024.png` master) referenced from manifest.json; README
+  "Install as an app" section; final `sw.js` bump; `test/platform.test.html`;
+  ARCHITECTURE.md audit; TESTING.md; this log. On-device matrix execution
+  remains with the user (above).
+
+### Deviations from the plan (all intentional, all accepted)
+
+1. **Single sw.js cache bump to `cbz-reader-v5.06`.** The per-phase
+   intermediate bumps (v5.04, v5.05) collapsed because all phases shipped in
+   one delivery; shipped web assets changed once, so the cache name changed
+   once (assignments.md header convention).
+2. **`Platform.archives.migrateBlob(key, blob, onProgress) →
+   Promise<{size}|null>` — delegation addendum.** The §6.2 "Move library to
+   device storage" migration needs a Capacitor-side chunked writer that §6.1
+   never named. Specified in assignments.md, implemented in platform.js
+   (8 MB slices, idempotent per archive, progress-reported, null on web),
+   documented in ARCHITECTURE §2.3 as a delegation addition.
+3. **`Platform.pickFiles` returns `[]` (not null) on picker cancel/error.**
+   §6.1 specified only "null = no native picker". The empty-array cancel
+   return is a deliberate, commented refinement: falling back to the
+   `<input>` on cancel would open a second dialog on top of the one the user
+   just dismissed. Contract documents both returns (ARCHITECTURE §2.3).
+4. **`Goals.startTimer(minutes)` argument is not clamped to 5..180.** The
+   API argument is app-internal and only sanity-bounded (0 < m ≤ 1440) so
+   short test countdowns work; the PREF path (`goals.timer.minutes`) is what
+   validates 5..180. By design.
+5. **Streaks: reading on an off-schedule day still counts toward the
+   streak.** The schedule only *forgives absence* on off-days; it does not
+   ignore reading done on them. Consistent with §5.1's "off-schedule days are
+   skipped, never breaking" — the plan never said off-day reading is
+   discarded — but recorded here because the checker flagged the asymmetry.
+6. **`or:upload-progress` dispatches for upload sessions only**
+   (`window.readerOrigin === 'upload'`). Online image sessions also pass
+   through `saveToLibrary()` but already reach goals via `or:progress`;
+   dispatching for them would double-count every page. A tightening of
+   §6.3's letter in service of its intent.
+7. **Reader zip-of-CBZs on the native URI path falls back to the plain-File
+   JSZip pipeline.** §6.3's inner-archive flow (`zip.extract` the inner
+   archive to Cache, `list({uri})` it) needs `Platform.zip.list` to accept a
+   cache-relative path, which the current bridge cannot do. Nested zips on
+   native therefore take the 600 MB blob path. **Logged as future work**
+   (extend `zipSrcPath` with a `{ cachePath }` source form).
+8. **Goals pill docks bottom-RIGHT, not bottom-center.** The autoscroll bar
+   owns bottom-center in the image reader; co-docking would overlap the two
+   fixed elements. Same template, solid background, no blur — position is
+   the one change.
+9. **`pruneChapterCache` takes bytes; tuning speaks MB.** The MB→bytes
+   conversion lives at the single call site (catalogue's `runCachePrune`),
+   with guards so a missing tuning row cannot read as a zero-byte budget.
+   Documented in ARCHITECTURE §3.
+10. **`window.proxyImageUrl` exempts `https://localhost/_capacitor_file_/`**
+    (fixed post-verification): Android serves extracted local pages under
+    that origin, and routing a local file through the image gateway would
+    break page loads. Prefix-exact test, same pinning rule as
+    `safeImageUrl`.
+11. **Goals `finishedThisPeriod` init race** — a book finished in the
+    instant between module init and the first period-log read could
+    theoretically double-count; practically unreachable (the read completes
+    before any reader can be opened). Accepted as-is.
+
+### Known gaps carried forward
+
+- **iOS web-install icon is still SVG-only**: `index.html` keeps
+  `<link rel="apple-touch-icon" href="icon.svg">`, which iOS Safari ignores
+  (falls back to a page screenshot). The PNG set exists
+  (`icons/icon-192.png` etc., in manifest.json); pointing apple-touch-icon
+  at a PNG is a one-line index.html follow-up for the next cache bump.
+  Native iOS installs are unaffected (icons come from the asset catalog).
+- **Defense-in-depth hardening (not currently reachable):**
+  `hydrateChapter` builds its extraction dir as
+  `seriesId + '/' + chapterId` and reader.js as
+  `nativeCacheDirBase + '/ch-' + chIdx`. Ids are app-generated today, but a
+  future id source containing `..` would deserve a sanitizer at the
+  `cacheDirKey` seam (or-zip already rejects escapes on the entry side;
+  `pageUrl` rejects `..` on the read side).
+- Low-class tuning windows (12/30) remain provisional until the TESTING.md
+  run on real ≤2 GB hardware.

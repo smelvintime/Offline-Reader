@@ -1,12 +1,16 @@
 // allowlist.js — who /image is allowed to fetch from.
 //
-// ARCHITECTURE.md §7.3: "/image is allowlist-gated; the allowlist grows only
-// via /resolve." Two tiers:
+// ARCHITECTURE.md §7.3: /image is allowlist-gated; the allowlist grows only
+// via a successful /resolve, /chapter, or /list parse — never via /image
+// itself. Two tiers:
 //
 //   1. STATIC   — compiled in, always on. Covers the sources the bundled
 //                 catalogue and the scraper use.
-//   2. LEARNED  — hosts observed while successfully resolving a series or
-//                 chapter, written to KV with a 30-day TTL.
+//   2. LEARNED  — hosts observed while successfully resolving a series,
+//                 chapter, or listing, written to KV with a 30-day TTL.
+//                 /list is capped at 4 hosts per request and memoized per
+//                 isolate (lib/gateway.js) so browse loops cannot burn the
+//                 free tier's 1,000 KV writes/day.
 //
 // KV is OPTIONAL. Without the binding we fall back to the static tier only and
 // /health reports `kv: false`.
@@ -105,7 +109,7 @@ export async function isAllowedHost(host, env = {}) {
 }
 
 /**
- * Remember hosts discovered during a successful /resolve or /chapter.
+ * Remember hosts discovered during a successful /resolve, /chapter or /list.
  * No-op without KV. Bounded so a hostile page cannot burn the KV write budget.
  *
  * @param {Iterable<string>} hosts

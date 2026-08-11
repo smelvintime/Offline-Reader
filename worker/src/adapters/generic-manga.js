@@ -1,6 +1,6 @@
 // generic-manga.js — image-chapter extraction for arbitrary manga/manhwa sites.
 //
-// Sits between `mangadex` and `generic-novel` in priority. Unlike the novel
+// Sits above `generic-novel` in priority. Unlike the novel
 // adapter it does NOT match everything: matching every URL would make it beat
 // generic-novel on every novel site, since selection is "lowest priority among
 // matches". It matches when the URL looks comic-ish, or when the caller

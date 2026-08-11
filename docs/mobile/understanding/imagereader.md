@@ -1,5 +1,13 @@
 # Image Reader Slice — js/reader.js, sw.js, index.html
 
+> **Superseded in part (Phase 8).** This document describes the tree as it was
+> when it was written. Phase 8 removed the two site-specific builder sources and
+> the site-specific worker adapter, and retired the `mdChapterId` resolution
+> step that called one site's API from the browser. Nothing in the codebase now
+> names a particular website. Where this document describes any of that, read it
+> as history — `docs/ARCHITECTURE.md` §8 and `COPYRIGHT.md` are current.
+
+
 Deep-read map of the image-reader slice (CBZ/ZIP + online image chapters), the
 service worker, and the HTML shell. All line refs are exact against the current
 tree. Binding contract: `/home/user/Offline-Reader/docs/ARCHITECTURE.md`.

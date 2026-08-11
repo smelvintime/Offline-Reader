@@ -14,6 +14,19 @@ import { REPO_ROOT, CATALOG_PATH, CHAPTERS_DIR, dirSize, humanBytes } from './li
 import { BLOCK_TYPES } from './lib/blocks.js';
 
 const SERIES_TYPES = new Set(['manga', 'manhwa', 'lightnovel', 'webnovel']);
+/**
+ * Sources the BUNDLED catalogue is allowed to carry (docs/ARCHITECTURE.md §8).
+ *
+ * This is the enforcement point for "public-domain text only". The rule used to
+ * live in prose, which meant one entry in series.json could quietly turn a
+ * reader into a mirror — the scrape workflow runs every six hours with
+ * `contents: write` and commits whatever it builds. Now a non-public-domain
+ * source fails validation, so CI refuses to commit it.
+ *
+ * This constrains the REPOSITORY, not the app: series a user adds by link live
+ * in that user's IndexedDB, are never uploaded, and never reach this file.
+ */
+const PD_SOURCES = new Set(['fixture', 'gutenberg', 'standardebooks']);
 /** The tutorial book — the offline floor. The focus sheet's "Start with the
  *  tour" button opens exactly this id, so a catalogue without it is an error. */
 const TUTORIAL_ID = 'fixture:welcome';
@@ -88,6 +101,47 @@ export function validateBlock(block, where, rep) {
 
 // ── ChapterFile (§1.2) ───────────────────────────────────────────────────────
 
+/**
+ * "Project Gutenberg" must not survive into the prose we ship.
+ *
+ * The texts themselves are public domain, but the name is a trademark of the
+ * Project Gutenberg Literary Archive Foundation, and their licence lets you
+ * redistribute freely only once the boilerplate and the mark are gone. The
+ * stripper in `sources/gutenberg.js` removes both — this is the check that
+ * catches the day it misses one, which is exactly how a transcriber's note
+ * reached chapter one of Moby-Dick in the committed catalogue.
+ *
+ * Errors rather than warns: a rebuild that trips this should stop and be
+ * looked at, not commit and hope. (COPYRIGHT.md, docs/ARCHITECTURE.md §8.)
+ *
+ * Scoped to harvested Gutenberg text. Our own writing may name Project
+ * Gutenberg — the tutorial book does, to say where the six classics came from
+ * — and naming a source honestly is the opposite of the problem this catches.
+ */
+const TRADEMARK_RE = /project\s+gutenberg/i;
+const HARVESTED_FROM_GUTENBERG = /^gutenberg:/;
+
+function checkNoTrademark(blocks, where, rep, seriesId) {
+  if (!Array.isArray(blocks)) return;
+  if (!HARVESTED_FROM_GUTENBERG.test(String(seriesId || ''))) return;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!b || typeof b !== 'object') continue;
+    const parts = [];
+    if (typeof b.c === 'string') parts.push(b.c);
+    if (Array.isArray(b.items)) for (const it of b.items) if (typeof it === 'string') parts.push(it);
+    for (const text of parts) {
+      if (TRADEMARK_RE.test(text)) {
+        rep.err(
+          `${where} blocks[${i}]`,
+          'shipped text carries the "Project Gutenberg" trademark — licence boilerplate or a transcriber\'s note survived stripping (see sources/gutenberg.js)',
+        );
+        return; // one report per chapter is enough to act on
+      }
+    }
+  }
+}
+
 export function validateChapterFile(file, where, rep, expect = {}) {
   if (!file || typeof file !== 'object') { rep.err(where, 'ChapterFile must be an object'); return; }
   if (!nonEmpty(file.seriesId)) rep.err(where, 'seriesId is required');
@@ -113,6 +167,7 @@ export function validateChapterFile(file, where, rep, expect = {}) {
     }
     if (!isNum(file.wordCount) || file.wordCount < 0) rep.err(where, 'wordCount must be a non-negative number');
     if ('pages' in file) rep.err(where, 'text ChapterFile must not carry pages');
+    checkNoTrademark(file.blocks, where, rep, file.seriesId);
   } else {
     if (!Array.isArray(file.pages) || file.pages.length === 0) {
       rep.err(where, 'image ChapterFile needs a non-empty pages array');
@@ -198,6 +253,9 @@ function validateSeries(s, where, rep, ctx) {
   if (!(Array.isArray(s.tags) && s.tags.every(isStr))) rep.err(where, 'tags must be a string array');
   if (!nonEmpty(s.language)) rep.err(where, 'language is required');
   if (!nonEmpty(s.source)) rep.err(where, 'source is required');
+  else if (!PD_SOURCES.has(s.source)) {
+    rep.err(where, `source "${s.source}" is not a public-domain source — the bundled catalogue ships ${[...PD_SOURCES].join(' | ')} only (docs/ARCHITECTURE.md §8). Series from anywhere else belong on the reader's own device, added by link.`);
+  }
   if (!(s.sourceUrl === null || (nonEmpty(s.sourceUrl) && /^https?:\/\//i.test(s.sourceUrl)))) {
     rep.err(where, 'sourceUrl must be an absolute http(s) URL or null');
   }

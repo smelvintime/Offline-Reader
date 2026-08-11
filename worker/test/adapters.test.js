@@ -13,7 +13,6 @@ import {
   getAdapter,
   isValidAdapter,
 } from '../src/adapters/index.js';
-import * as mangadex from '../src/adapters/mangadex.js';
 import * as genericNovel from '../src/adapters/generic-novel.js';
 import * as genericManga from '../src/adapters/generic-manga.js';
 import { decideKind } from '../src/adapters/_generic.js';
@@ -21,7 +20,6 @@ import { parseHtml } from '../src/lib/html.js';
 import { ALLOWED_BLOCK_TYPES } from '../src/lib/blocks.js';
 import { fixture } from './helpers.js';
 
-const MD_UUID = '32d76d19-8a05-4db0-9fc2-e0b0648fe9d0';
 const GW = 'https://gw.test';
 
 /** A ctx that serves fixtures by URL instead of fetching. */
@@ -105,22 +103,19 @@ describe('registry', () => {
   });
 
   test('getAdapter looks up by id', () => {
-    assert.equal(getAdapter('mangadex').id, 'mangadex');
+    assert.equal(getAdapter('generic-manga').id, 'generic-manga');
     assert.equal(getAdapter('nope'), null);
+  });
+
+  // §8: the registry is general-purpose. A site-specific adapter is a statement
+  // about what the gateway is for, and this one is for whatever its operator
+  // points it at.
+  test('no adapter names a particular site', () => {
+    assert.deepEqual(adapterIds().sort(), ['generic-manga', 'generic-novel']);
   });
 });
 
 describe('selectAdapter — lowest priority among matches wins', () => {
-  test('MangaDex title and chapter URLs go to the mangadex adapter', () => {
-    assert.equal(selectAdapter(`https://mangadex.org/title/${MD_UUID}`).id, 'mangadex');
-    assert.equal(selectAdapter(`https://mangadex.org/chapter/${MD_UUID}`).id, 'mangadex');
-    assert.equal(selectAdapter(`https://www.mangadex.org/title/${MD_UUID}/some-slug`).id, 'mangadex');
-  });
-
-  test('a MangaDex URL that is not a title/chapter falls through', () => {
-    assert.notEqual(selectAdapter('https://mangadex.org/titles/latest').id, 'mangadex');
-  });
-
   test('comic-shaped URLs go to generic-manga', () => {
     assert.equal(selectAdapter('https://scansite.test/manga/tin-quarter/').id, 'generic-manga');
     assert.equal(selectAdapter('https://x.test/webtoon/abc').id, 'generic-manga');
@@ -147,32 +142,13 @@ describe('selectAdapter — lowest priority among matches wins', () => {
     assert.equal(selectAdapter('not a url at all').id, 'generic-novel');
   });
 
-  test('mangadex.matches is strict about host and path', () => {
-    assert.equal(mangadex.matches('https://mangadex.org.evil.test/title/' + MD_UUID), false);
-    assert.equal(mangadex.matches('https://mangadex.org/title/not-a-uuid'), false);
-    assert.equal(mangadex.matches('https://example.com/title/' + MD_UUID), false);
-  });
-
   test('generic-novel is the universal fallback', () => {
     assert.equal(genericNovel.matches('https://anything.example.com/'), true);
     assert.equal(genericNovel.priority > genericManga.priority, true);
-    assert.equal(genericManga.priority > mangadex.priority, true);
   });
 });
 
 describe('selectListAdapter — §6.6 listing capability routing', () => {
-  test('MangaDex browse/search/root URLs list through the mangadex adapter', () => {
-    assert.equal(selectListAdapter('https://mangadex.org/').id, 'mangadex');
-    assert.equal(selectListAdapter('https://mangadex.org/titles/latest').id, 'mangadex');
-    assert.equal(selectListAdapter('https://www.mangadex.org/search?q=leveling').id, 'mangadex');
-  });
-
-  test('a MangaDex title URL does NOT list through mangadex (listMatches gates it)', () => {
-    // It falls through the ladder — the hostname is comic-shaped, so
-    // generic-manga claims it (the priority rule, documented fall-through).
-    assert.equal(selectListAdapter(`https://mangadex.org/title/${MD_UUID}`).id, 'generic-manga');
-  });
-
   test('comic-shaped URLs list through generic-manga, everything else generic-novel', () => {
     assert.equal(selectListAdapter('https://scansite.test/manga/').id, 'generic-manga');
     assert.equal(selectListAdapter('https://wandering-ink.test/browse/').id, 'generic-novel');
@@ -184,14 +160,6 @@ describe('selectListAdapter — §6.6 listing capability routing', () => {
       'generic-manga',
     );
     assert.equal(selectListAdapter('https://anything.example.com/', { force: 'ghost' }), null);
-  });
-
-  test('mangadex.listMatches is strict about the host', () => {
-    assert.equal(mangadex.listMatches('https://mangadex.org/titles'), true);
-    assert.equal(mangadex.listMatches('https://mangadex.org.evil.test/titles'), false);
-    assert.equal(mangadex.listMatches('https://api.mangadex.org/manga'), false);
-    assert.equal(mangadex.listMatches(`https://mangadex.org/chapter/${MD_UUID}`), false);
-    assert.equal(mangadex.listMatches('not a url'), false);
   });
 });
 
@@ -242,71 +210,6 @@ describe('generic listSeries against the listing fixture', () => {
     const url = 'https://thin.example.com/';
     const ctx = fakeCtx({ [url]: '<html><body><p>Nothing to browse.</p></body></html>' });
     assert.equal(await genericNovel.listSeries(url, ctx), null);
-  });
-});
-
-describe('mangadex listSeries — search API', () => {
-  const ID_A = 'bbbbbbbb-0000-4000-8000-000000000001';
-  const ID_B = 'bbbbbbbb-0000-4000-8000-000000000002';
-
-  const listPayload = {
-    total: 100,
-    data: [
-      {
-        id: ID_A,
-        attributes: { title: { en: 'Solo Leveling' } },
-        relationships: [{ type: 'cover_art', attributes: { fileName: 'cover-a.jpg' } }],
-      },
-      {
-        id: ID_B,
-        attributes: { title: { ja: '呪術廻戦' } },
-        relationships: [], // no cover_art — cover omitted, item kept
-      },
-    ],
-  };
-
-  test('maps the API response onto listing items', async () => {
-    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
-    const out = await mangadex.listSeries('https://mangadex.org/titles', ctx);
-
-    assert.equal(out.source.title, 'MangaDex');
-    assert.equal(out.items.length, 2);
-    assert.deepEqual(out.items[0], {
-      title: 'Solo Leveling',
-      url: `https://mangadex.org/title/${ID_A}`,
-      type: 'manga',
-      cover: `https://uploads.mangadex.org/covers/${ID_A}/cover-a.jpg.256.jpg`,
-    });
-    assert.equal(out.items[1].cover, undefined);
-    assert.equal(out.items[1].title, '呪術廻戦');
-  });
-
-  test('maps the q param onto the API title filter', async () => {
-    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
-    const out = await mangadex.listSeries('https://mangadex.org/search?q=solo%20leveling', ctx);
-    assert.equal(ctx.fetched.length, 1);
-    const called = new URL(ctx.fetched[0]);
-    assert.equal(called.searchParams.get('title'), 'solo leveling');
-    assert.equal(called.searchParams.get('limit'), '32');
-    assert.equal(called.searchParams.get('order[followedCount]'), 'desc');
-    assert.equal(called.searchParams.get('availableTranslatedLanguage[]'), 'en');
-    assert.equal(out.source.title, 'MangaDex — solo leveling');
-  });
-
-  test('pages by offset while total remains, on a URL /list accepts back', async () => {
-    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': listPayload });
-    const out = await mangadex.listSeries('https://mangadex.org/titles?offset=32', ctx);
-    const called = new URL(ctx.fetched[0]);
-    assert.equal(called.searchParams.get('offset'), '32');
-    assert.equal(out.nextUrl, 'https://mangadex.org/titles?offset=64');
-    assert.equal(mangadex.listMatches(out.nextUrl), true, 'nextUrl must round-trip /list');
-  });
-
-  test('the last page carries no nextUrl', async () => {
-    const lastPage = { ...listPayload, total: 34 };
-    const ctx = fakeCtx({}, { 'api.mangadex.org/manga?': lastPage });
-    const out = await mangadex.listSeries('https://mangadex.org/titles?offset=32', ctx);
-    assert.equal(out.nextUrl, undefined);
   });
 });
 
@@ -474,118 +377,3 @@ describe('kind is a hint the adapter may override (§6.3)', () => {
   });
 });
 
-describe('mangadex adapter — JSON API only', () => {
-  const mangaPayload = {
-    data: {
-      id: MD_UUID,
-      attributes: {
-        title: { en: 'Jujutsu Kaisen' },
-        altTitles: [{ ja: '呪術廻戦' }],
-        description: { en: 'A boy swallows a cursed finger.' },
-        originalLanguage: 'ja',
-        status: 'ongoing',
-        updatedAt: '2026-08-01T00:00:00+00:00',
-        tags: [
-          { attributes: { name: { en: 'Action' } } },
-          { attributes: { name: { en: 'Supernatural' } } },
-        ],
-      },
-      relationships: [
-        { type: 'cover_art', attributes: { fileName: 'cover.jpg' } },
-        { type: 'author', attributes: { name: 'Gege Akutami' } },
-        { type: 'artist', attributes: { name: 'Gege Akutami' } },
-      ],
-    },
-  };
-
-  const feedPayload = {
-    total: 2,
-    data: [
-      {
-        id: 'aaaaaaaa-0000-4000-8000-000000000001',
-        attributes: { chapter: '1', title: 'Ryomen Sukuna', volume: '1', translatedLanguage: 'en', publishAt: '2026-01-01T00:00:00+00:00' },
-      },
-      {
-        id: 'aaaaaaaa-0000-4000-8000-000000000002',
-        attributes: { chapter: '2', title: 'For Myself', volume: '1', translatedLanguage: 'en', publishAt: '2026-01-08T00:00:00+00:00' },
-      },
-    ],
-  };
-
-  test('resolveSeries maps the API onto a §1.1 Series', async () => {
-    const ctx = fakeCtx({}, { ['/manga/' + MD_UUID + '?']: mangaPayload, '/feed?': feedPayload });
-    const { series, hosts } = await mangadex.resolveSeries(`https://mangadex.org/title/${MD_UUID}`, ctx);
-
-    assert.equal(series.id, 'md:' + MD_UUID);
-    assert.equal(series.title, 'Jujutsu Kaisen');
-    assert.equal(series.type, 'manga');
-    assert.equal(series.author, 'Gege Akutami');
-    assert.equal(series.status, 'ongoing');
-    assert.equal(series.readingDirection, 'rtl', 'ja originals read right-to-left');
-    assert.deepEqual(series.genres, ['Action', 'Supernatural']);
-    assert.deepEqual(series.altTitles, ['呪術廻戦']);
-    assert.equal(series.cover, `https://uploads.mangadex.org/covers/${MD_UUID}/cover.jpg.512.jpg`);
-    assert.equal(series.chapters.length, 2);
-    assert.equal(series.chapters[0].id, 'c-0001');
-    assert.match(series.chapters[0].src, /^https:\/\/gw\.test\/chapter\?/);
-    assert.ok([...hosts].includes('uploads.mangadex.org'));
-  });
-
-  test('only api.mangadex.org is contacted — no HTML scraping', async () => {
-    const ctx = fakeCtx({}, { ['/manga/' + MD_UUID + '?']: mangaPayload, '/feed?': feedPayload });
-    await mangadex.resolveSeries(`https://mangadex.org/title/${MD_UUID}`, ctx);
-    assert.ok(ctx.fetched.length > 0);
-    for (const u of ctx.fetched) {
-      assert.ok(u.startsWith('https://api.mangadex.org/'), `unexpected fetch: ${u}`);
-    }
-  });
-
-  test('resolveChapter builds page URLs from at-home', async () => {
-    const chUuid = 'aaaaaaaa-0000-4000-8000-000000000001';
-    const ctx = fakeCtx({}, {
-      [`/chapter/${chUuid}`]: {
-        data: {
-          id: chUuid,
-          attributes: { chapter: '1', title: 'Ryomen Sukuna', volume: '1' },
-          relationships: [{ type: 'manga', id: MD_UUID }],
-        },
-      },
-      '/at-home/server/': {
-        baseUrl: 'https://cmdxd98sb0x3yprd.mangadex.network',
-        chapter: { hash: 'abc123', data: ['1-x.png', '2-y.png', '3-z.png'] },
-      },
-    });
-
-    const { chapter, hosts } = await mangadex.resolveChapter(`https://mangadex.org/chapter/${chUuid}`, ctx);
-    assert.equal(chapter.kind, 'image');
-    assert.equal(chapter.num, 1);
-    assert.equal(chapter.title, 'Ryomen Sukuna');
-    assert.equal(chapter.seriesId, 'md:' + MD_UUID);
-    assert.deepEqual(chapter.pages, [
-      'https://cmdxd98sb0x3yprd.mangadex.network/data/abc123/1-x.png',
-      'https://cmdxd98sb0x3yprd.mangadex.network/data/abc123/2-y.png',
-      'https://cmdxd98sb0x3yprd.mangadex.network/data/abc123/3-z.png',
-    ]);
-    assert.ok([...hosts].includes('cmdxd98sb0x3yprd.mangadex.network'));
-  });
-
-  test('a non-title URL is rejected with bad_url', async () => {
-    const ctx = fakeCtx();
-    await assert.rejects(
-      () => mangadex.resolveSeries('https://mangadex.org/titles/latest', ctx),
-      (e) => e.code === 'bad_url',
-    );
-  });
-
-  test('an at-home response with no pages fails as parse_failed', async () => {
-    const chUuid = 'aaaaaaaa-0000-4000-8000-000000000009';
-    const ctx = fakeCtx({}, {
-      [`/chapter/${chUuid}`]: { data: { id: chUuid, attributes: {}, relationships: [] } },
-      '/at-home/server/': { baseUrl: 'https://x.mangadex.network', chapter: { hash: 'h', data: [] } },
-    });
-    await assert.rejects(
-      () => mangadex.resolveChapter(`https://mangadex.org/chapter/${chUuid}`, ctx),
-      (e) => e.code === 'parse_failed',
-    );
-  });
-});

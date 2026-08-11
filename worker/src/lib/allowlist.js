@@ -25,14 +25,6 @@ export const LEARNED_TTL = 30 * 24 * 60 * 60;
  * bare apex). Everything else is an exact hostname match.
  */
 export const STATIC_ALLOWLIST = [
-  // MangaDex
-  'uploads.mangadex.org',
-  'mangadex.org',
-  '*.mangadex.org',
-  '*.mangadex.network',
-  // Flame Comics (used by scraper/src/sources/flamecomics.js)
-  'flamecomics.xyz',
-  '*.flamecomics.xyz',
   // Public-domain text sources shipped in the sample catalogue
   'www.gutenberg.org',
   'gutenberg.org',
@@ -43,6 +35,13 @@ export const STATIC_ALLOWLIST = [
   'i.imgur.com',
   'upload.wikimedia.org',
 ];
+
+// Nothing site-specific is compiled in beyond the public-domain sources the
+// bundled catalogue actually uses (docs/ARCHITECTURE.md §8). A shipped list of
+// reader sites is a statement about what the gateway is FOR, and this one is
+// for whatever its operator points it at — so those hosts arrive the honest
+// way: the LEARNED tier, written only after a reader resolves a URL they
+// supplied themselves, or `EXTRA_ALLOWED_HOSTS` set by the operator.
 
 /** Prefix used for KV keys so the namespace can be shared with other state. */
 const KV_PREFIX = 'allow:host:';

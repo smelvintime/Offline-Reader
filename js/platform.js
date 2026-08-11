@@ -942,13 +942,13 @@
   if (isNative) wireMirrorListeners();
 
   // Phase 1 contingency seam (PLAN.md §2.4, §11.5) — shipped DISABLED. If the
-  // on-device origin gate fails (MangaDex / worker-proxied images refusing to
-  // render from capacitor://localhost), remote images can be routed through
-  // CapacitorHttp instead of the Cloudflare worker: reader.js already funnels
-  // every online page URL through window.proxyImageUrl (reader.js:231-239), so
-  // lighting this up needs zero reader changes. Left as a comment because the
-  // gate is expected to pass (MangaDex sends ACAO:* and at-home pages load as
-  // plain <img>); enable only if the Phase 1 device check says otherwise.
+  // on-device origin gate fails (worker-proxied images refusing to render from
+  // capacitor://localhost), remote images can be routed through CapacitorHttp
+  // instead of the Cloudflare worker: reader.js already funnels every online
+  // page URL through window.proxyImageUrl (reader.js:231-239), so lighting
+  // this up needs zero reader changes. Left as a comment because the gate is
+  // expected to pass (proxied images arrive with ACAO:* and load as plain
+  // <img>); enable only if the Phase 1 device check says otherwise.
   //
   // if (isNative && !window.__platformProxyInstalled) {
   //   const httpBlobUrls = [];

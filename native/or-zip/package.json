@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Minimal Capacitor plugin for Offline Reader: list a zip archive's central directory and stream-extract selected entries to a directory inside the app container. Entry bytes never cross the bridge.",
   "main": "index.js",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-or-later",
   "author": "Offline Reader",
   "repository": {
     "type": "git",

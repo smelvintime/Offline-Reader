@@ -69,14 +69,13 @@ curl https://gw.example.workers.dev/health
 {
   "ok": true,
   "version": "2.1.0",
-  "adapters": ["mangadex", "generic-manga", "generic-novel"],
+  "adapters": ["generic-manga", "generic-novel"],
   "adapterDetail": [
-    { "id": "mangadex",      "label": "MangaDex",                         "priority": 10,  "canList": true },
     { "id": "generic-manga", "label": "Generic manga / manhwa site",      "priority": 90,  "canList": true },
     { "id": "generic-novel", "label": "Generic novel / web-fiction site", "priority": 100, "canList": true }
   ],
   "kv": false,                                     // is a KV namespace bound?
-  "allowlist": { "mode": "static-only", "staticEntries": 13 },
+  "allowlist": { "mode": "static-only", "staticEntries": 7 },
   "dnsGuard": "lenient",
   "allowPrivateTargets": false,                    // must be false in production
   "limits": { "imageBytes": 20971520, "htmlBytes": 5242880, "timeoutMs": 15000, "maxRedirects": 3 }
@@ -95,7 +94,7 @@ Also served at **`GET /?url=…`** for backward compatibility with catalogues
 already deployed against the old worker.
 
 ```bash
-curl -i "https://gw.example.workers.dev/image?url=https%3A%2F%2Fuploads.mangadex.org%2Fcovers%2Fx.jpg"
+curl -i "https://gw.example.workers.dev/image?url=https%3A%2F%2Fwww.gutenberg.org%2Fcache%2Fepub%2F84%2Fpg84.cover.medium.jpg"
 ```
 
 ```
@@ -257,7 +256,7 @@ curl "https://gw.example.workers.dev/list?url=https%3A%2F%2Fexample.org%2Fbrowse
 - Caps: at most **60 items** per response, titles clamped to 200 chars; the
   page fetch rides the same byte/timeout caps as `/resolve`.
 - Pagination is client-driven: one page fetch per request, `nextUrl` when the
-  site (or the MangaDex API's offset paging) offers more.
+  site offers more.
 - Rate bucket: `parse` (shared with `/resolve` and `/chapter`).
 - Cover hosts discovered here are learned into the `/image` allowlist, capped
   at **4 hosts per request** and memoized per isolate — see
@@ -370,10 +369,13 @@ whole internet. The invariant: **the allowlist grows only via a successful
 remains the only allowlist-*gated* endpoint. Two tiers:
 
 1. **Static** — compiled into [`src/lib/allowlist.js`](src/lib/allowlist.js):
-   MangaDex (`uploads.mangadex.org`, `*.mangadex.network`), Flame Comics,
-   Project Gutenberg, Standard Ebooks, and a couple of common cover hosts.
-   Extend without editing code via the `EXTRA_ALLOWED_HOSTS` var
-   (comma/whitespace separated, supports `*.host`).
+   Project Gutenberg, Standard Ebooks, and a couple of common cover hosts —
+   that is, the public-domain sources the bundled catalogue actually uses, and
+   nothing else. No reader site is compiled in; a shipped list of them is a
+   statement about what the gateway is *for*, and this one is for whatever its
+   operator points it at (`docs/ARCHITECTURE.md` §8). Extend without editing
+   code via the `EXTRA_ALLOWED_HOSTS` var (comma/whitespace separated,
+   supports `*.host`).
 2. **Learned** — hostnames observed during a *successful* `/resolve`,
    `/chapter` or `/list`, written to KV with a **30-day TTL**. Max 12 per
    `/resolve`/`/chapter` request; max **4** per `/list` request (cover CDNs —
@@ -398,8 +400,8 @@ source, not per request.
 skipped, `/image` serves the static list only, and `/health` reports
 `"kv": false`. A KV outage degrades the same way — it never fails open.
 
-Wildcard-style lookalikes do not slip through: `mangadex.org.evil.example.org`
-is not allowlisted by the `mangadex.org` entry.
+Wildcard-style lookalikes do not slip through: `gutenberg.org.evil.example.org`
+is not allowlisted by the `gutenberg.org` entry.
 
 ### Rate limiting — and why it is weak
 
@@ -437,9 +439,12 @@ whose `matches()` returns true is a candidate; **the lowest `priority` wins.**
 
 | priority | id              | matches                                                   |
 | -------- | --------------- | --------------------------------------------------------- |
-| 10       | `mangadex`      | `mangadex.org/title/<uuid>` or `/chapter/<uuid>`           |
 | 90       | `generic-manga` | comic-shaped host/path, or an explicit `kind=image`        |
 | 100      | `generic-novel` | everything (the last resort)                               |
+
+Both shipped adapters are general-purpose. A site-specific adapter would name
+the sites this gateway was built for, which is precisely what §8 keeps out of
+the codebase — so the ladder stays generic, and a new site needs no code.
 
 `ctx` provides `fetchHtml(url)`, `fetchJson(url)`, `absolutize(href, base)`,
 `chapterSrc(url, kind)`, `imageSrc(url)` and `env`.
@@ -449,24 +454,8 @@ whose `matches()` returns true is a candidate; **the lowest `priority` wins.**
 error, exactly like a malformed required member. `/list` picks the first
 adapter (in priority order) that implements `listSeries` AND whose
 `listMatches(url)` — or `matches(url)` when the gate is absent — claims the
-URL. For MangaDex, `listMatches` accepts mangadex.org browse/search/root URLs
-(anything that is *not* a single title/chapter); the generic adapters gate
-listing on their ordinary `matches`, so `generic-novel` lists everything.
-
-### `mangadex`
-
-JSON API only (`api.mangadex.org`) — **no HTML scraping**. mangadex.org is a
-client-rendered SPA with no chapter list in the served markup, and MangaDex
-publishes an API for exactly this use. Series come from `/manga/<uuid>` plus a
-paginated `/manga/<uuid>/feed`; pages come from `/at-home/server/<uuid>`.
-Reading direction is inferred from `originalLanguage` (ja/zh → `rtl`, ko →
-`vertical`). Capped at 1,200 chapters per series.
-
-Listing uses the search API: the browse URL's `q`/`title` param becomes the
-`title` filter; with no query the default is most-followed, English-available
-titles, 32 per page, `includes[]=cover_art` for thumbnails. `nextUrl` pages by
-`offset` on the same mangadex.org URL so the client feeds it straight back into
-`/list`.
+URL. Neither shipped adapter defines `listMatches`, so both gate listing on
+their ordinary `matches`, and `generic-novel` lists everything.
 
 ### The HTML-parsing approach, and why
 
@@ -719,10 +708,21 @@ Gutenberg / Standard Ebooks). Anything a user brings in via a link stays on that
 user's device in IndexedDB — it is never uploaded, never added to the repo, and
 never shared between users.
 
+**Nothing here is written for any particular site.** The two adapters are
+general-purpose parsers, the compiled-in allowlist covers only the
+public-domain sources the bundled catalogue uses, and `refererFor()` derives a
+Referer from the target host rather than consulting a table of sites whose
+hotlink protection someone worked around. Other hosts arrive through the
+learned tier, from a URL a reader supplied. This is a rule of the codebase, not
+a default: see `docs/ARCHITECTURE.md` §8.
+
 That said: **you are responsible for what you point this at.** Proxying
 copyrighted material still puts you in the request path, and "the user asked for
 it" is a posture, not a legal opinion. The `/image` allowlist deliberately keeps
 this from becoming a general-purpose open proxy. Do not deploy it as a public
-service for other people's use, do not remove the allowlist, and respect the
-`robots.txt`, terms and rate limits of any site you add. If a site asks you to
-stop, stop.
+service for other people's use, do not remove the allowlist, do not add hosts
+you have no business fetching from, and respect the `robots.txt`, terms and
+rate limits of any site you add. If a site asks you to stop, stop.
+
+If you believe a deployment of this is infringing your rights, `COPYRIGHT.md`
+in the repository root explains how to reach us.

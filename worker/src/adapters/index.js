@@ -4,9 +4,13 @@
 // returns true is a candidate; the one with the LOWEST `priority` wins.
 //
 // Current ladder:
-//   10  mangadex       — exact host+path match, real JSON API
 //   90  generic-manga  — comic-ish URL, or an explicit kind=image request
 //  100  generic-novel  — matches everything; the last resort
+//
+// Both are general-purpose: they parse whatever URL the reader hands them and
+// name no particular site. That is deliberate (docs/ARCHITECTURE.md §8) — the
+// gateway is a user-agent, and a user-agent does not ship a list of the sites
+// it was built for. Adding a site-specific adapter would undo it.
 //
 // Adding an adapter is: write the module, import it here, put it in ADAPTERS.
 //
@@ -15,14 +19,11 @@
 // `listMatches(url)`. `selectListAdapter` routes /list; `listAdapters` reports
 // `canList` so /health tells clients whether browsing works at all.
 
-import * as mangadex from './mangadex.js';
 import * as genericManga from './generic-manga.js';
 import * as genericNovel from './generic-novel.js';
 
 /** Registered adapters, sorted so the first match is always the winner. */
-export const ADAPTERS = [mangadex, genericManga, genericNovel].sort(
-  (a, b) => a.priority - b.priority,
-);
+export const ADAPTERS = [genericManga, genericNovel].sort((a, b) => a.priority - b.priority);
 
 /**
  * Shape check — catches a half-written adapter at boot instead of at runtime.

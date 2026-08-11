@@ -1,5 +1,13 @@
 # Slice map: js/catalogue.js + js/config.js — routing, boot, resolver, catalogue UI
 
+> **Superseded in part (Phase 8).** This document describes the tree as it was
+> when it was written. Phase 8 removed the two site-specific builder sources and
+> the site-specific worker adapter, and retired the `mdChapterId` resolution
+> step that called one site's API from the browser. Nothing in the codebase now
+> names a particular website. Where this document describes any of that, read it
+> as history — `docs/ARCHITECTURE.md` §8 and `COPYRIGHT.md` are current.
+
+
 Deep-read of `/home/user/Offline-Reader/js/catalogue.js` (2052 lines) and
 `/home/user/Offline-Reader/js/config.js` (24 lines), against the binding contract
 `/home/user/Offline-Reader/docs/ARCHITECTURE.md`. Cross-checked against

@@ -844,11 +844,35 @@
   /* ── Offline screen version stamp ── */
   #home-version {
     text-align: center;
-    padding: 1.5rem 0 2rem;
     font-size: 0.72rem;
     color: var(--muted);
     opacity: 0.5;
     letter-spacing: 0.04em;
+  }
+
+  /* The colophon carries the AGPL §13 source offer: a network-deployed copy
+     has to tell its readers where the code is. Quiet, but never hidden. */
+  .colophon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 1.5rem 0 2rem;
+  }
+
+  .colophon .src-link {
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    opacity: 0.5;
+    text-decoration: none;
+    border-bottom: 1px solid currentColor;
+    padding-bottom: 1px;
+  }
+
+  .colophon .src-link:hover,
+  .colophon .src-link:focus-visible {
+    opacity: 0.9;
   }
 
   /* ── Home loading/error state ── */

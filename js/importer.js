@@ -397,7 +397,7 @@
     if (/light-?novel|ranobe|ln\b|novelupdates|wuxia|xianxia/.test(s)) return 'lightnovel';
     if (/royalroad|scribblehub|webnovel|web-?novel|fiction|story|stories/.test(s)) return 'webnovel';
     if (/novel|book|read-?novel/.test(s)) return 'lightnovel';
-    if (/manga|comic|chapter|mangadex/.test(s)) return 'manga';
+    if (/manga|comic|chapter/.test(s)) return 'manga';
     return 'manga';
   }
 

@@ -25,10 +25,11 @@ import { validateCatalog, printReport } from './validate.js';
 
 import * as fixture from './sources/fixture.js';
 import * as gutenberg from './sources/gutenberg.js';
-import * as mangadex from './sources/mangadex.js';
-import * as flamecomics from './sources/flamecomics.js';
 
-const SOURCES = { fixture, gutenberg, mangadex, flamecomics };
+// Builder sources are public-domain text only (docs/ARCHITECTURE.md §8).
+// `validate.js` enforces this — a catalogue entry from any other source fails
+// CI, so adding a module here is not enough to smuggle one in.
+const SOURCES = { fixture, gutenberg };
 const SERIES_TYPES = new Set(['manga', 'manhwa', 'lightnovel', 'webnovel']);
 const CONFIG_PATH = join(SCRAPER_ROOT, 'series.json');
 

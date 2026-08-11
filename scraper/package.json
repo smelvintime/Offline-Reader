@@ -10,6 +10,7 @@
   "scripts": {
     "scrape": "node src/index.js",
     "dry-run": "node src/index.js --dry-run",
+    "test": "node --test test/*.test.js",
     "validate": "node src/validate.js && node src/check-welcome.js"
   },
   "dependencies": {

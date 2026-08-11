@@ -1,5 +1,13 @@
 # Slice map: file import pipeline (js/importer.js + adjacent seams)
 
+> **Superseded in part (Phase 8).** This document describes the tree as it was
+> when it was written. Phase 8 removed the two site-specific builder sources and
+> the site-specific worker adapter, and retired the `mdChapterId` resolution
+> step that called one site's API from the browser. Nothing in the codebase now
+> names a particular website. Where this document describes any of that, read it
+> as history — `docs/ARCHITECTURE.md` §8 and `COPYRIGHT.md` are current.
+
+
 Scope: the EPUB/TXT/CBZ/ZIP import pipeline end to end — file picking, JSZip
 parsing, blob persistence, size limits, memory behavior, and exactly where a
 native (Capacitor) file picker + filesystem can substitute for the browser

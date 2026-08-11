@@ -14,7 +14,7 @@ import { gwError } from './respond.js';
 export const LIMITS = {
   imageBytes: 20 * 1024 * 1024, //  20 MB — a manga page is ~1 MB; 20 is generous
   htmlBytes: 5 * 1024 * 1024, //   5 MB — reader pages are ~200 KB
-  jsonBytes: 8 * 1024 * 1024, //   8 MB — MangaDex feed pages can be chunky
+  jsonBytes: 8 * 1024 * 1024, //   8 MB — a long chapter feed can be chunky
   timeoutMs: 15_000,
   dnsTimeoutMs: 3_000,
   maxRedirects: 3,

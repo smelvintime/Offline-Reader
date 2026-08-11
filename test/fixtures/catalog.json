@@ -3,7 +3,7 @@
  "generatedAt": "2026-08-07T00:00:00.000Z",
  "series": [
   {
-   "id": "md:fixture-manga-1",
+   "id": "cs:fixture-manga-1",
    "type": "manga",
    "title": "Blade of the Hollow Moon",
    "altTitles": [
@@ -24,7 +24,7 @@
     "swords"
    ],
    "language": "en",
-   "source": "mangadex",
+   "source": "comicsite",
    "sourceUrl": "https://example.org/title/blade-of-the-hollow-moon",
    "readingDirection": "rtl",
    "updatedAt": "2026-08-05T09:00:00.000Z",
@@ -290,7 +290,7 @@
    ]
   },
   {
-   "id": "md:fixture-manga-2",
+   "id": "cs:fixture-manga-2",
    "type": "manga",
    "title": "Quiet Kitchen at the End of the Line",
    "cover": null,
@@ -302,7 +302,7 @@
     "Cooking"
    ],
    "language": "en",
-   "source": "mangadex",
+   "source": "comicsite",
    "updatedAt": "2026-07-20T09:00:00.000Z",
    "chapters": [
     {
@@ -364,7 +364,7 @@
    ]
   },
   {
-   "id": "md:fixture-manga-3",
+   "id": "cs:fixture-manga-3",
    "type": "manga",
    "title": "Signal Lost",
    "cover": "./test/fixtures/missing-cover.jpg",
@@ -375,7 +375,7 @@
     "Mystery"
    ],
    "language": "en",
-   "source": "mangadex",
+   "source": "comicsite",
    "updatedAt": "2026-06-01T09:00:00.000Z",
    "chapters": [
     {
@@ -393,7 +393,7 @@
    ]
   },
   {
-   "id": "fc:fixture-manhwa-1",
+   "id": "cs2:fixture-manhwa-1",
    "type": "manhwa",
    "title": "Tower of the Second Sun",
    "cover": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiB2aWV3Qm94PSIwIDAgMzAwIDQ1MCI+CjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgo8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMwZTc0OTAiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMwODJmNDkiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz4KPHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSI0NTAiIGZpbGw9InVybCgjZykiLz4KPGNpcmNsZSBjeD0iMTUwIiBjeT0iMTcwIiByPSI3MCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjEwKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjMwMCIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMjYiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlRvd2VyPC90ZXh0Pgo8dGV4dCB4PSIxNTAiIHk9IjMzMiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSxBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwuNjUpIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5tYW5od2E8L3RleHQ+Cjwvc3ZnPg==",
@@ -406,7 +406,7 @@
     "Adventure"
    ],
    "language": "en",
-   "source": "flamecomics",
+   "source": "comicsite2",
    "sourceUrl": "https://example.org/series/tower-of-the-second-sun",
    "readingDirection": "vertical",
    "updatedAt": "2026-08-06T12:00:00.000Z",
@@ -554,7 +554,7 @@
    ]
   },
   {
-   "id": "fc:fixture-manhwa-2",
+   "id": "cs2:fixture-manhwa-2",
    "type": "manhwa",
    "title": "Ash Garden",
    "cover": null,
@@ -563,7 +563,7 @@
    "status": "cancelled",
    "genres": [],
    "language": "en",
-   "source": "flamecomics",
+   "source": "comicsite2",
    "updatedAt": "2026-05-02T12:00:00.000Z",
    "chapters": []
   },

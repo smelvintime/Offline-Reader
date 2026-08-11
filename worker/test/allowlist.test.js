@@ -15,21 +15,36 @@ import {
 import { kvStub } from './helpers.js';
 
 describe('static tier', () => {
-  test('known content hosts are allowed with no KV at all', () => {
-    assert.equal(isStaticallyAllowed('uploads.mangadex.org'), true);
-    assert.equal(isStaticallyAllowed('cdn.flamecomics.xyz'), true);
+  test('the bundled public-domain sources are allowed with no KV at all', () => {
     assert.equal(isStaticallyAllowed('www.gutenberg.org'), true);
+    assert.equal(isStaticallyAllowed('standardebooks.org'), true);
+    assert.equal(isStaticallyAllowed('upload.wikimedia.org'), true);
   });
 
   test('wildcard entries match subdomains and the apex', () => {
-    assert.equal(isStaticallyAllowed('cmdxd98sb0x3yprd.mangadex.network'), true);
-    assert.equal(isStaticallyAllowed('anything.mangadex.org'), true);
+    assert.equal(isStaticallyAllowed('anything.gutenberg.org'), true);
+    assert.equal(isStaticallyAllowed('gutenberg.org'), true);
+    assert.equal(isStaticallyAllowed('cdn.standardebooks.org'), true);
   });
 
   test('lookalike hosts are NOT allowed', () => {
-    assert.equal(isStaticallyAllowed('mangadex.org.evil.com'), false);
-    assert.equal(isStaticallyAllowed('notmangadex.org'), false);
+    assert.equal(isStaticallyAllowed('gutenberg.org.evil.com'), false);
+    assert.equal(isStaticallyAllowed('notgutenberg.org'), false);
     assert.equal(isStaticallyAllowed('evil.com'), false);
+  });
+
+  // §8: the compiled-in list covers the bundled catalogue and nothing else.
+  // Reader sites reach the allowlist through the learned tier, never by
+  // shipping in the binary.
+  test('no reader site is compiled in', () => {
+    for (const host of staticList({})) {
+      assert.ok(
+        /(^|\.)(gutenberg\.org|standardebooks\.org|imgur\.com|wikimedia\.org)$/.test(
+          host.replace(/^\*\./, ''),
+        ),
+        `unexpected host in the static allowlist: ${host}`,
+      );
+    }
   });
 
   test('operators can extend the static list with a var', () => {
@@ -49,7 +64,7 @@ describe('KV is optional', () => {
   });
 
   test('without KV, only the static tier applies', async () => {
-    assert.deepEqual(await isAllowedHost('uploads.mangadex.org', {}), {
+    assert.deepEqual(await isAllowedHost('upload.wikimedia.org', {}), {
       allowed: true,
       via: 'static',
     });
@@ -75,7 +90,7 @@ describe('KV is optional', () => {
       allowed: false,
       via: null,
     });
-    assert.deepEqual(await isAllowedHost('uploads.mangadex.org', broken), {
+    assert.deepEqual(await isAllowedHost('upload.wikimedia.org', broken), {
       allowed: true,
       via: 'static',
     });
@@ -116,7 +131,7 @@ describe('learned tier', () => {
   });
 
   test('hosts already covered statically are not written', async () => {
-    const written = await learnHosts(['uploads.mangadex.org', 'new.example.org'], env);
+    const written = await learnHosts(['upload.wikimedia.org', 'new.example.org'], env);
     assert.deepEqual(written, ['new.example.org']);
   });
 

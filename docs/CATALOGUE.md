@@ -45,10 +45,16 @@ one `blockquote` / `ul`-or-`ol` / `hr` / `note` across the book, and no `img`
 blocks. You can rewrite the tutorial's prose freely; the shape is CI's.
 
 The five earlier sample fixtures (the Lamplighter, Ninth Bell, Floor Zero,
-Still Water and Ashfall series) and the MangaDex / Flame Comics entries were
-retired in Phase 7 — a fresh install now leads with the book that teaches, not
-with an auto-populated shelf. The `mangadex` and `flamecomics` sources are still
-in the builder; re-adding an entry to `series.json` is all it takes to use them.
+Still Water and Ashfall series) were retired in Phase 7 — a fresh install now
+leads with the book that teaches, not with an auto-populated shelf.
+
+The two site-specific builder sources that used to sit alongside them were
+removed outright. The builder now fetches public-domain text and nothing else,
+and that is enforced rather than promised: `npm run validate` fails a catalogue
+carrying any series whose `source` is outside `fixture | gutenberg |
+standardebooks`, so the six-hourly scrape workflow cannot commit one. To read
+anything else, add it by link in the app — it stays on your device and never
+touches this repository. See `COPYRIGHT.md`.
 
 > **Note on the version committed here:** the machine that produced the current
 > `catalog.json` had no network access to `gutenberg.org` — the egress policy
@@ -80,8 +86,8 @@ Four things are required:
 
 | field     | what to put                                                                |
 | --------- | -------------------------------------------------------------------------- |
-| `source`  | where to fetch from: `gutenberg`, `mangadex`, `flamecomics`, or `fixture`   |
-| `id`      | the number / code that identifies the work at that source (§3). Flame Comics uses `slug` instead |
+| `source`  | where to fetch from: `gutenberg` or `fixture`                               |
+| `id`      | the number / code that identifies the work at that source (§3)              |
 | `type`    | `lightnovel`, `webnovel`, `manga`, or `manhwa`                              |
 | `enabled` | `true` to include it, `false` to park it without deleting it                |
 
@@ -135,13 +141,6 @@ are not left wondering where the rest went.
 **Project Gutenberg** — the number in the book's web address.
 `https://www.gutenberg.org/ebooks/1342` → `"id": "1342"`.
 
-**MangaDex** — the long code in the title's web address.
-`https://mangadex.org/title/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0/jujutsu-kaisen`
-→ `"id": "32d76d19-8a05-4db0-9fc2-e0b0648fe9d0"`.
-
-**Flame Comics** — the last part of the series address, using `slug`, not `id`.
-`https://flamecomics.xyz/manga/volcanic-age` → `"slug": "volcanic-age"`.
-
 **Fixture** — the name of a file in `scraper/fixtures/`, without the `.json`.
 `scraper/fixtures/welcome.json` → `"id": "welcome"`.
 
@@ -163,8 +162,8 @@ Useful variations:
 ```sh
 npm run dry-run                     # fetch and check everything, write nothing
 node src/index.js --only=gutenberg  # rebuild just the books
-node src/index.js --only=mangadex,flamecomics
 node src/index.js --verbose         # show every request
+npm test                            # unit tests (boilerplate stripping)
 npm run validate                    # check the committed files against the contract
 ```
 
@@ -263,7 +262,6 @@ Each chapter carries **exactly one** way of getting its content:
 | field         | means                                                              |
 | ------------- | ------------------------------------------------------------------ |
 | `src`         | fetch this file (what the builder uses for books and picture chapters) |
-| `mdChapterId` | ask MangaDex for the images when the reader opens it                |
 | `pages`       | the image URLs, written straight into the catalogue                 |
 | `text`        | the prose, written straight into the catalogue (tiny chapters only) |
 
@@ -392,10 +390,18 @@ Use Option A if you want it to last.
 
 These are not style preferences — the whole project depends on them.
 
-- **Public-domain text only.** The bundled catalogue ships text from Project
-  Gutenberg and Standard Ebooks and nothing else. We do not put copyrighted
-  chapters in this repository. Picture series are references to somebody else's
-  URLs; we never copy the image files here. (`docs/ARCHITECTURE.md` §8.)
+- **Public-domain text only, and the checker enforces it.** The bundled
+  catalogue ships text from Project Gutenberg and Standard Ebooks and nothing
+  else; `validate.js` errors on any other `source`, so this one cannot be
+  broken by accident. We do not put copyrighted chapters in this repository.
+  Picture series are references to somebody else's URLs; we never copy the
+  image files here. (`docs/ARCHITECTURE.md` §8, `COPYRIGHT.md`.)
+- **The Gutenberg trademark stays out of harvested prose.** The texts are
+  public domain; the name is not ours to pass on. The builder strips the
+  boilerplate, the credits and a leading transcriber's note, and the checker
+  errors if "Project Gutenberg" survives into a `gutenberg:*` chapter. Our own
+  writing may name them — the tutorial does, to say where the classics came
+  from.
 - **Never invent a URL.** If a cover cannot be confirmed to load, the builder
   writes `cover: null` and the app shows a placeholder. A made-up URL is worse
   than no URL.

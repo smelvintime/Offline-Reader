@@ -73,6 +73,17 @@ export function stripBoilerplate(raw) {
   // Some files repeat the production credits under the START marker.
   body = body.replace(/^\s*(?:Produced by|E-?text prepared by|Transcribed from)[^\n]*(?:\n[ \t]+[^\n]*)*\n/i, '');
 
+  // A few texts then open with a transcriber's note about which etexts this
+  // edition was assembled from. It is apparatus rather than the work, and it
+  // is where the Project Gutenberg trademark survives into a body we
+  // redistribute as plain public domain (docs/ARCHITECTURE.md §8). Consume the
+  // heading and the single paragraph under it — deliberately narrow, so it can
+  // only ever remove text sitting directly beneath an explicit note heading.
+  body = body.replace(
+    /^\s*(?:Original[ \t]+)?Transcriber(?:['’]s)?[ \t]+Notes?[ \t]*:?[ \t]*\n[ \t]*\n(?:(?!\n[ \t]*\n)[\s\S])*?\n[ \t]*\n/i,
+    '',
+  );
+
   if (!start && !/project gutenberg/i.test(text.slice(0, 4000))) {
     throw new Error('does not look like a Project Gutenberg text (no START marker, no header)');
   }

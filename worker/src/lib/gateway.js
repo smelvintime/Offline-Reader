@@ -66,29 +66,27 @@ export function _resetListLearnMemo() {
   learnedAt.clear();
 }
 
-// ── Referer spoofing ─────────────────────────────────────────────────────────
-// Hotlink protection checks Referer/Origin. The value a CDN expects is the
-// *site* that would normally embed the image, not the CDN host itself.
-
-const KNOWN_REFERERS = new Map([
-  ['uploads.mangadex.org', 'https://mangadex.org/'],
-  ['cdn.flamecomics.xyz', 'https://flamecomics.xyz/'],
-]);
+// ── Referer ──────────────────────────────────────────────────────────────────
+// An <img> loaded on the reader's own page sends the reader's origin, which is
+// not the origin the CDN expects, so the image 403s. We send the one a browser
+// visiting the source site would have sent: the site that would normally embed
+// the image, derived from the target host itself.
+//
+// This is derived, never a lookup table. A hardcoded host→Referer map is a
+// record of specific sites whose hotlink protection we sat down and worked
+// around, which is not what this is: the rule below knows nothing about any
+// site and treats every host the same way (docs/ARCHITECTURE.md §8).
 
 /** Two-part public suffixes, handled crudely but adequately. */
 const TWO_PART_SUFFIX = /^(co|com|net|org|gov|edu|ac)\.[a-z]{2}$/;
 
 /**
- * A plausible Referer for a target host. Falls back to the registrable-ish
- * parent domain: `cdn.example.com` → `https://example.com/`.
+ * A plausible Referer for a target host: the registrable-ish parent domain,
+ * `cdn.example.com` → `https://example.com/`.
  */
 export function refererFor(hostname) {
   const host = normalizeHost(hostname);
   if (!host) return null;
-  if (KNOWN_REFERERS.has(host)) return KNOWN_REFERERS.get(host);
-  if (host.endsWith('.mangadex.network') || host.endsWith('.mangadex.org')) {
-    return 'https://mangadex.org/';
-  }
   const labels = host.split('.');
   if (labels.length <= 2) return `https://${host}/`;
   const tail2 = labels.slice(-2).join('.');

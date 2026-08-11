@@ -144,6 +144,18 @@ The tutorial book is also the app's **offline floor**: the catalogue builder
 refuses to ship a catalogue without it (`npm run validate` fails), and the
 first-run focus sheet's "Start with the tour" button opens it.
 
+**Public-domain only is a check, not a promise.** `npm run validate` fails any
+catalogue carrying a series from a source outside `fixture | gutenberg |
+standardebooks`, so the six-hourly rebuild workflow cannot commit anything else
+— by accident or otherwise. Nothing in the codebase is written for a particular
+website either: the gateway ships two general-purpose parsers, its compiled-in
+image allowlist covers only the public-domain sources above, and it derives the
+`Referer` it sends rather than consulting a table of sites. Series you add by
+link live on your device and never touch this repository.
+
+See [COPYRIGHT.md](COPYRIGHT.md) for the full picture, including how to reach
+us if you think something here infringes your rights.
+
 ## Security
 
 Third-party content is never rendered as HTML. Prose from any source — a scraped
@@ -167,6 +179,7 @@ chapter, or source listing successfully parses through the gateway.
 | [docs/mobile/NATIVE_BUILD.md](docs/mobile/NATIVE_BUILD.md) | Building the iOS/Android apps from a clean checkout |
 | [docs/mobile/TESTING.md](docs/mobile/TESTING.md) | On-device test matrix and the memory verification protocol |
 | [worker/README.md](worker/README.md) | Gateway endpoints, deployment, cost, and limits |
+| [COPYRIGHT.md](COPYRIGHT.md) | What ships here, what the app does with other people's work, and how to report a problem |
 
 ## Layout
 
@@ -189,3 +202,10 @@ fonts/              bundled reading faces (SIL OFL — see fonts/LICENSE.md)
 worker/             Cloudflare Worker content gateway
 scraper/            catalogue builder
 ```
+
+## Licence
+
+[AGPL-3.0-or-later](LICENSE). If you deploy a modified copy where other people
+can reach it, §13 of that licence requires you to offer them its source — which
+is why both home screens carry a source link. Bundled fonts keep the SIL Open
+Font License 1.1 (`fonts/LICENSE.md`) and JSZip its MIT/GPLv3 dual licence.

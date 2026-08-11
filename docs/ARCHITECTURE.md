@@ -57,8 +57,8 @@ Everything else (catalogue browsing, library, progress, import) is shared.
   "genres":    ["Action", "Supernatural"],
   "tags":      [],
   "language":  "en",
-  "source":    "mangadex",           // adapter id, or "user" for imported series
-  "sourceUrl": "https://mangadex.org/title/…",
+  "source":    "generic-manga",      // adapter id, or "user" for imported series
+  "sourceUrl": "https://example.org/title/…",
   "readingDirection": "ltr",         // ltr | rtl | vertical  (image types only)
   "updatedAt": "2026-08-01T…",
   "chapterCount": 271,
@@ -78,13 +78,18 @@ Everything else (catalogue browsing, library, progress, import) is shared.
   "lang":  "en",
   "wordCount": 3210,                 // text chapters only, approximate
 
-  // Payload — EXACTLY ONE of the following four resolution strategies:
+  // Payload — EXACTLY ONE of the following three resolution strategies:
   "pages": ["https://…/1.webp", …],  // image: inline URLs
-  "mdChapterId": "uuid",             // image: resolve via MangaDex at-home at read time
   "text":  "para one\n\npara two",   // text: inline plain text (small chapters only)
-  "src":   "chapters/md_xxx/c-0271.json"  // either kind: fetch a ChapterFile (see 1.2)
+  "src":   "chapters/xxx/c-0271.json"  // either kind: fetch a ChapterFile (see 1.2)
 }
 ```
+
+`mdChapterId` is a **retired** fourth strategy. v1 rows may still carry the
+field and the validator still type-checks it, but nothing resolves it: the
+code that did called one specific site's API from the browser, which §8 does
+not allow. Such a row resolves through the gateway if it has a URL, and
+otherwise fails as `no-payload`.
 
 **Rule:** if `wordCount` or `type` says text but the payload is `pages`, the
 payload wins. Renderers dispatch on payload shape, then fall back to
@@ -1179,7 +1184,7 @@ session-local URL** (`blob:`, `capacitor://`, or a `_capacitor_file_` path —
 all dead links outside the session that minted them) is re-hydrated through
 `window.Importer.hydrateChapter(series.id, chapter.id)` (guarded on the
 function existing) and the result is returned **without writing it back to
-Store** — the same rule as MangaDex signed URLs. This is also what heals
+Store** — session-local URLs are never persisted. This is also what heals
 every imported chapter after an iOS app update rotates the container UUID.
 
 DOM ceilings, enforced here: chapter lists render 250 rows before an inline
@@ -1438,6 +1443,39 @@ fully readable offline. We do not redistribute copyrighted chapters, and we
 do not re-host images — the worker proxies bytes on demand and caches them
 at the edge, exactly as the user's own browser would. Everything a user
 brings in via a link stays on that user's device.
+
+The reader-facing statement of all this, including how to report a problem,
+is `COPYRIGHT.md`. The code is AGPL-3.0-or-later (`LICENSE`); §13 of that
+licence is why both home screens carry a source link in `.colophon`.
+
+**Public-domain-only is enforced, not promised (binding).** `validate.js`
+fails any catalogue carrying a series whose `source` is outside
+`fixture | gutenberg | standardebooks`. The rule used to live in prose,
+which left one entry in `series.json` able to turn a reader into a mirror:
+`.github/workflows/scrape.yml` runs every six hours with `contents: write`
+and commits whatever the builder produces. Now CI refuses it. The builder's
+`SOURCES` registry is public-domain-only for the same reason, so adding a
+module is not by itself enough to smuggle a source in.
+
+**Nothing names a particular site (binding).** The worker ships two
+general-purpose adapters, `generic-manga` and `generic-novel`; the compiled-in
+`/image` allowlist covers only the public-domain hosts the bundled catalogue
+uses; and `refererFor()` derives a Referer from the target host with no
+per-site table. A shipped list of reader sites — an adapter written for one, a
+hostname compiled into the allowlist, a hand-mapped Referer that defeats one
+site's hotlink check — is a statement about what this software is *for*, and
+this software is for whatever its reader points it at. Other hosts reach the
+allowlist the honest way: the learned tier, written only after a reader
+resolves a URL they supplied, or an operator's `EXTRA_ALLOWED_HOSTS`.
+`adapters.test.js` and `allowlist.test.js` assert both.
+
+**The Gutenberg trademark does not ship in harvested prose.** The texts are
+public domain; the name is not ours to redistribute. `sources/gutenberg.js`
+strips the licence boilerplate, the production credits and a leading
+transcriber's note, and `validate.js` errors if "Project Gutenberg" survives
+into any `gutenberg:*` chapter — which is how a transcriber's note that had
+reached chapter one of Moby-Dick was found. Our own writing may name them
+factually; the tutorial does, and the check is scoped so it stays legal.
 
 **The tutorial book is the offline floor.** `scraper/src/validate.js` fails
 (CI exit 1) a catalogue that is empty, one that ships zero bundled chapter

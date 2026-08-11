@@ -37,14 +37,14 @@ const ROUTES = {
     html('<html><body><p>Just a paragraph, no listing.</p></body></html>'),
   [`${MANGA}/manga/tin-quarter/`]: () => html(fixture('manga-series.html')),
   [`${MANGA}/manga/tin-quarter/chapter-42/`]: () => html(fixture('manga-chapter.html')),
-  'uploads.mangadex.org/covers/a.png': () =>
+  'upload.wikimedia.org/covers/a.png': () =>
     new Response(PNG, { status: 200, headers: { 'content-type': 'image/png' } }),
-  'uploads.mangadex.org/covers/lies.png': () =>
+  'upload.wikimedia.org/covers/lies.png': () =>
     new Response('<html>not an image</html>', {
       status: 200,
       headers: { 'content-type': 'text/html' },
     }),
-  'uploads.mangadex.org/covers/gone.png': () => new Response('nope', { status: 404 }),
+  'upload.wikimedia.org/covers/gone.png': () => new Response('nope', { status: 404 }),
   'cdn.learned.org/p/1.webp': () =>
     new Response(PNG, { status: 200, headers: { 'content-type': 'image/webp' } }),
 };
@@ -70,7 +70,7 @@ describe('/health', () => {
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.version, VERSION);
-    assert.deepEqual(body.adapters, ['mangadex', 'generic-manga', 'generic-novel']);
+    assert.deepEqual(body.adapters, ['generic-manga', 'generic-novel']);
     assert.equal(res.headers.get('access-control-allow-origin'), '*');
   });
 
@@ -79,7 +79,7 @@ describe('/health', () => {
     for (const row of body.adapterDetail) {
       assert.equal(typeof row.canList, 'boolean', `${row.id} must report canList`);
     }
-    // All three shipped adapters can list (generic-novel lists everything).
+    // Both shipped adapters can list (generic-novel lists everything).
     assert.ok(body.adapterDetail.every((r) => r.canList === true));
   });
 
@@ -144,7 +144,7 @@ describe('/image', () => {
   test('streams an allowlisted image with CORS', async () => {
     const res = await call(
       'https://gw.example.com/image?url=' +
-        encodeURIComponent('https://uploads.mangadex.org/covers/a.png'),
+        encodeURIComponent('https://upload.wikimedia.org/covers/a.png'),
     );
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('content-type'), 'image/png');
@@ -157,13 +157,13 @@ describe('/image', () => {
     const stub = install(ROUTES);
     await call(
       'https://gw.example.com/image?url=' +
-        encodeURIComponent('https://uploads.mangadex.org/covers/a.png'),
+        encodeURIComponent('https://upload.wikimedia.org/covers/a.png'),
       baseEnv(),
       { headers: { cookie: 'session=secret', authorization: 'Bearer hunter2' } },
     );
     const sent = stub.calls[0].headers;
-    assert.equal(sent.Referer, 'https://mangadex.org/');
-    assert.equal(sent.Origin, 'https://mangadex.org');
+    assert.equal(sent.Referer, 'https://wikimedia.org/');
+    assert.equal(sent.Origin, 'https://wikimedia.org');
     const lower = Object.keys(sent).map((k) => k.toLowerCase());
     assert.equal(lower.includes('cookie'), false);
     assert.equal(lower.includes('authorization'), false);
@@ -172,7 +172,7 @@ describe('/image', () => {
   test('the legacy /?url= alias still works', async () => {
     const res = await call(
       'https://gw.example.com/?url=' +
-        encodeURIComponent('https://uploads.mangadex.org/covers/a.png'),
+        encodeURIComponent('https://upload.wikimedia.org/covers/a.png'),
     );
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('content-type'), 'image/png');
@@ -207,7 +207,7 @@ describe('/image', () => {
   test('rejects a response whose Content-Type is not image/*', async () => {
     const res = await call(
       'https://gw.example.com/image?url=' +
-        encodeURIComponent('https://uploads.mangadex.org/covers/lies.png'),
+        encodeURIComponent('https://upload.wikimedia.org/covers/lies.png'),
     );
     assert.equal(res.status, 415);
     assert.equal((await res.json()).error, 'bad_content_type');
@@ -216,7 +216,7 @@ describe('/image', () => {
   test('propagates an upstream failure as upstream_error', async () => {
     const res = await call(
       'https://gw.example.com/image?url=' +
-        encodeURIComponent('https://uploads.mangadex.org/covers/gone.png'),
+        encodeURIComponent('https://upload.wikimedia.org/covers/gone.png'),
     );
     assert.equal(res.status, 404);
     assert.equal((await res.json()).error, 'upstream_error');
@@ -548,9 +548,10 @@ describe('rate limiting', () => {
 });
 
 describe('refererFor', () => {
-  test('uses the known mapping for MangaDex', () => {
-    assert.equal(refererFor('uploads.mangadex.org'), 'https://mangadex.org/');
-    assert.equal(refererFor('cmdxd98sb0x3yprd.mangadex.network'), 'https://mangadex.org/');
+  // §8: the Referer is derived from the target host, with no per-site table.
+  test('is derived uniformly — no host is special-cased', () => {
+    assert.equal(refererFor('uploads.example.org'), 'https://example.org/');
+    assert.equal(refererFor('cmdxd98sb0x3yprd.example.network'), 'https://example.network/');
   });
 
   test('falls back to the parent domain of a CDN host', () => {

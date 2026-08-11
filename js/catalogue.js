@@ -6,7 +6,7 @@
 // itself, so there is exactly one place that knows what "back" means.
 //
 // It also owns `window.resolveChapterContent`, the single funnel through which
-// any chapter payload — inline, external file, MangaDex, worker gateway — turns
+// any chapter payload — inline, external file, worker gateway — turns
 // into a normalized ChapterFile. Putting it here (rather than in each reader)
 // means the cache-first policy and the block normalization that forms our XSS
 // boundary are written once and cannot drift between readers.
@@ -350,7 +350,8 @@
 
   function normalizeChapter(raw, idx, seriesId) {
     const ch = Object.assign({}, raw);
-    // v1 MangaDex entries carry only `mdChapterId`; Store keys need a stable id.
+    // Some v1 rows carry no id of their own. Store keys need a stable one, so
+    // fall back to whatever identifier the row does have before minting.
     if (!ch.id) {
       ch.id = raw.mdChapterId ||
               (raw.num != null ? 'c-' + String(raw.num).replace(/[^0-9.]/g, '') : '') ||
@@ -527,14 +528,6 @@
     return base.replace(/\/*$/, '/') + src;
   }
 
-  async function mangadexPages(mdChapterId) {
-    const json = await fetchJson('https://api.mangadex.org/at-home/server/' + encodeURIComponent(mdChapterId));
-    const base = json && json.baseUrl;
-    const ch = json && json.chapter;
-    if (!base || !ch || !Array.isArray(ch.data)) throw catErr('parse', 'Unexpected at-home response');
-    return ch.data.map(function (f) { return base + '/data/' + ch.hash + '/' + f; });
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // window.resolveChapterContent — the one funnel (ARCHITECTURE §4)
   //
@@ -542,9 +535,14 @@
   //   1. Store.getChapter
   //   2. inline blocks / pages / text on the Chapter
   //   3. chapter.src        (relative to app root, or absolute)
-  //   4. chapter.mdChapterId via the MangaDex at-home API
-  //   5. worker /chapter?url=…   (only when OR_CONFIG.workerBase is set)
+  //   4. worker /chapter?url=…   (only when OR_CONFIG.workerBase is set)
   // Whatever wins is normalized to a ChapterFile, written to Store, returned.
+  //
+  // There used to be a step between 3 and 4 that called one specific site's
+  // API from the browser to expand a `mdChapterId` into page URLs. It was the
+  // last place the app itself named a site, so it is gone (§8). A legacy v1
+  // row carrying only that field now resolves through the gateway if it has a
+  // URL, and otherwise fails honestly as `no-payload`.
   // ─────────────────────────────────────────────────────────────────────────
 
   const inflight = new Map(); // de-dupe concurrent resolves of the same chapter
@@ -565,7 +563,7 @@
     if (!series || !series.id) throw catErr('no-payload', 'resolveChapterContent: series.id is required');
     if (!chapter || !chapter.id) throw catErr('no-payload', 'resolveChapterContent: chapter.id is required');
 
-    const key = series.id + ' ' + chapter.id;
+    const key = series.id + '\x00' + chapter.id;
     if (inflight.has(key)) return inflight.get(key);
 
     const job = (async function () {
@@ -574,7 +572,7 @@
       // stale session-local URLs left behind by an earlier build. Either way
       // the archive re-yields live pages on demand. The hydrated file is
       // returned as-is and NEVER written back to Store — its page URLs are
-      // session-local by design, the same rule as MangaDex signed URLs below.
+      // session-local by design.
       let cached = await safeCall('getChapter', [series.id, chapter.id], null);
       if (cached && cached.archiveKey && Array.isArray(cached.entries) && cached.entries.length) {
         const pages = Array.isArray(cached.pages) ? cached.pages : [];
@@ -609,13 +607,7 @@
         file = normalizeChapterFile(json, series, chapter);
       }
 
-      // 4 ── MangaDex at-home (URLs expire, so they are never cached in catalog.json)
-      if (!file && chapter.mdChapterId) {
-        const pages = await mangadexPages(chapter.mdChapterId);
-        file = normalizeChapterFile({ pages: pages }, series, chapter);
-      }
-
-      // 5 ── worker gateway
+      // 4 ── worker gateway
       if (!file) {
         const target = safeHttpUrl(chapter.url || chapter.sourceUrl || chapter.href);
         if (target) {
@@ -631,12 +623,8 @@
 
       if (!file) throw catErr('no-payload', 'Chapter ' + chapter.id + ' has no resolvable payload');
 
-      // MangaDex page URLs are signed and short-lived; caching them would hand
-      // the reader dead links tomorrow. Everything else is safe to persist.
-      if (!(chapter.mdChapterId && !chapter.pages)) {
-        await safeCall('putChapter', [series.id, chapter.id, file], file);
-        noteChapterCacheWrite();
-      }
+      await safeCall('putChapter', [series.id, chapter.id, file], file);
+      noteChapterCacheWrite();
       return file;
     })();
 
@@ -1245,7 +1233,7 @@
   function matchesQuery(s, q) {
     if (!q) return true;
     const hay = [s.title].concat(s.altTitles || [], [s.author || ''], s.genres || [], s.tags || [])
-      .join('   ').toLowerCase();
+      .join(' \x00 ').toLowerCase();
     return hay.indexOf(q) !== -1;
   }
 
@@ -2259,18 +2247,6 @@
     if (lt) lt.textContent = 'Loading chapter…';
 
     let pageUrls = chData.pages;
-
-    // MangaDex at-home URLs expire — fetch fresh at read time.
-    if ((!pageUrls || !pageUrls.length) && chData.mdChapterId) {
-      try {
-        if (lt) lt.textContent = 'Fetching chapter…';
-        pageUrls = await mangadexPages(chData.mdChapterId);
-      } catch (err) {
-        window.showScreen('series-screen');
-        toast(errorText(err));
-        return;
-      }
-    }
 
     // External chapter JSON (pages not inlined in catalog.json).
     if ((!pageUrls || !pageUrls.length) && chData.src) {

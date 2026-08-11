@@ -4,10 +4,14 @@
     "edit it in any text editor, no programming required. See docs/CATALOGUE.md.",
     "",
     "Every entry needs:",
-    "  source  — where to fetch from: gutenberg | mangadex | flamecomics | fixture",
-    "  id      — the work id / manga UUID / fixture file name  (flamecomics uses slug)",
+    "  source  — where to fetch from: gutenberg | fixture",
+    "  id      — the work id / fixture file name",
     "  type    — manga | manhwa | lightnovel | webnovel   (we never guess this)",
     "  enabled — true to include it in the next run, false to park it",
+    "",
+    "The builder ships public-domain sources only, and CI enforces it: an entry",
+    "from anywhere else fails validation. To read something else, add it by link",
+    "in the app — it stays on your device and never lands in this repository.",
     "",
     "Everything else is optional and overrides what the source reports.",
     "A trailing comma anywhere will break the file: JSON does not allow them."
@@ -15,9 +19,7 @@
 
   "defaults": {
     "language": "en",
-    "gutenberg": { "maxChapters": 40 },
-    "mangadex": { "maxChapters": 200 },
-    "flamecomics": { "maxChapters": 24, "maxPageFetches": 24 }
+    "gutenberg": { "maxChapters": 40 }
   },
 
   "series": [

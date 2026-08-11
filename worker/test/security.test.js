@@ -97,7 +97,7 @@ describe('validateTargetUrl — SSRF host rules', () => {
   });
 
   test('allows ordinary public hosts and ports', () => {
-    assert.equal(validateTargetUrl('https://mangadex.org/title/abc').ok, true);
+    assert.equal(validateTargetUrl('https://example.org/title/abc').ok, true);
     assert.equal(validateTargetUrl('https://example.com:8443/x').ok, true);
     assert.equal(validateTargetUrl('https://sub.domain.example.com/x').ok, true);
   });
@@ -330,9 +330,9 @@ describe('safeFetch — redirects are re-validated', () => {
 
 describe('upstreamHeaders — nothing from the client is forwarded (§7.4)', () => {
   test('produces a fixed, complete header set', () => {
-    const h = upstreamHeaders({ referer: 'https://mangadex.org/' });
-    assert.equal(h.Referer, 'https://mangadex.org/');
-    assert.equal(h.Origin, 'https://mangadex.org');
+    const h = upstreamHeaders({ referer: 'https://example.org/' });
+    assert.equal(h.Referer, 'https://example.org/');
+    assert.equal(h.Origin, 'https://example.org');
     assert.ok(h['User-Agent']);
     // The allowlist of what we send is exactly these keys.
     assert.deepEqual(

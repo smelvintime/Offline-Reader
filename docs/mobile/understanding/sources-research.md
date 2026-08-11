@@ -1,5 +1,13 @@
 # Sources feature — feasibility research (worker, importer, catalogue, scraper, navigation)
 
+> **Superseded in part (Phase 8).** This document describes the tree as it was
+> when it was written. Phase 8 removed the two site-specific builder sources and
+> the site-specific worker adapter, and retired the `mdChapterId` resolution
+> step that called one site's API from the browser. Nothing in the codebase now
+> names a particular website. Where this document describes any of that, read it
+> as history — `docs/ARCHITECTURE.md` §8 and `COPYRIGHT.md` are current.
+
+
 Produced by a read-only research pass ahead of Phase 7 planning. Line references were verified against the tree at research time.
 
 # Research report: "Sources: add any online library"

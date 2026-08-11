@@ -1768,6 +1768,25 @@ judged consistent with plan intent; none needed remediation)
     strips/sorts/trims — it only ever serves save-and-bookmark mode (browse
     and badges are off without Importer), so dedupe merely degrades.
 
+### Superseded by Phase 8
+
+This plan is the record of what Phase 7 specified and shipped; it is not
+rewritten after the fact. One area has since changed, and where this document
+describes it, it is history rather than contract:
+
+- **The site-specific sources and adapter are gone.** Phase 8 removed both
+  builder sources (`scraper/src/sources/`) and the site-specific worker adapter
+  (`worker/src/adapters/`), stripped the reader hosts from the compiled-in
+  `/image` allowlist, dropped the hand-mapped `KNOWN_REFERERS` table in favour
+  of the derived Referer alone, and retired the `mdChapterId` step that called
+  one site's API from the browser. §3's adapter listing spec, the `listMatches`
+  notes and the §4.1 entry-removal rationale all refer to code that no longer
+  exists. Browsing is unaffected: both generic adapters implement `listSeries`.
+- **Public-domain-only is now enforced.** `validate.js` fails a catalogue whose
+  series come from anywhere but `fixture | gutenberg | standardebooks`.
+
+See `docs/ARCHITECTURE.md` §8 and `COPYRIGHT.md` for the current rules.
+
 ### Known gaps & deferred items
 
 - **F3 (polish, settings):** the derived `--muted` lands at 3.15–4.16:1 on

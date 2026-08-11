@@ -100,6 +100,24 @@
 
     function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+    // Drives the drop-zone intake path (the only interactive file entry a test
+    // can reach — the pickers need a real file dialog). Returns false where
+    // the environment cannot synthesize a drag (jsdom); callers then skip.
+    function dropFile(target, file) {
+      if (typeof DataTransfer !== 'function' || typeof DragEvent !== 'function') return false;
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        return true;
+      } catch (e) { return false; }
+    }
+
+    async function wipeThoughts() {
+      const rows = await Store.listThoughts({});
+      for (const t of rows) await Store.deleteThought(t.id);
+    }
+
     // Waits for a DOM condition instead of guessing at timings.
     async function waitFor(fn, label, timeout) {
       const limit = timeout || 5000;
@@ -261,6 +279,13 @@
         threw = false;
         try { N('ftp://site.example/a'); } catch (e) { threw = e.code === 'bad_scheme'; }
         ok(threw, 'ftp: URL is refused');
+      });
+
+      await test('normalizeUrl is public API (§2.2), identical to the internal', async function () {
+        ok(typeof I.normalizeUrl === 'function', 'Importer.normalizeUrl exists on the public API');
+        ok(I.normalizeUrl === P.normalizeUrl, 'the SAME function — shared, not twinned');
+        eq(I.normalizeUrl('https://Site.Example/series/x/?utm_source=a#frag'),
+           'https://site.example/series/x', 'public entry behaves like the internal one');
       });
 
       await test('id hashing is stable and derived from the normalized URL', async function () {
@@ -445,6 +470,36 @@
         ok(Array.isArray(persisted.pages) && persisted.pages.length === 0, 'hydration never writes live URLs back to the store');
       });
 
+      await test('.acsm is refused honestly, before any parse attempt (§2.10)', async function () {
+        await wipeLibrary();
+        let err = null;
+        try {
+          await I.importFile(new File(['<fulfillmentToken/>'], 'My-Book.ACSM',
+            { type: 'application/vnd.adobe.adept+xml' }));
+        } catch (e) { err = e; }
+        ok(!!err, 'importFile threw instead of parsing');
+        eq(err && err.code, 'drm_file', 'error code is drm_file');
+        eq(err && err.message,
+           'That is a DRM license file, not a book. We can only open DRM-free files.',
+           'the honest copy, verbatim');
+        eq((await Store.listUserSeries()).length, 0, 'nothing was saved');
+
+        // Interactive path: the drop zone surfaces the same message as a toast.
+        I.openDialog();
+        const dropped = dropFile(document.getElementById('imp-drop'),
+          new File([''], 'locked.acsm'));
+        if (dropped) {
+          const status = document.getElementById('imp-file-status');
+          await waitFor(function () {
+            return !status.hidden && status.textContent.indexOf('DRM license file') !== -1;
+          }, 'DRM toast');
+          ok(status.classList.contains('imp-status--error'), 'shown as an error status');
+          ok(document.getElementById('imp-view-confirm').hidden, 'no confirm view — no parse happened');
+        } else {
+          ok(true, 'skipped drop simulation — no DataTransfer in this environment');
+        }
+      });
+
       await test('URL import saves a series keyed by the normalized URL', async function () {
         await wipeLibrary();
         stubResolve(function () { return { status: 200, body: seriesPayload(4) }; });
@@ -599,6 +654,97 @@
         unstub();
       });
 
+      await test('confirm-view cover fallback: Covers when present, placeholder when absent (§2.8)', async function () {
+        await wipeLibrary();
+        const savedCovers = window.Covers;
+        const drop = document.getElementById('imp-drop');
+        const coverless = function () {
+          // TXT has no cover, so the confirm view goes straight to the fallback.
+          return txtFile('coverless.txt', 'Chapter 1\n\nAlpha.\n\nChapter 2\n\nBeta.');
+        };
+
+        // A stub, not the real covers.js: this test pins the importer's GUARD,
+        // and must pass with the covers module absent entirely.
+        const calls = [];
+        window.Covers = {
+          element: function (s, opts) {
+            calls.push({ id: s && s.id, className: opts && opts.className });
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            if (opts && opts.className) svg.setAttribute('class', opts.className);
+            return svg;
+          },
+        };
+
+        I.openDialog();
+        if (!dropFile(drop, coverless())) {
+          ok(true, 'skipped — no DataTransfer in this environment');
+          window.Covers = savedCovers;
+          return;
+        }
+        await waitFor(function () { return !document.getElementById('imp-view-confirm').hidden; }, 'confirm view (stubbed Covers)');
+        ok(!!document.querySelector('#imp-cover svg.imp-cover-svg'), 'generated cover svg fills the slot');
+        eq(calls[0] && calls[0].className, 'imp-cover-svg', 'Covers.element called with the imp-cover-svg class');
+        ok(calls[0] && /^user:/.test(String(calls[0].id)), 'called with the draft series (id present)');
+        document.getElementById('imp-cancel').click();
+
+        // Guard: module absent → the old icon placeholder, zero errors (§0.5).
+        window.Covers = undefined;
+        dropFile(drop, coverless());
+        await waitFor(function () { return !document.getElementById('imp-view-confirm').hidden; }, 'confirm view (no Covers)');
+        ok(!!document.querySelector('#imp-cover .imp-cover-ph'), 'icon placeholder returns without Covers');
+        ok(!document.querySelector('#imp-cover svg.imp-cover-svg'), 'no orphaned generated cover');
+        document.getElementById('imp-cancel').click();
+        window.Covers = savedCovers;
+      });
+
+      await test('the purchased-books card renders with the §6.2 store list', async function () {
+        I.openDialog();
+        const card = document.getElementById('imp-bought-card');
+        ok(!!card && !card.hidden, 'card is present in the add view');
+        ok(card.textContent.indexOf('Bought a book? If your store lets you download a DRM-free EPUB or CBZ, it opens here like any other file.') !== -1,
+           'lead copy verbatim');
+
+        const btn = document.getElementById('imp-where-btn');
+        const list = document.getElementById('imp-store-list');
+        eq(btn.getAttribute('aria-expanded'), 'false', 'disclosure starts closed');
+        ok(list.hidden, 'store list starts hidden');
+        btn.click();
+        eq(btn.getAttribute('aria-expanded'), 'true', 'disclosure opens');
+        ok(!list.hidden, 'store list shown');
+        eq(list.children.length, 9, 'nine store rows (§6.2, one each)');
+
+        const rows = Array.prototype.map.call(list.querySelectorAll('.imp-store-row'), function (r) {
+          return { store: r.querySelector('.imp-store-name').textContent,
+                   copy: r.querySelector('.imp-store-copy').textContent };
+        });
+        eq(rows[0], { store: 'Project Gutenberg / Standard Ebooks',
+                      copy: 'Free and DRM-free. Download the EPUB and open it here.' }, 'first row verbatim');
+        eq(rows[6], { store: 'Kindle',
+                      copy: 'Amazon does not offer DRM-free downloads. Kindle books stay in Kindle — we cannot open them, and we will not break locks.' },
+           'Kindle row verbatim');
+        eq(rows[8].store, 'Comics (Comixology → Kindle)', 'comics row present');
+        btn.click();
+        ok(list.hidden, 'disclosure closes again');
+
+        const gut = document.getElementById('imp-gutenberg');
+        ok(!!gut && gut.tagName === 'A', 'Gutenberg link is a real anchor');
+        eq(gut.getAttribute('href'), 'https://www.gutenberg.org/', 'https href, safeHttpUrl-checked');
+        eq(gut.getAttribute('rel'), 'noopener', 'rel=noopener');
+        eq(gut.getAttribute('target'), '_blank', 'opens outside the app');
+        ok(gut.textContent.indexOf('Free classics, no lock') !== -1, 'Gutenberg label copy');
+        ok(!!document.getElementById('imp-bought-open'), '"Open a file" button wired to the picker flow');
+
+        // The card is file-based, so it renders with the gateway off too.
+        const saved = window.OR_CONFIG.workerBase;
+        window.OR_CONFIG.workerBase = '';
+        I.openDialog();
+        ok(!document.getElementById('imp-bought-card').hidden, 'card still renders with no gateway');
+        window.OR_CONFIG.workerBase = saved;
+
+        // §2.10: the web picker's accept string includes .epub.
+        ok(document.getElementById('imp-file').accept.indexOf('.epub') !== -1, 'hidden file input accepts .epub');
+      });
+
       await test('with no gateway the link box is hidden and files still work', async function () {
         await wipeLibrary();
         const saved = window.OR_CONFIG.workerBase;
@@ -663,6 +809,62 @@
         eq(badCode, 'bad_export', 'a foreign JSON file is refused with a clear code');
       });
 
+      await test('thoughts ride export/import: both modes, idempotent by id (§2.7)', async function () {
+        await wipeLibrary();
+        await wipeThoughts();
+
+        const t1 = await Store.putThought({
+          seriesId: 'user:aaaa1111aaaa1111', seriesTitle: 'Kept Series',
+          chapterId: null, chapterTitle: null, kind: 'book',
+          text: 'What it left behind.',
+        });
+        const t2 = await Store.putThought({
+          seriesId: 'user:bbbb2222bbbb2222', seriesTitle: 'Gone Series',
+          chapterId: 'c-0001', chapterTitle: 'One', kind: 'chapter',
+          text: 'A chapter thought.',
+        });
+        ok(!!t1.id && !!t2.id, 'store minted ids for both rows');
+
+        const full = await I.exportLibrary({ includeChapters: true });
+        const lean = await I.exportLibrary({ includeChapters: false });
+        eq(full.format, 'offline-reader-library', 'format unchanged');
+        eq(full.version, 1, 'backup format version stays 1 — thoughts are additive');
+        eq(full.thoughts.length, 2, 'includeChapters:true carries both thoughts');
+        eq(lean.thoughts.length, 2, 'includeChapters:false carries them too (the native-backup shape)');
+        ok(full.thoughts.some(function (r) { return r.id === t1.id && r.text === 'What it left behind.'; }),
+           'a row round-trips intact');
+
+        await wipeThoughts();
+        eq((await Store.listThoughts({})).length, 0, 'thoughts wiped');
+
+        const res = await I.importLibrary(JSON.stringify(full));
+        eq(res.thoughts, 2, 'import reports two thoughts restored');
+        const restored = await Store.listThoughts({});
+        eq(restored.length, 2, 'both rows back in the store');
+        eq(restored.map(function (r) { return r.id; }).sort(),
+           [t1.id, t2.id].sort(), 'restored under their ORIGINAL ids');
+
+        await I.importLibrary(JSON.stringify(full));
+        eq((await Store.listThoughts({})).length, 2, 're-import upserts by id — no duplicates');
+
+        // A row with no id is skipped, not minted a fresh one — otherwise
+        // every re-import would duplicate it.
+        const tampered = JSON.parse(JSON.stringify(full));
+        tampered.thoughts.push({ seriesId: 'user:cccc', kind: 'book', text: 'no id' });
+        const res2 = await I.importLibrary(JSON.stringify(tampered));
+        eq(res2.thoughts, 2, 'the id-less row is not written');
+        eq((await Store.listThoughts({})).length, 2, 'still exactly two thoughts');
+
+        // A pre-thoughts backup (no array at all) imports cleanly.
+        const old = JSON.parse(JSON.stringify(full));
+        delete old.thoughts;
+        const res3 = await I.importLibrary(JSON.stringify(old));
+        eq(res3.thoughts, 0, 'a pre-thoughts backup imports with zero thoughts');
+        eq((await Store.listThoughts({})).length, 2, 'and leaves existing thoughts alone');
+
+        await wipeThoughts();
+      });
+
       await test('refreshSeries merges only genuinely new chapters', async function () {
         await wipeLibrary();
         stubResolve(function () { return { status: 200, body: seriesPayload(3) }; });
@@ -703,6 +905,8 @@
     window.T = {
       runAll: runAll,
       wipeLibrary: wipeLibrary,
+      wipeThoughts: wipeThoughts,
+      dropFile: dropFile,
       stubResolve: stubResolve,
       unstub: unstub,
       seriesPayload: seriesPayload,

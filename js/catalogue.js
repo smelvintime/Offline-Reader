@@ -62,6 +62,7 @@
   let navStack     = [];          // screen ids, for goBack()
   let domReady     = false;
   let booted       = false;
+  let focusHookFired = false;     // AppSettings.maybeOfferFocus fires once per boot (§2.1)
 
   let chapterRowLimit = CHAPTER_CHUNK; // rows before "Show more"; reset per series open
   let gridCardLimit   = GRID_CHUNK;   // cards before "Show more"; reset on tab/search change
@@ -79,8 +80,81 @@
     try { if (window.Store) window.Store.prefs.set(key, value); } catch (e) { /* prefs are not worth throwing over */ }
   }
 
-  function currentTab()    { const t = prefGet('catalogue.tab', 'all');    return TABS.some(x => x.id === t) ? t : 'all'; }
+  // ── Focus (PLAN7 §2.1) ───────────────────────────────────────────────────
+  // The pref is settings-owned but read HERE, directly: with js/settings.js
+  // deleted, a previously-written app.focus still steers every default below
+  // — that is the intended read-time design. Focus shapes defaults while the
+  // reader has not chosen; an explicit choice persists and focus never
+  // overrides it.
+
+  const FOCUS_VALUES = ['books', 'comics', 'both'];
+
+  function readFocus() {
+    const v = prefGet('app.focus', 'both');
+    return FOCUS_VALUES.indexOf(v) !== -1 ? v : 'both';
+  }
+
+  // §2.1 effect 1: the fallback tab is focus-derived, and used only while
+  // `catalogue.tab` is unset (or invalid). The moment the user taps a tab,
+  // the stored pref wins and focus no longer influences it.
+  function defaultTab() {
+    const f = readFocus();
+    if (f === 'books')  return 'lightnovel';
+    if (f === 'comics') return 'manga';
+    return 'all';
+  }
+
+  function currentTab()    { const t = prefGet('catalogue.tab', null);     return TABS.some(x => x.id === t) ? t : defaultTab(); }
   function currentLayout() { const l = prefGet('catalogue.layout', 'grid'); return l === 'list' ? 'list' : 'grid'; }
+
+  // ── Home section registry (PLAN7 §2.12 / §1.2) ───────────────────────────
+  // Five sections, ordered and toggled by `home.sections`. This getter is the
+  // canonical read for RENDERING; settings.js mirrors the same validation in
+  // its editor, so the editor always edits what the home screen actually
+  // shows: unknown ids dropped, duplicates dropped, missing ids inserted at
+  // their default position, `on` coerced boolean with missing leaning visible
+  // (`e.on !== false` — hiding content is the worse failure), and `series`
+  // coerced always-on. Keep the two implementations in lock-step.
+
+  const SECTION_IDS = ['continue', 'goals', 'sources', 'latest', 'series'];
+
+  // §2.1 effect 2: while the pref is UNSET the default order is focus-derived
+  // — comics promotes Latest updates to directly under Continue (serialized
+  // comics reading is release-driven); books/both keep today's order. Once
+  // home.sections is written the stored array wins and focus never touches
+  // it again.
+  function defaultSections() {
+    const order = readFocus() === 'comics'
+      ? ['continue', 'latest', 'goals', 'sources', 'series']
+      : ['continue', 'goals', 'sources', 'latest', 'series'];
+    return order.map(function (id) { return { id: id, on: true }; });
+  }
+
+  function readHomeSections() {
+    const dflt = defaultSections();
+    const raw = prefGet('home.sections', null);
+    if (!Array.isArray(raw)) return dflt;
+    const seen = new Set();
+    const out = [];
+    raw.forEach(function (e) {
+      if (!e || typeof e !== 'object') return;
+      const id = e.id;
+      if (SECTION_IDS.indexOf(id) === -1 || seen.has(id)) return;
+      seen.add(id);
+      out.push({ id: id, on: id === 'series' ? true : e.on !== false });
+    });
+    dflt.forEach(function (d, i) {
+      if (seen.has(d.id)) return;
+      out.splice(Math.min(i, out.length), 0, { id: d.id, on: true });
+      seen.add(d.id);
+    });
+    return out;
+  }
+
+  function sectionVisible(id) {
+    const entry = readHomeSections().find(function (e) { return e.id === id; });
+    return !entry || entry.on !== false;
+  }
 
   function debounce(fn, ms) {
     let t = null;
@@ -113,6 +187,7 @@
     sortA:  '<line x1="4" y1="6" x2="8" y2="6"/><line x1="4" y1="12" x2="12" y2="12"/><line x1="4" y1="18" x2="16" y2="18"/>',
     chev:   '<polyline points="9 18 15 12 9 6"/>',
     target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    gear:   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   };
 
   function icon(name, size) {
@@ -293,6 +368,12 @@
     const s = Object.assign({}, raw);
 
     s.type = inferType(raw);
+    // §2.1 effect 3 needs to know whether the type was DECLARED or guessed:
+    // after inference `type` is always canonical, so the "genuinely untyped"
+    // fact must be captured here or it is lost. Recognized declarations are
+    // exactly the strings inferType accepts without falling back to payload.
+    const declared = String(raw.type || '').toLowerCase();
+    s.untyped = ['manga', 'manhwa', 'lightnovel', 'webnovel', 'novel', 'ln'].indexOf(declared) === -1;
     s.title = typeof raw.title === 'string' && raw.title ? raw.title : 'Untitled';
     // v1 entries were keyed by `source` + `slug`/`mdId`; synthesize the same id
     // the v2 scraper would emit so progress written under v1 keeps resolving.
@@ -666,12 +747,66 @@
     buildTabs();
     buildContinue();
     buildGoalsSlot();
+    buildSourcesSlot();
     buildGridToolbar();
     buildEmptyState();
     buildSeriesExtras();
     buildToast();
 
     domReady = true;
+
+    // First placement of the five registry sections (§2.12). After this the
+    // fixed frame is #home-state → #cat-tabs → the sections in pref order.
+    applySectionOrder();
+  }
+
+  // ── Section registry placement (PLAN7 §2.12) ─────────────────────────────
+  // The five customizable sections, by registry id. #cat-tabs stays fixed
+  // above everything customizable because the tab bar filters the whole home
+  // (Latest and the grid alike), not just the grid. #latest-section and
+  // #series-section are index.html-native: they are MOVED into position
+  // (appendChild re-parents), never rebuilt — #series-section's internals
+  // (toolbar, grid, chunking, empty state) travel with it as a sealed unit.
+
+  function sectionNode(id) {
+    if (id === 'continue') return dom.continueSection || null;
+    if (id === 'goals')    return dom.goalsSlot || null;
+    if (id === 'sources')  return dom.sourcesSlot || null;
+    if (id === 'latest')   return dom.latestSection || null;
+    if (id === 'series')   return dom.seriesSection || null;
+    return null;
+  }
+
+  function applySectionOrder() {
+    if (!domReady || !dom.homeBody) return;
+    const entries = readHomeSections();
+    const want = [];
+    entries.forEach(function (entry) {
+      const node = sectionNode(entry.id);
+      if (!node) return;
+      want.push(node);
+      // Visibility: hidden sections are display:none at the root and their
+      // render calls short-circuit (renderHome/renderContinue consult
+      // sectionVisible before doing any work). The two slots have no other
+      // display writer, so this is also where they are re-shown; Continue and
+      // Latest own their visible-state display in their render paths, and
+      // `series` is never hidden (`on` is coerced true on read).
+      if (entry.id === 'goals' || entry.id === 'sources') {
+        node.style.display = entry.on ? '' : 'none';
+      } else if (!entry.on) {
+        node.style.display = 'none';
+      }
+    });
+    // Only touch the DOM when the live order differs — renderHome passes
+    // through here on every render, and re-parenting five nodes for nothing
+    // would churn layout (and drop focus) on every tab switch.
+    const live = Array.prototype.filter.call(dom.homeBody.children, function (n) {
+      return want.indexOf(n) !== -1;
+    });
+    const same = live.length === want.length && live.every(function (n, i) { return n === want[i]; });
+    if (!same) {
+      want.forEach(function (n) { dom.homeBody.appendChild(n); });
+    }
   }
 
   function buildTabs() {
@@ -730,18 +865,27 @@
 
     dom.continueSection = section;
     dom.continueRail = rail;
-    dom.homeBody.insertBefore(section, dom.latestSection || null);
+    // Placement is applySectionOrder's job (§2.12) — built detached here.
   }
 
   // A fixture, not a feature: goals owns everything INSIDE this slot (PLAN
   // §5.2), so it ships empty and stays empty from here. With js/goals.js
   // absent the home screen must render exactly as it did before the slot
-  // existed — an empty div between Continue and Latest costs no layout.
+  // existed — an empty div costs no layout. Placed by applySectionOrder.
   function buildGoalsSlot() {
     const slot = el('div');
     slot.id = 'goals-home-slot';
     dom.goalsSlot = slot;
-    dom.homeBody.insertBefore(slot, dom.latestSection || null);
+  }
+
+  // Same fixture pattern for sources (PLAN7 §2.2): the slot is catalogue's,
+  // the contents are sources.js's — it fills the rail from its own
+  // data-screen MutationObserver on entering home-screen, exactly like
+  // goals' renderSlot. Module absent → the slot stays empty (invisible).
+  function buildSourcesSlot() {
+    const slot = el('div');
+    slot.id = 'sources-home-slot';
+    dom.sourcesSlot = slot;
   }
 
   function buildGridToolbar() {
@@ -778,6 +922,22 @@
       });
     }
 
+    // Settings, the same guarded pattern (PLAN7 §2.1): no window.AppSettings,
+    // no button — with js/settings.js deleted the toolbar looks exactly as it
+    // did before the feature existed.
+    let settingsBtn = null;
+    if (window.AppSettings && typeof window.AppSettings.openScreen === 'function') {
+      settingsBtn = el('button', 'cat-btn');
+      settingsBtn.id = 'cat-settings-btn';
+      settingsBtn.type = 'button';
+      settingsBtn.setAttribute('aria-label', 'App settings');
+      settingsBtn.appendChild(icon('gear', 14));
+      settingsBtn.appendChild(el('span', null, 'Settings'));
+      settingsBtn.addEventListener('click', function () {
+        if (window.AppSettings && typeof window.AppSettings.openScreen === 'function') window.AppSettings.openScreen();
+      });
+    }
+
     const group = el('div', 'cat-segmented');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', 'Layout');
@@ -802,6 +962,7 @@
     bar.appendChild(count);
     bar.appendChild(spacer);
     if (goalsBtn) bar.appendChild(goalsBtn);
+    if (settingsBtn) bar.appendChild(settingsBtn);
     bar.appendChild(addBtn);
     bar.appendChild(group);
 
@@ -809,6 +970,7 @@
     dom.count = count;
     dom.addBtn = addBtn;
     dom.goalsBtn = goalsBtn;
+    dom.settingsBtn = settingsBtn;
     dom.layoutGrid = gridBtn;
     dom.layoutList = listBtn;
 
@@ -828,14 +990,22 @@
     action.type = 'button';
     action.style.display = 'none';
 
+    // Second, quieter action — the comics empty state offers two doors
+    // (sources and the importer, §2.1 effect 4).
+    const action2 = el('button', 'cat-btn');
+    action2.type = 'button';
+    action2.style.display = 'none';
+
     box.appendChild(title);
     box.appendChild(body);
     box.appendChild(action);
+    box.appendChild(action2);
 
     dom.empty = box;
     dom.emptyTitle = title;
     dom.emptyBody = body;
     dom.emptyAction = action;
+    dom.emptyAction2 = action2;
 
     if (dom.seriesSection) dom.seriesSection.appendChild(box);
   }
@@ -1089,6 +1259,10 @@
     ensureDom();
     if (!dom.homeBody) return;
 
+    // Order + visibility first (§2.12): a no-op when nothing changed, a five-
+    // node re-append when the pref (or the focus-derived default) moved.
+    applySectionOrder();
+
     const tab = currentTab();
     const list = visibleSeries();
 
@@ -1101,7 +1275,8 @@
 
     // Latest updates is a "what's new" rail — it makes no sense while the user
     // is searching, and My Library has its own ordering (newest added first).
-    const showLatest = !searchQuery && tab !== 'library' && list.length > 0;
+    // A section hidden via home.sections does no work at all (§2.12).
+    const showLatest = sectionVisible('latest') && !searchQuery && tab !== 'library' && list.length > 0;
     if (dom.latestSection) dom.latestSection.style.display = showLatest ? 'block' : 'none';
     if (showLatest) renderLatest(list);
 
@@ -1130,6 +1305,18 @@
 
     renderGrid(list, tab);
     renderEmpty(list, tab);
+
+    // The focus first-run hook (PLAN7 §2.1): called exactly once, after the
+    // first successful home render, guarded — settings.js owns the sheet and
+    // itself declines on the upload-screen boot path and once a focus has
+    // ever been chosen. With js/settings.js deleted nothing happens at all.
+    if (!focusHookFired) {
+      focusHookFired = true;
+      if (window.AppSettings && typeof window.AppSettings.maybeOfferFocus === 'function') {
+        try { window.AppSettings.maybeOfferFocus(); }
+        catch (e) { console.warn('[Catalogue] maybeOfferFocus failed', e); }
+      }
+    }
   }
 
   function syncTabs(tab) {
@@ -1174,6 +1361,12 @@
 
   function renderContinue() {
     if (!dom.continueRail) return;
+    // Hidden via home.sections (§2.12): stay hidden and do no work — the
+    // pref's show/hide must win over this function's own display writers.
+    if (!sectionVisible('continue')) {
+      if (dom.continueSection) dom.continueSection.style.display = 'none';
+      return;
+    }
     dom.continueRail.textContent = '';
 
     const rows = (progressRows || []).filter(function (p) { return p && p.seriesId && findSeries(p.seriesId); });
@@ -1253,7 +1446,27 @@
     return (lc && lc.updatedAt) || s.updatedAt || null;
   }
 
+  // Generated cover (PLAN7 §2.8), guarded: with js/covers.js present every
+  // placeholder slot gets the deterministic SVG cover instead of the gradient
+  // div; with it deleted (or throwing) the gradient code below still carries
+  // the feature exactly as before — it is the guard fallback, never deleted.
+  function generatedCover(series, cls) {
+    if (!(window.Covers && typeof window.Covers.element === 'function')) return null;
+    try {
+      const svg = window.Covers.element(series, { className: 'cat-cover-svg' });
+      if (svg && cls) svg.classList.add(cls);
+      return svg || null;
+    } catch (e) {
+      console.warn('[Catalogue] Covers.element failed', e);
+      return null;
+    }
+  }
+
   function placeholder(series, cls) {
+    // The context class carries the slot's box sizing (the rail thumbs size
+    // the element itself); the artwork ignores the gradient rules behind it.
+    const generated = generatedCover(series, cls || 'series-cover-ph');
+    if (generated) return generated;
     const ph = el('div', cls || 'series-cover-ph');
     if (isTextSeries(series)) {
       ph.classList.add('cat-ph-novel');
@@ -1337,8 +1550,15 @@
     // a normal library never crosses the threshold, so this only engages for
     // grown libraries. Covers keep loading="lazy" either way.
     const shown = list.slice(0, gridCardLimit);
+    // §2.1 effect 3 — the renderer bias, for UNTYPED series only: under books
+    // focus a series that never declared a type reads as a spine, not a
+    // poster. Typed series NEVER change card style under any focus, comics/
+    // both keep today's default, and rails are uniform rows and unaffected.
+    // Grid renderer only.
+    const booksBias = readFocus() === 'books';
     shown.forEach(function (s) {
-      grid.appendChild(isTextSeries(s) ? novelCard(s, tab) : mangaCard(s, tab));
+      const asNovel = isTextSeries(s) || (booksBias && s.untyped === true);
+      grid.appendChild(asNovel ? novelCard(s, tab) : mangaCard(s, tab));
     });
 
     if (list.length > shown.length) {
@@ -1429,6 +1649,10 @@
   }
 
   function spineFallback(s) {
+    // No context class here: .cat-spine is the sized (and clipped) box, and
+    // .cat-spine-ph's padding would inset the artwork.
+    const generated = generatedCover(s, null);
+    if (generated) return generated;
     const ph = el('div', 'cat-spine-ph');
     ph.appendChild(el('span', 'cat-spine-title', s.title));
     if (s.author) ph.appendChild(el('span', 'cat-spine-author', s.author));
@@ -1468,6 +1692,10 @@
 
     dom.emptyAction.style.display = 'none';
     dom.emptyAction.onclick = null;
+    if (dom.emptyAction2) {
+      dom.emptyAction2.style.display = 'none';
+      dom.emptyAction2.onclick = null;
+    }
 
     if (catalogError && !allSeries.length) {
       dom.emptyTitle.textContent = 'Library unavailable';
@@ -1488,20 +1716,45 @@
       dom.emptyBody.textContent = 'No series match “' + searchQuery + '”. Try a shorter search, or check another tab.';
       return;
     }
+    // Focus-flavored guidance (§2.1 effect 4). All copy is app-authored and
+    // lands as textContent; every module call is guarded — with sources.js
+    // absent the comics state simply offers one door instead of two.
     if (tab === 'library') {
       dom.emptyTitle.textContent = 'Your library is empty';
-      dom.emptyBody.textContent = 'No series yet — paste a link to one you already read, or open an EPUB, TXT or CBZ from this device.';
+      dom.emptyBody.textContent = 'No series yet — open an EPUB, TXT or CBZ from this device, or paste a link to one you already read. The tutorial book on the All tab shows the ropes.';
       dom.emptyAction.textContent = 'Add a series';
       dom.emptyAction.style.display = 'inline-flex';
       dom.emptyAction.onclick = openImporter;
       return;
     }
     if (tab === 'lightnovel') {
-      dom.emptyTitle.textContent = 'No light novels yet';
-      dom.emptyBody.textContent = 'The bundled catalogue has none. Paste a link to a novel you already read and it will show up here.';
+      dom.emptyTitle.textContent = 'No books yet';
+      dom.emptyBody.textContent = 'No books here yet. Import an EPUB or TXT from this device, or start with the tutorial book, “We Are Readers Here”.';
       dom.emptyAction.textContent = 'Add a series';
       dom.emptyAction.style.display = 'inline-flex';
       dom.emptyAction.onclick = openImporter;
+      return;
+    }
+    if (tab === 'manga' || tab === 'manhwa') {
+      dom.emptyTitle.textContent = 'No comics yet';
+      dom.emptyBody.textContent = 'No comics here yet. Bring your own — add a source you like, or import CBZ files.';
+      const hasSources = !!(window.Sources && typeof window.Sources.openScreen === 'function');
+      if (hasSources) {
+        dom.emptyAction.textContent = 'Add a source';
+        dom.emptyAction.style.display = 'inline-flex';
+        dom.emptyAction.onclick = function () {
+          if (window.Sources && typeof window.Sources.openScreen === 'function') window.Sources.openScreen();
+        };
+        if (dom.emptyAction2) {
+          dom.emptyAction2.textContent = 'Import CBZ files';
+          dom.emptyAction2.style.display = 'inline-flex';
+          dom.emptyAction2.onclick = openImporter;
+        }
+      } else {
+        dom.emptyAction.textContent = 'Import CBZ files';
+        dom.emptyAction.style.display = 'inline-flex';
+        dom.emptyAction.onclick = openImporter;
+      }
       return;
     }
     const label = (TABS.find(function (t) { return t.id === tab; }) || {}).label || 'series';
@@ -1614,6 +1867,10 @@
   }
 
   function heroPlaceholder(s) {
+    // The id carries the hero slot's sizing (and lets renderHero find and
+    // replace it), for the SVG exactly as for the div.
+    const generated = generatedCover(s, null);
+    if (generated) { generated.id = 'series-hero-cover-ph'; return generated; }
     const ph = el('div');
     ph.id = 'series-hero-cover-ph';
     if (isTextSeries(s)) {
@@ -2149,6 +2406,115 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // History sentinel (PLAN7 §2.11-A)
+  //
+  // A ONE-ENTRY sentinel, not a mirrored stack: one back gesture = one
+  // goBack(). Every pushState is gated on the `armed` bit, so at most one
+  // sentinel entry can ever exist; the one async hole (history.back() is
+  // async — its popstate lands a tick later) is closed by queueing arming
+  // through the `disarming` bit. The layer is self-healing: every popstate
+  // routes against the LIVE data-screen, so a transient mismatch resolves on
+  // the next event instead of accumulating. Forward gestures stay inert
+  // (there is never a forward entry we honor) — a documented limitation, not
+  // a bug. No URL changes, no hash routing, no deep links via history.
+  //
+  // What this buys: browser/PWA back and iOS Safari/PWA edge-swipe navigate
+  // one screen back everywhere except inside readers, where they are
+  // CANCELLED — on iOS the OS plays its native swipe animation against a
+  // stale snapshot before popstate fires, so an in-reader swipe shows a
+  // slide-and-snap-back flicker. Cosmetic (no teardown, no state change);
+  // the honest price of same-document history (§2.11-A). Android hardware
+  // back never touches this layer — platform.js's dispatch table (the same
+  // semantic table, ARCHITECTURE §2.2) handles it natively.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const ROOT_SCREENS = { 'home-screen': true, 'upload-screen': true };
+  let sentinelArmed     = false;
+  let sentinelDisarming = false;
+
+  function sentinelPush() {
+    // Safari rate-limits pushState; a refused push just means the next back
+    // gesture leaves the app, which is the pre-sentinel behaviour.
+    try { history.pushState({ or: 'sentinel' }, ''); sentinelArmed = true; }
+    catch (e) { /* history unavailable — gestures fall back to the browser */ }
+  }
+
+  // Module screens close through their own close() so their teardown runs;
+  // an absent optional module's row falls through to goBack() harmlessly
+  // (§0.5) — the same guarded dispatch as platform.js's hardware-back table.
+  function closeVia(name) {
+    const M = window[name];
+    if (M && typeof M.close === 'function') {
+      try { M.close(); return; } catch (e) { console.warn('[Catalogue] ' + name + '.close failed', e); }
+    }
+    goBack();
+  }
+
+  function wireHistorySentinel() {
+    if (!window.history || typeof history.pushState !== 'function') return;
+    try { history.replaceState({ or: 'root' }, ''); } catch (e) { /* same tolerance as sentinelPush */ }
+
+    // The app's one navigation signal: showScreen stamps body[data-screen].
+    // Entering any non-root screen arms; returning to a root screen disarms
+    // by consuming our own entry with history.back(), whose popstate is
+    // swallowed below. While `disarming` is true nothing may push — arming
+    // is QUEUED through the swallowed popstate, never doubled.
+    const mo = new MutationObserver(function () {
+      const s = (document.body && document.body.dataset.screen) || '';
+      if (!s) return;
+      if (!ROOT_SCREENS[s]) {
+        if (!sentinelArmed && !sentinelDisarming) sentinelPush();
+      } else if (sentinelArmed && !sentinelDisarming) {
+        sentinelDisarming = true;
+        try { history.back(); }
+        catch (e) { sentinelDisarming = false; sentinelArmed = false; }
+      }
+    });
+    mo.observe(document.body, { attributes: true, attributeFilter: ['data-screen'] });
+
+    window.addEventListener('popstate', function () {
+      // The swallowed popstate from our own disarming history.back(). If the
+      // user already re-entered a non-root screen while the back was in
+      // flight, arm NOW (a single pushState) — the disarm-queue rule.
+      if (sentinelDisarming) {
+        sentinelDisarming = false;
+        sentinelArmed = false;
+        const live = (document.body && document.body.dataset.screen) || '';
+        if (live && !ROOT_SCREENS[live]) sentinelPush();
+        return;
+      }
+
+      // A real gesture consumed the sentinel entry; route on the LIVE screen.
+      sentinelArmed = false;
+      const s = (document.body && document.body.dataset.screen) || '';
+
+      if (s === 'novel-screen' || s === 'reader-screen') {
+        // Cancel: a swipe never exits a reader (§2.2 — readers leave only
+        // through their own close paths). Re-arm and do nothing.
+        sentinelPush();
+        return;
+      }
+      if (s === 'loading-screen') {
+        // Cancel: a transitional screen — it resolves to a reader on its
+        // own, and tearing it down mid-fetch from a gesture helps nobody.
+        sentinelPush();
+        return;
+      }
+      if (!s || ROOT_SCREENS[s]) return;     // at root: unarmed, nothing to unwind
+
+      if (s === 'import-screen')   { closeVia('Importer');    return; }
+      if (s === 'goals-screen')    { closeVia('Goals');       return; }
+      if (s === 'settings-screen') { closeVia('AppSettings'); return; }
+      if (s === 'sources-screen')  { closeVia('Sources');     return; }
+      if (s === 'thoughts-screen') { closeVia('Thoughts');    return; }
+      // series-screen — and any screen a future module registers — unwinds
+      // through the catalogue's own back. The MutationObserver re-arms or
+      // disarms off whatever screen the route lands on.
+      goBack();
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Wiring
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -2190,6 +2556,39 @@
       // The close handler in reader.js shows the series screen; refresh the
       // chapter list so read-state and the resume button reflect this session.
       setTimeout(refreshSeriesProgress, 0);
+    });
+
+    // #home-btn — the flush half of the two-listener contract (PLAN7
+    // §2.11-C). reader.js wired its teardown+goHome listener at PARSE time,
+    // before this module ever runs, and same-node listeners fire in
+    // registration order — a plain listener here would run AFTER the
+    // teardown, when pages and activeImageSession are already gone and there
+    // is nothing left to flush. Capturing on document is what makes "flush
+    // image progress first" true: the capture phase visits document before
+    // any listener on the button itself fires.
+    const homeBtn = document.getElementById('home-btn');
+    if (homeBtn) {
+      document.addEventListener('click', function (e) {
+        const t = e.target;
+        if (!t || !(t === homeBtn || (homeBtn.contains && homeBtn.contains(t)))) return;
+        syncImageProgress(true);
+        // reader.js's own listener tears the session down and hands off to
+        // goHome(); refresh the series screen's cached progress after that
+        // hand-off has run (the #close-btn pattern above).
+        setTimeout(refreshSeriesProgress, 0);
+      }, true);
+    }
+
+    // Live home-layout changes (§2.12): re-place the five registry sections
+    // and re-render when home.sections is written (settings' editor) or the
+    // pref blob reloads wholesale (key null — mirror restore, storage event).
+    // renderHome runs applySectionOrder itself, so one call covers both.
+    window.addEventListener('or:prefs', function (ev) {
+      if (!domReady) return;
+      const d = ev && ev.detail;
+      const key = d ? d.key : undefined;
+      if (key !== null && key !== 'home.sections') return;
+      renderHome();
     });
 
     // Connectivity. On the WEB, losing the network while browsing drops to the
@@ -2296,6 +2695,7 @@
     await (window.Platform ? Platform.ready : Promise.resolve());
     ensureDom();
     wireEvents();
+    wireHistorySentinel();
     wireServiceWorkerBadge();
     await initMode();
     // Cache-prune trigger 1: once per boot, off the critical path — the first

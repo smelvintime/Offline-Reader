@@ -96,6 +96,7 @@
     up:     '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
     book:   '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
     image:  '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    chev:   '<polyline points="6 9 12 15 18 9"/>',
   };
 
   function icon(name, size) {
@@ -197,6 +198,14 @@
     if (/^https?:\/\//i.test(u)) return u;
     if (/^[a-z][a-z0-9+.-]*:/i.test(u)) return '';   // any other scheme — drop it
     return u;                                        // relative to the app root
+  }
+
+  // Only real web URLs may become hrefs — the catalogue's rule, applied to the
+  // one external link this screen renders (the Gutenberg card, §2.10). KEEP IN
+  // SYNC: catalogue.js and sources.js carry the same twin (PLAN.md §8
+  // amendment 13's keep-in-sync list).
+  function safeHttpUrl(url) {
+    return (typeof url === 'string' && /^https?:\/\//i.test(url.trim())) ? url.trim() : '';
   }
 
   function displayImageUrl(url) {
@@ -2027,6 +2036,13 @@
 
   async function prepareFile(file, opts) {
     if (!file) throw impErr('no_file', 'No file was chosen.');
+    // §6 conduct: an .acsm is an Adobe DRM *license*, not a book. Refuse it
+    // honestly before any parse attempt — no key handling, no workaround
+    // hints, ever. Checked here (ahead of materialization and kindOfFile) so
+    // every intake path — picker, drop, native URI — gets the same answer.
+    if (/\.acsm$/i.test(String(file.name || ''))) {
+      throw impErr('drm_file', 'That is a DRM license file, not a book. We can only open DRM-free files.');
+    }
     // Native picks: kindOfFile dispatches on the ORIGINAL name either way.
     // EPUB and TXT are parsed in JS by design (both are small, and the format
     // caps are unchanged), so a picked one is materialized into a real File
@@ -2118,6 +2134,11 @@
       series: seriesRows,
       progress: [],
       chapters: [],
+      // Additive field (§2.7); `version` stays 1 and old builds ignore it.
+      // Thoughts are tiny text and the reader's own writing, so they travel
+      // in BOTH includeChapters modes — which also means the automatic native
+      // backups (includeChapters: false) carry them with no further change.
+      thoughts: (await safeStore('listThoughts', [{}], [])) || [],
     };
     for (const s of seriesRows) {
       const p = await safeStore('getProgress', [s.id], null);
@@ -2147,7 +2168,7 @@
       throw impErr('bad_export', 'That is not an Offline Reader library export. Look for the file you saved with “Export library”.');
     }
 
-    let series = 0, chapters = 0, progress = 0;
+    let series = 0, chapters = 0, progress = 0, thoughts = 0;
     for (const s of data.series) {
       if (!s || !s.id) continue;
       await safeStore('putUserSeries', [Object.assign({}, s, { source: 'user' })], null);
@@ -2163,10 +2184,18 @@
       await safeStore('putProgress', [p.seriesId, p], null);
       progress++;
     }
+    // Thoughts (§2.7): upsert idempotently by id when the (optional, additive)
+    // array is present. Rows without an id are skipped rather than written —
+    // putThought would mint a fresh id and a re-import would duplicate them.
+    for (const t of (Array.isArray(data.thoughts) ? data.thoughts : [])) {
+      if (!t || !t.id || !t.seriesId || typeof t.text !== 'string') continue;
+      await safeStore('putThought', [t], null);
+      thoughts++;
+    }
     try { window.dispatchEvent(new CustomEvent('or:library-changed', { detail: { imported: series } })); } catch (e) {}
     await rehydrateAll();   // migration shim: scrub any stale page URLs the export carried
     scheduleBackup(BACKUP_CHANGE_DEBOUNCE_MS);   // a bulk import is a library change like any other
-    return { series: series, chapters: chapters, progress: progress };
+    return { series: series, chapters: chapters, progress: progress, thoughts: thoughts };
   }
 
   // ── Library backup (PLAN.md §6.2 — eviction insurance) ────────────────────
@@ -2229,6 +2258,11 @@
       if (progressBackupDay === today) return;
       progressBackupDay = today;
       scheduleBackup(BACKUP_PROGRESS_DEBOUNCE_MS);
+    });
+    // §2.7: thoughts ride the export payload, so a put/delete is a library-
+    // shape change like a commit — same 1 min debounce, earliest deadline wins.
+    window.addEventListener('or:thoughts-changed', function () {
+      scheduleBackup(BACKUP_CHANGE_DEBOUNCE_MS);
     });
   }
 
@@ -2401,6 +2435,104 @@
 
   // ── Add view ──────────────────────────────────────────────────────────────
 
+  // §2.10 / §6.2 — the "Where is my file?" list, copy VERBATIM from the plan.
+  // App-authored data rendered via el()/textContent; factual, unresentful,
+  // one sentence per store. We state what opens here, never how to break locks.
+  const DRM_STORES = [
+    { store: 'Project Gutenberg / Standard Ebooks',
+      copy: 'Free and DRM-free. Download the EPUB and open it here.' },
+    { store: 'Humble Bundle',
+      copy: 'DRM-free. Library → your purchase → download EPUB (or CBZ for comics).' },
+    { store: 'Leanpub / itch.io / Smashwords',
+      copy: 'DRM-free. Your library page offers direct EPUB downloads.' },
+    { store: 'Kobo',
+      copy: 'Some titles are DRM-free — kobo.com → My Books → Download EPUB. Titles that download as ACSM are locked and cannot open here.' },
+    { store: 'Google Play Books',
+      copy: 'Books → your title → Download EPUB. If the download is an ACSM file, that title is locked and cannot open here.' },
+    { store: 'Baen / Tor (publisher stores)',
+      copy: 'These publishers sell DRM-free EPUBs. Download and open.' },
+    { store: 'Kindle',
+      copy: 'Amazon does not offer DRM-free downloads. Kindle books stay in Kindle — we cannot open them, and we will not break locks.' },
+    { store: 'Apple Books',
+      copy: 'Purchases are locked to Apple Books and cannot open here.' },
+    { store: 'Comics (Comixology → Kindle)',
+      copy: 'Comixology purchases moved into the Kindle system and are locked. DRM-free comics from Humble or itch.io open here as CBZ.' },
+  ];
+
+  const GUTENBERG_URL = 'https://www.gutenberg.org/';
+
+  // The third card under "Open a file" (§2.10): guidance, not a feature —
+  // purchased DRM-free files already open through the normal picker, and this
+  // card exists to say so plainly. File-based, so it renders with the gateway
+  // off too.
+  function buildBoughtCard() {
+    const card = el('div', 'imp-card imp-card--muted imp-card--bought');
+    card.id = 'imp-bought-card';
+
+    const head = el('div', 'imp-card-head');
+    head.appendChild(icon('book', 16));
+    head.appendChild(el('h3', 'imp-card-title', 'Books you’ve bought'));
+    card.appendChild(head);
+
+    card.appendChild(el('p', 'imp-card-sub',
+      'Bought a book? If your store lets you download a DRM-free EPUB or CBZ, it opens here like any other file.'));
+
+    // Disclosure row: the store list stays folded until asked for — nine rows
+    // of retailer guidance would otherwise dominate the add view.
+    const disclose = button('imp-disclose', null, null);
+    disclose.id = 'imp-where-btn';
+    disclose.setAttribute('aria-expanded', 'false');
+    disclose.setAttribute('aria-controls', 'imp-store-list');
+    disclose.appendChild(el('span', 'imp-disclose-label', 'Where is my file?'));
+    const chev = icon('chev', 14);
+    chev.classList.add('imp-disclose-chev');
+    disclose.appendChild(chev);
+
+    const storeList = el('ul', 'imp-stores');
+    storeList.id = 'imp-store-list';
+    storeList.hidden = true;
+    DRM_STORES.forEach(function (row) {
+      const li = el('li', 'imp-store-row');
+      li.appendChild(el('span', 'imp-store-name', row.store));
+      li.appendChild(el('span', 'imp-store-copy', row.copy));
+      storeList.appendChild(li);
+    });
+
+    disclose.addEventListener('click', function () {
+      const open = storeList.hidden;
+      storeList.hidden = !open;
+      disclose.setAttribute('aria-expanded', open ? 'true' : 'false');
+      disclose.classList.toggle('open', open);
+    });
+
+    card.appendChild(disclose);
+    card.appendChild(storeList);
+
+    const actions = el('div', 'imp-actions imp-actions--start');
+    const openBtn = button('imp-btn', 'Open a file', 'Open a purchased file');
+    openBtn.id = 'imp-bought-open';
+    openBtn.addEventListener('click', function () { pickImportFile(); });
+    actions.appendChild(openBtn);
+
+    const gutHref = safeHttpUrl(GUTENBERG_URL);
+    if (gutHref) {
+      const gut = document.createElement('a');
+      gut.className = 'imp-btn';
+      gut.id = 'imp-gutenberg';
+      gut.href = gutHref;
+      gut.target = '_blank';
+      gut.rel = 'noopener';
+      gut.setAttribute('aria-label', 'Project Gutenberg — free classics, no lock');
+      gut.appendChild(el('span', null, 'Free classics, no lock'));
+      actions.appendChild(gut);
+    }
+    card.appendChild(actions);
+
+    ui.boughtCard = card;
+    ui.storeList = storeList;
+    return card;
+  }
+
   function buildAddView(parent) {
     const view = el('section', 'imp-view');
     view.id = 'imp-view-add';
@@ -2547,6 +2679,7 @@
     view.appendChild(linkCard);
     view.appendChild(off);
     view.appendChild(fileCard);
+    view.appendChild(buildBoughtCard());
     view.appendChild(manageLink);
     parent.appendChild(view);
     ui.addView = view;
@@ -2934,6 +3067,13 @@
   }
 
   function coverFallback(s) {
+    // §2.8: a generated cover beats an icon placeholder — guarded, because
+    // covers.js is deletable (§0.5) and the icon path below stays as the
+    // fallback of the fallback.
+    if (window.Covers && typeof window.Covers.element === 'function' && s && s.id) {
+      try { return window.Covers.element(s, { className: 'imp-cover-svg' }); }
+      catch (e) { /* fall through to the icon placeholder */ }
+    }
     const ph = el('div', 'imp-cover-ph');
     ph.appendChild(icon(TEXT_TYPES.has(s.type) ? 'book' : 'image', 22));
     ph.appendChild(el('span', 'imp-cover-ph-title', s.title || ''));
@@ -3626,6 +3766,12 @@
     exportLibrary: exportLibrary,
     importLibrary: importLibrary,
     isGatewayEnabled: gatewayEnabled,
+
+    // §2.2: URL normalization is SHARED, not twinned — sources.js compares
+    // this function's output against stored sourceUrl values that this same
+    // function produced. It stays in _internals too; promoting it changes no
+    // behavior.
+    normalizeUrl: normalizeUrl,
 
     // Pure helpers, exposed so the test page can assert on them directly
     // instead of reverse-engineering ids from the store.

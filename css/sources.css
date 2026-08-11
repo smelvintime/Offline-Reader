@@ -1,0 +1,628 @@
+/* Offline Reader — sources skin. Owned by js/sources.js.
+ *
+ * Two surfaces share this file (PLAN7 §2.2): the sources screen
+ * (#sources-screen — add, keep, browse) and the home shelf the module renders
+ * INTO catalogue's #sources-home-slot fixture (.src-home-*, .src-rail).
+ *
+ * Tokens consume the §2.9 derived layer (--surf-1/--border/--accent-ink…,
+ * defined by css/settings.css under html[data-apptheme]) with today's dark
+ * literals as fallbacks — no attribute set, or settings.js deleted, and every
+ * value resolves to the shipped dark look. The toast is the exception: it is
+ * floating chrome, pinned dark below like the goals/thoughts toasts.
+ *
+ * Blur budget: ZERO backdrop-filter in this file.
+ *
+ * Mobile-first; narrowest target is a 360 px phone. Listing covers keep the
+ * catalogue's 2/3 ratio and its 8.5rem grid floor so a browse page reads as
+ * the same library the reader already knows.
+ */
+
+#sources-screen,
+#sources-home-slot,
+.src-toast {
+  --src-bg:          var(--bg, #0a0a0a);
+  --src-text:        var(--text, #f0f0f0);
+  --src-muted:       var(--muted, #a0a0a0);
+  --src-surf-1:      var(--surf-1, rgba(255, 255, 255, 0.04));
+  --src-surf:        var(--surf, rgba(255, 255, 255, 0.08));
+  --src-surf-2:      var(--surf-2, rgba(255, 255, 255, 0.12));
+  --src-border:      var(--border, rgba(255, 255, 255, 0.1));
+  --src-border-soft: var(--border-soft, rgba(255, 255, 255, 0.06));
+  --src-accent:      var(--accent, #6366f1);
+  --src-accent-ink:  var(--accent-ink, #a5b4fc);
+  --src-accent-soft: color-mix(in srgb, var(--src-accent) 14%, transparent);
+  --src-r:           10px;                  /* house card radius */
+  --src-r-sm:        8px;                   /* nested / chips */
+  --src-tap:         44px;                  /* the floor for a finger */
+  --src-dur:         150ms;
+  --src-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Screen shell ─────────────────────────────────────────────────────────── */
+
+#sources-screen {
+  display: none;               /* showScreen() flips this to flex */
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 140;                /* the goals/settings tier — screens never show together */
+  background: var(--src-bg);
+  color: var(--src-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Visible ring from the keyboard only — a persistent outline after a tap
+   reads as a bug. Outline never changes the element's own shape. */
+#sources-screen :focus-visible,
+#sources-home-slot :focus-visible {
+  outline: 2px solid var(--src-accent, #6366f1);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+#sources-screen :focus:not(:focus-visible),
+#sources-home-slot :focus:not(:focus-visible) { outline: none; }
+
+#sources-screen .src-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.75rem;
+  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--src-border);
+  /* Solid, not glass — the blur budget stays with the readers. */
+  background: var(--src-bg);
+}
+
+#sources-screen .src-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;         /* browse mode shows a saved title — third-party, one line */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sources-screen .src-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--src-r);
+  background: transparent;
+  color: var(--src-text);
+  cursor: pointer;
+  transition: background var(--src-dur);
+}
+#sources-screen .src-icon-btn:active { background: var(--src-surf); transform: scale(0.94); }
+#sources-screen .src-icon-btn svg { flex-shrink: 0; }
+
+#sources-screen .src-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 0.875rem;
+  padding-left: calc(0.875rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.875rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+#sources-screen .src-view,
+#sources-screen .src-browse {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+}
+#sources-screen .src-view[hidden],
+#sources-screen .src-browse[hidden] { display: none; }
+
+/* ── Capability notice (the #imp-gateway-off card pattern) ────────────────── */
+
+#sources-screen .src-notice {
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border-soft);
+  border-radius: var(--src-r);
+  padding: 0.8rem 0.9rem;
+}
+#sources-screen .src-notice-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+}
+#sources-screen .src-notice-body {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--src-muted);
+}
+
+/* ── Add card ─────────────────────────────────────────────────────────────── */
+
+#sources-screen .src-add {
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border);
+  border-radius: var(--src-r);
+  padding: 0.8rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+#sources-screen .src-add-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--src-muted);
+}
+#sources-screen .src-add-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--src-muted);
+}
+
+#sources-screen .src-add-row,
+#sources-screen .src-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+#sources-screen .src-add-row[hidden],
+#sources-screen .src-title-form[hidden] { display: none; }
+
+/* 1rem = 16px — anything smaller and iOS zooms the page on focus. */
+#sources-screen .src-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--src-tap);
+  padding: 0.5rem 0.8rem;
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border);
+  border-radius: var(--src-r);
+  color: var(--src-text);
+  font-family: inherit;
+  font-size: 1rem;
+}
+#sources-screen .src-input::placeholder { color: var(--src-muted); }
+#sources-screen .src-input:focus { border-color: var(--src-accent); outline: none; }
+
+#sources-screen .src-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--src-tap);
+  padding: 0 1rem;
+  background: var(--src-surf);
+  border: 1px solid var(--src-border);
+  border-radius: var(--src-r);
+  color: var(--src-text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;       /* "Open site" is a real <a> */
+  cursor: pointer;
+  transition: background var(--src-dur), transform var(--src-dur);
+}
+#sources-screen .src-btn:active { background: var(--src-surf-2); transform: scale(0.97); }
+#sources-screen .src-btn--accent {
+  background: var(--src-accent);
+  border-color: transparent;
+  color: #fff;
+}
+#sources-screen .src-btn--accent:active { transform: scale(0.97); }
+
+#sources-screen .src-title-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+#sources-screen .src-form-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--src-muted);
+}
+
+/* ── The saved list ───────────────────────────────────────────────────────── */
+
+#sources-screen .src-list-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+#sources-screen .src-list-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--src-muted);
+}
+#sources-screen .src-list-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--src-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#sources-screen .src-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#sources-screen .src-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+#sources-screen .src-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--src-tap);
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border);
+  border-radius: var(--src-r);
+  color: var(--src-text);
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;       /* link mode renders this as an <a> */
+  cursor: pointer;
+  transition: background var(--src-dur), transform var(--src-dur);
+}
+#sources-screen .src-item-main:active { background: var(--src-surf); transform: scale(0.98); }
+#sources-screen .src-item-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--src-accent-ink);
+}
+#sources-screen .src-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+#sources-screen .src-item-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sources-screen .src-item-host {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--src-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sources-screen .src-remove {
+  align-self: center;
+  color: var(--src-muted);
+}
+
+/* Empty state — dashed border, the house "nothing here yet" voice. */
+#sources-screen .src-empty {
+  border: 1px dashed var(--src-border);
+  border-radius: var(--src-r);
+  padding: 1.4rem 1rem;
+  color: var(--src-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+/* ── Browse view ──────────────────────────────────────────────────────────── */
+
+#sources-screen .src-browse-meta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--src-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sources-screen .src-browse-meta:empty { display: none; }
+
+#sources-screen .src-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 2.5rem 1rem;
+}
+#sources-screen .src-loading-text {
+  font-size: 0.85rem;
+  color: var(--src-muted);
+}
+
+/* The honest card — listing unavailable, or a hard fetch failure. */
+#sources-screen .src-honest {
+  border: 1px dashed var(--src-border);
+  border-radius: var(--src-r);
+  padding: 1.1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+#sources-screen .src-honest-body {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--src-muted);
+  text-align: center;
+}
+#sources-screen .src-honest-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The card grid — the catalogue's 8.5rem track floor and 2/3 covers, so a
+   browse page reads as the library the reader already knows. */
+#sources-screen .src-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: clamp(0.7rem, 1.4vw, 1.25rem);
+}
+#sources-screen .src-grid:empty { display: none; }
+
+#sources-screen .src-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--src-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--src-dur);
+}
+#sources-screen .src-card:active { transform: scale(0.97); }
+
+#sources-screen .src-card-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--src-r);
+  overflow: hidden;
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border-soft);
+}
+#sources-screen .src-card-cover img,
+#sources-screen .src-card-cover .src-cover-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+/* The guard fallback when covers.js is absent — the catalogue's gradient
+   placeholder doctrine (§2.8: the gradient stays as the fallback). */
+#sources-screen .src-cover-ph {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(160deg, rgba(99, 102, 241, 0.35), rgba(99, 102, 241, 0.08) 60%, transparent);
+}
+
+#sources-screen .src-badge {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--src-r-sm);
+  background: var(--src-accent);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+#sources-screen .src-card-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+#sources-screen .src-more-wrap:empty { display: none; }
+#sources-screen .src-more {
+  width: 100%;
+  min-height: var(--src-tap);
+  background: var(--src-surf-1);
+  border: 1px solid var(--src-border);
+  border-radius: var(--src-r);
+  color: var(--src-accent-ink);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--src-dur), transform var(--src-dur);
+}
+#sources-screen .src-more:active { background: var(--src-surf); transform: scale(0.98); }
+#sources-screen .src-more:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Home shelf (rendered into catalogue's #sources-home-slot fixture) ────── */
+
+#sources-home-slot .src-home-label {
+  /* .home-section-label (styles.css) carries the type; only rhythm here. */
+  margin-bottom: 0.75rem;
+}
+
+#sources-home-slot .src-rail {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-bottom: 1.75rem;            /* the .cat-section rhythm */
+  padding: 0.15rem 0.15rem 0.5rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;    /* the .cat-rail discipline */
+}
+#sources-home-slot .src-rail::-webkit-scrollbar { width: 0; height: 0; }
+
+#sources-home-slot .src-home-card {
+  flex: 0 0 auto;
+  width: clamp(10rem, 56vw, 13rem);
+  min-height: var(--src-tap, 44px);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--src-surf, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--src-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--src-r, 10px);
+  color: var(--src-text, #f0f0f0);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background var(--src-dur, 150ms), transform var(--src-dur, 150ms);
+}
+#sources-home-slot .src-home-card:active { background: var(--src-surf-2); transform: scale(0.97); }
+#sources-home-slot .src-home-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--src-accent-ink, #a5b4fc);
+}
+#sources-home-slot .src-home-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+#sources-home-slot .src-home-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sources-home-slot .src-home-host {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--src-muted, #a0a0a0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "Add a source" — quiet by design: dashed, muted, no fill. */
+#sources-home-slot .src-home-add {
+  flex: 0 0 auto;
+  min-height: var(--src-tap, 44px);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  background: transparent;
+  border: 1px dashed var(--src-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--src-r, 10px);
+  color: var(--src-muted, #a0a0a0);
+  font-family: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background var(--src-dur, 150ms), color var(--src-dur, 150ms), transform var(--src-dur, 150ms);
+}
+#sources-home-slot .src-home-add:active { background: var(--src-surf-1); transform: scale(0.97); }
+/* The solo card (empty shelf, gateway on) sits alone under the label. */
+#sources-home-slot .src-home-add--solo {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 1.75rem;
+  padding: 0.8rem 1rem;
+}
+#sources-home-slot .src-home-add-plus {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+#sources-home-slot .src-home-add-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+
+/* Floating chrome, pinned dark — the goals/thoughts toast doctrine and the
+   same geometry. Solid background: the blur budget is spent. pointer-events
+   stays none — this toast is an announcement, never a control. */
+.src-toast {
+  position: fixed;
+  z-index: 410;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 10px);
+  max-width: min(calc(92vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 30rem);
+  padding: 0.7rem 1rem;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: #f0f0f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.src-toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── Hover — pointer-fine devices only, never the touch default ───────────── */
+
+@media (hover: hover) and (pointer: fine) {
+  #sources-screen .src-icon-btn:hover { background: var(--src-surf); }
+  #sources-screen .src-btn:hover { background: var(--src-surf-2); }
+  #sources-screen .src-btn--accent:hover { background: var(--src-accent); filter: brightness(1.08); }
+  #sources-screen .src-item-main:hover { background: var(--src-surf); }
+  #sources-screen .src-more:hover { background: var(--src-surf); }
+  #sources-screen .src-card:hover .src-card-title { color: var(--src-accent-ink); }
+  #sources-home-slot .src-home-card:hover { background: var(--src-surf-2); }
+  #sources-home-slot .src-home-add:hover { background: var(--src-surf-1); color: var(--src-text); }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #sources-screen *,
+  #sources-home-slot *,
+  .src-toast {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

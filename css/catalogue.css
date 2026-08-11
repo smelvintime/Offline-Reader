@@ -25,22 +25,29 @@
 /* ── Tokens ───────────────────────────────────────────────────────────────── */
 
 :root {
+  /* Every token defers to the app-wide/derived token with its previous
+     literal as the fallback (PLAN7 §2.9): with no [data-apptheme] set —
+     settings.js absent — the fallbacks reproduce today's dark app
+     byte-for-byte; with a theme applied, settings.css's derived layer and
+     per-theme anchors flow through here. The alpha-accent tints stay
+     literal on purpose: the derived layer defines no soft/line variants,
+     and indigo/amber tints read correctly on every palette. */
   --cat-bg:          var(--bg, #0a0a0a);
   --cat-text:        var(--text, #f0f0f0);
   --cat-muted:       var(--muted, #a0a0a0);
   --cat-surf:        var(--surf, rgba(255, 255, 255, 0.08));
-  --cat-surf-1:      rgba(255, 255, 255, 0.04);
-  --cat-surf-2:      rgba(255, 255, 255, 0.12);
+  --cat-surf-1:      var(--surf-1, rgba(255, 255, 255, 0.04));
+  --cat-surf-2:      var(--surf-2, rgba(255, 255, 255, 0.12));
   --cat-border:      var(--border, rgba(255, 255, 255, 0.1));
-  --cat-border-soft: rgba(255, 255, 255, 0.06);
+  --cat-border-soft: var(--border-soft, rgba(255, 255, 255, 0.06));
   --cat-accent:      var(--accent, #6366f1);
-  --cat-accent-ink:  #a5b4fc;
+  --cat-accent-ink:  var(--accent-ink, #a5b4fc);
   --cat-accent-soft: rgba(99, 102, 241, 0.14);
   --cat-accent-line: rgba(99, 102, 241, 0.42);
-  --cat-novel:       #fbbf24;
+  --cat-novel:       var(--prose, #fbbf24);
   --cat-novel-soft:  rgba(217, 119, 6, 0.14);
   --cat-novel-line:  rgba(217, 119, 6, 0.38);
-  --cat-ok:          #34d399;
+  --cat-ok:          var(--ok, #34d399);
 
   /* Rounded ~10px cards is the house style — see the "less pill-shaped" notes
      in styles.css. Nothing here goes past 14px except the scrim-free sheets. */
@@ -256,7 +263,7 @@
 .cat-bar {
   height: 4px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surf-2, rgba(255, 255, 255, 0.1));
   overflow: hidden;
 }
 .cat-bar-fill {
@@ -544,6 +551,21 @@
 .cat-cont-ph.cat-ph-novel { padding: 0.3rem 0.25rem 0.35rem 0.5rem; }
 .cat-cont-ph.cat-ph-novel .cat-ph-spine-title { font-size: 0.5rem; -webkit-line-clamp: 3; }
 #series-hero-cover-ph.cat-ph-novel .cat-ph-spine-title { font-size: 0.86rem; -webkit-line-clamp: 6; }
+
+/* Generated covers (js/covers.js, PLAN7 §2.8): the SVG fills whatever slot
+   it lands in — the sized boxes (.series-cover-wrap, .cat-cont-cover,
+   .cat-spine) clip it, the standalone slots carry their box via the context
+   class catalogue.js adds (.update-thumb-ph sizing, #series-hero-cover-ph's
+   id sizing). Padding is deliberately never applied to the svg itself. */
+.cat-cover-svg { width: 100%; height: 100%; display: block; }
+/* The rail thumb is a standalone fixed box, not a filled parent — restate its
+   size (the 42×63 this sheet gives .update-thumb-ph above) at higher
+   specificity so the 100% fill above cannot stretch it. */
+.cat-cover-svg.update-thumb-ph { width: 42px; height: 63px; }
+/* Novel cards keep the bound-book corner treatment on generated art too. */
+.cat-spine .cat-cover-svg { border-radius: 3px var(--cat-r) var(--cat-r) 3px; }
+/* The hero slot sizes by id with height:auto — give the svg its 2:3 box. */
+svg#series-hero-cover-ph { aspect-ratio: 2 / 3; height: auto; }
 
 /* List layout — the same card, laid on its side. */
 #series-grid.cat-layout-list .series-card.cat-card {
@@ -835,7 +857,10 @@
   font-weight: 600;
   cursor: pointer;
 }
-.cat-select option { background: #16161a; color: var(--cat-text); }
+/* The option popover keeps a literal dark surface (UA styling of <option> is
+   unreliable), so its ink is pinned light rather than themed — legible under
+   every app theme, byte-identical under none. */
+.cat-select option { background: #16161a; color: #f0f0f0; }
 .cat-range-status {
   flex: 1 0 100%;
   font-size: 0.74rem;
@@ -856,7 +881,7 @@
   min-width: 0;
   min-height: var(--cat-tap);
   padding: 0.55rem 0.8rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surf-1, rgba(255, 255, 255, 0.06));
   border: 1px solid var(--cat-border);
   border-radius: var(--cat-r);
   color: var(--cat-text);
@@ -1018,7 +1043,10 @@
   box-shadow: var(--cat-shadow);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  color: var(--cat-text);
+  /* The toast surface is pinned dark (like the reader chips, §2.9 posture:
+     floating chrome is not shell), so its ink is pinned light too — themed
+     ink would go dark-on-dark under the light app themes. */
+  color: #f0f0f0;
   font-size: 0.82rem;
   line-height: 1.45;
   text-align: center;
@@ -1043,7 +1071,7 @@
   .cat-ch-dl:hover             { background: var(--cat-surf-2); color: var(--cat-text); }
   .cat-ch-dl.cached:hover      { color: var(--cat-ok); }
   .cat-tag-link:hover          { background: rgba(99, 102, 241, 0.24); }
-  .update-row:hover            { background: rgba(255, 255, 255, 0.045); }
+  .update-row:hover            { background: var(--surf-1, rgba(255, 255, 255, 0.045)); }
   .series-card.cat-card:hover  { transform: translateY(-2px); }
   #series-grid.cat-layout-list .series-card.cat-card:hover { transform: none; background: var(--cat-surf); }
   .cat-more:hover              { color: #fff; }

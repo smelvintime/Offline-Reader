@@ -1575,3 +1575,240 @@ shared-path codes (`bad_url` 400, `blocked_host` 403, `upstream_error` 502, `tim
 - *Parity fixture test for two URL normalizers* — moot rather than rejected: the
   second implementation was removed entirely (public `Importer.normalizeUrl`), which
   is the finding's preferred branch; no parity test is needed for one function.
+
+---
+
+## Appendix B — Completion log (Phase 7 landed; deviations recorded)
+
+(Appendix-numbered like Appendix A, for the same reason: this plan's bare
+"§13" citations must keep meaning PLAN.md §13. This is the §13-style
+completion log the plan's preamble promises.)
+
+**Status: implementation complete.** All twelve features shipped in a single
+delivery (two implementation rounds per §9, then the round-3 checker + this
+docs round). The checker executed every runnable §8 gate for real: worker
+tests 234/234; scraper `npm run validate` + `check-welcome` green, with all
+three negative floor gates exercised on scratch copies (exit 1 each);
+`node --check` clean on all 13 JS files; the five browser test pages green
+under headless Chromium — novel-reader 86/0, thoughts 85/0, importer
+21 tests / 185 checks / 0, platform 69/0, goals 147/0 after the F1 fix
+below; headless boot smoke green with the full module set and with each of
+the five optional modules (`goals`, `covers`, `thoughts`, `sources`,
+`settings`) individually removed; the sentinel smoke holds the
+at-most-one-entry invariant under root↔non-root flapping; every grep/static
+gate passes (no `innerHTML` in the new modules or covers.js, reader.js still
+a classic script, `proxyImageUrl` seam disabled and verbatim, sw.js
+`cbz-reader-v5.08` + complete `SHELL_ASSETS`, §1.1 script/link order exact,
+no `:root` token redefinitions outside settings.css's `[data-apptheme]`
+blocks, session-URL rules intact); all eight cross-module contract checks
+verified, including a 5,090-trial readSections-equivalence fuzz (0
+mismatches) and the capture-phase `#home-btn` flush ordering.
+
+**Checker fixes applied (round-owner fixes, re-verified):**
+
+- **F1 (blocker, goals):** the lifetime ledger never accrued live reading
+  seconds — no `bumpLifetime('seconds', …)` existed, so the Hours-read tile
+  froze at its seeded value (the shipped test failed on exactly this).
+  Fixed: one line at the `collectSession` clamp site banks the same clamped
+  span into the ledger. goals test 146/1 → 147/0, twice consecutively.
+- **F2 (defect, content):** tutorial chapter 9 promised the thoughts
+  affordance "just below this line", which the DEFAULT paged mode does not
+  render (see F4 under known gaps). The closing prose was softened to
+  promise only what every mode delivers; `validate` + `check-welcome` stay
+  green (ch. 9 ≈ 527 words, inside the 400–800 gate).
+
+**The contract closure landed with this round:** `docs/ARCHITECTURE.md`
+carries all fifteen §11 amendments (A1–A15) verified signature-by-signature
+against the landed code; `README.md` reflects the new bundled catalogue;
+`docs/mobile/TESTING.md` gained the §8.7 on-device scenarios (13–21: sentinel
+/ edge-swipe incl. the in-reader cancel artifact, Android hardware-back
+module tour, reader home buttons, nested-zip import memory, status-bar theme
+follow incl. tan, presets, thoughts flows, sources browse, focus/layout/
+tutorial render); and this log closes the plan. **Still pending (requires
+the user's hardware, by design):** the TESTING.md matrix runs, and the §12
+sign-offs (§12.2 native-gesture veto, §12.6 Gutenberg retention, §12.1
+title) — all landed on this plan's defaults.
+
+### Per-feature status
+
+1. **Focus selector** — shipped (sheet, settings row, all four read-time
+   effects, guarded boot hook).
+2. **Sources** — shipped (module + shelf + browse + honesty states; worker
+   `/list` + optional adapter capability + `list_failed` + capped/memoized
+   cover learning).
+3. **Lifetime counters** — shipped (ledger + seed + per-day book semantics +
+   All-time tiles + separate reset; F1 fixed in-round).
+4. **Sample removal** — shipped (five fixtures + md/flame entries gone;
+   pipeline intact; Gutenberg six retained per §12.6 default).
+5. **Tutorial book** — shipped (*We Are Readers Here*, 9 chapters, committed
+   reader-silhouette cover; floor guards (a)–(c) + `check-welcome` gate).
+6. **Reader presets** — shipped (five built-ins, one-relayout apply, save/
+   delete with cap-6 refusal, XSS-inert names).
+7. **Depart your thoughts** — shipped (Store v3 + fallback, module, both
+   book-end surfaces, composer, reading surface, export/import ride-along,
+   settings-free toast entrance). See F4 for the paged-mode cadence gap.
+8. **Default covers** — shipped (seven deterministic designs, zero content
+   strings, catalogue + importer + sources adoption, gradient fallback kept).
+9. **App themes** — shipped (nine named + custom, parse-time apply,
+   key-gated re-apply, token re-pointing with literal fallbacks, pinned-dark
+   readers, status-bar follow). See F3 for the muted-contrast polish item.
+10. **Purchased books** — shipped (card + §6.2 store list verbatim, `.acsm`
+    honest refusal, `.epub` reachable from both pickers).
+11. **Reader navigation** — shipped (one-entry sentinel + unified back
+    table incl. `loading-screen`, Option-2 native posture + NATIVE_BUILD
+    appendix, home buttons in both readers with the upload-origin hide rule,
+    `{cachePath}` nested-zip path closing PLAN.md §13 deviation 7,
+    touch/overscroll hardening).
+12. **Home layout** — shipped (five-section registry with `series`
+    reorderable-never-hideable, live reorder, settings editor,
+    clear-not-write reset).
+
+### Accepted deviations (from the R1/R2 journals + checker audit — all
+judged consistent with plan intent; none needed remediation)
+
+1. **Catalogue — capture-phase `#home-btn` flush.** The §2.11-C two-listener
+   contract is implemented as a document-level CAPTURE-phase click listener
+   (filtered to the button), not a same-node bubble listener: reader.js
+   registers its teardown at parse time, so a bubble listener would always
+   run after teardown and flush nothing. Verified working; ARCHITECTURE §2.2
+   documents the mechanism. (The checker's F6 records the *pre-existing*
+   sibling asymmetry on `#close-btn`, untouched per the no-change list:
+   catalogue's bubble listener there runs after the screen switch and its
+   flush is a no-op — progress lands via the ≤1.5 s throttled scroll sync.)
+2. **Content — Gutenberg carry-over.** The sandbox proxy 403s gutenberg.org,
+   so the regeneration ran under the scraper's documented carry-over failure
+   policy: the six classics' previously committed entries/chapters shipped
+   unchanged (218 chapters validate). Consequence, recorded as F7:
+   `gutenberg:1661` ships 3 of its 12 configured chapters. A networked
+   rebuild refreshes them; no code change involved.
+3. **Content — floor guards (b)/(c) run in checkFiles mode only.**
+   `--dry-run` writes no chapter files to check and would otherwise always
+   fail; guard (a) applies in every mode, and the Accept-path behavior
+   (standalone `npm run validate`, real runs) is exactly as specified.
+   Verified by the checker's scratch-copy negative gates.
+4. **Platform — Android `loading-screen` cancel row added.** §2.11-B's gap
+   list named six rows, but A3's unified table includes the cancel row and
+   the two dispatchers are "the same semantic table"; without it Android
+   back would tear down the transitional screen via the goBack() catch-all.
+5. **Platform — `native/or-zip/` untouched.** The `{cachePath}` form
+   resolves to an absolute container path in js/platform.js; the plugin's
+   existing containment check applies unchanged — no plugin API change was
+   needed.
+6. **Worker.** The §3.4 memo (plus `_resetListLearnMemo` test hook) lives in
+   `worker/src/lib/gateway.js`, not index.js (workerd rejects named exports
+   from the entry module); `VERSION` bumped 2.0.0 → 2.1.0; srcset-only
+   covers resolve to the LAST candidate (reusing the existing image-attr
+   helper rather than minting a twin); per-item cover containers are
+   computed as the highest ancestor not shared with another cluster entry
+   (the naive depth reading hands every item the same grid cover); `isValid`
+   exported as `isValidAdapter` for the boot-error test; the memoization
+   test asserts puts 4→5→5 across three calls (the fixture's 5th host is
+   legitimately learned on the second call).
+7. **Reader (styles.css).** Notice banners deliberately NOT re-pointed at
+   `--warn`/`--danger` (they overlay the pinned-dark reader; light-theme
+   anchors would break contrast); glass headers derive via a two-declaration
+   `color-mix` fallback pattern (no chrome token exists); an extra
+   `body[data-screen='reader-screen']` background pin stops iOS rubber-band
+   reveal; `.btn-title`'s re-point shifts unthemed white from `#fff` to
+   `#f0f0f0` (imperceptible). Nested zip-of-CBZs sets additionally became
+   durable + resumable (they now reach the archive-move + manifest phase);
+   the home-button teardown also cancels `chapterJumpTimer` (and stops
+   autoscroll) — without it a home tap within 150 ms of a chapter jump would
+   throw; `#close-btn`'s latent version of that race left untouched per the
+   no-change list.
+8. **Novel-reader.** The home button falls back to
+   `showScreen('home-screen')` when `Catalogue.goHome` is absent (guarded
+   per plan; the fallback matches the file's navigateAway idiom). The
+   ≤1-relayout acceptance is asserted via the plan-sanctioned `layoutCount`
+   in `api.state()`.
+9. **Settings.** An explicitly applied `dark` theme stamps the attribute and
+   renders the novel dark triple (text `#e9e9ec`) rather than styles.css's
+   `#f0f0f0` literal — byte-for-byte-today remains the unset/absent path;
+   "Start with the tour" writes `app.focus='both'` before opening (every
+   sheet exit settles the pref, which is what makes "never re-prompts"
+   true); reset-to-default clears `home.sections` by writing `undefined`
+   through `prefs.set` (prefs has no remove API; JSON serialization drops
+   the key); `home.sections` validation leans visible on a missing `on`
+   (`e.on !== false`) and inserts missing ids at their default-order index;
+   several light-theme anchor values (`--accent-ink`, `--warn`,
+   cream/sepia/tan `--prose`) are the agent's picks where §2.9 gave only
+   examples — cream's `--prose` darkened a step because the plan's example
+   equals cream's `--accent` and the amber/indigo split may never collapse.
+10. **Goals.** Its own `or:prefs` listener short-circuits
+    `key === 'goals.lifetime'` to a cheap adopt (the §2.9 key-gating
+    discipline applied to goals itself — otherwise every 30 s flush would
+    trigger a full recompute); a valid mirror-restored ledger is live-adopted
+    on `goals.lifetime`/null-key events (required by §1.2's deliberate
+    native mirroring; re-seeding stays init-only); the pill/toast tokens are
+    pinned to dark literals (they float over reader surfaces on fixed dark
+    capsules — the readers-stay-reader-themed doctrine).
+11. **Catalogue (other).** Non-enumerated non-root screens fall through to
+    `goBack()` in the popstate table (defensive default); `normalizeSeries`
+    carries an in-memory `untyped` flag (the §2.1 card-bias condition is
+    undetectable post-`inferType`; never persisted); empty-state titles and
+    the books-flavored bodies are app-authored where the plan is silent (the
+    comics body is the plan's verbatim copy); catalogue.css §2.9 re-pointing
+    was done in R2 by catalogue (the §2.9 Files list names it; the §9 R2
+    work column simply doesn't repeat it).
+12. **Importer.** Error-status ink re-pointed as `var(--danger, #ffd7da)`
+    (the prescribed ink→anchor pattern; unthemed rendering unchanged); the
+    `.imp-restore` boot toast pinned to dark literals (goals `.gl-toast`
+    precedent); `importLibrary` returns an additive `thoughts` count;
+    two implied helpers added (a `safeHttpUrl` twin for the Gutenberg link
+    — joins the §7.6 keep-in-sync list — and a static `chev` icon).
+13. **Sources.** With the gateway configured but Importer deleted, browsing
+    is disabled with its own one-line honest notice (distinct from the
+    gateway-off copy); the empty-shelf slot renders the solo card without a
+    section label ("a single quiet card" read literally); saved-source
+    removal uses `askConfirm`; pagination failures keep the grid and restore
+    `nextUrl` for retry, and a 422 on a later page is treated as the honest
+    end of the catalogue. **F8 (verified divergence record):** the
+    Importer-absent fallback normalize deliberately keeps tracking params,
+    original param order and trailing slashes where `Importer.normalizeUrl`
+    strips/sorts/trims — it only ever serves save-and-bookmark mode (browse
+    and badges are off without Importer), so dedupe merely degrades.
+
+### Known gaps & deferred items
+
+- **F3 (polish, settings):** the derived `--muted` lands at 3.15–4.16:1 on
+  the light themes (worse on surfaces) — below the §2.9 4.5:1 spot-check
+  floor for body-size text. The 58% mix is the plan's own formula; fixing it
+  properly means per-theme muted overrides or a darker mix on light
+  palettes. Deferred to the settings owner as a follow-up.
+- **F4 (plan-level gap, novel-reader):** §2.7's "always offered at book end"
+  does not hold in the DEFAULT paged mode — `.nv-end` and the inline CTA
+  render only in chapter/infinite modes (pre-existing `.nv-end` behavior,
+  protected by the no-change list). Needs a plan amendment before any owner
+  can fix it; the tutorial's prose no longer over-promises (F2).
+- **F5 (pre-existing):** js/catalogue.js contains a literal NUL byte inside
+  a string literal (~line 568, a raw NUL used as a key separator; present at
+  the pre-phase commit). Syntactically valid JS; makes naive greps treat the
+  file as binary. Left as-is; a `\x00` escape is the cosmetic fix.
+- **F6 (pre-existing):** the `#close-btn` flush asymmetry described under
+  deviation 1.
+- **F7:** `gutenberg:1661` ships 3 chapters until a networked rebuild
+  (deviation 2).
+- **On-device:** TESTING.md scenarios 13–21 (plus the standing Phase 6
+  matrix) remain with the user — including the iOS edge-swipe cancel
+  artifact verification, the Android module-screen back tour, the
+  nested-zip memory check, and status-bar behavior under the light themes.
+- **User sign-offs still open (§12):** the native-iOS gesture posture veto
+  (§12.2 — Option 2 shipped), Gutenberg retention (§12.6 — six classics
+  shipped), and the tutorial title (§12.1 — working title shipped).
+
+### Docs-round deltas (this round's own record)
+
+All fifteen §11 amendments were applied to `docs/ARCHITECTURE.md` after
+verifying each claim against the landed code. Where an amendment's wording
+no longer matched the tree, the contract now states what the code actually
+does, per this plan's own rule: the A3 `#home-btn` flush is documented as
+the capture-phase listener (deviation 1); the A3/§2.2 unified table carries
+the Android `loading-screen` row (deviation 4); A8's memo is placed in
+`gateway.js` with the 2.1.0 version (deviation 6); A11 records the
+explicit-dark rendering note and the pinned-dark floating-chrome exceptions
+(deviations 7, 9, 10, 12); A6's `home.sections` row documents the lenient
+`on` validation (deviation 9); A9 records the checkFiles gating (deviation
+3); §7.6's keep-in-sync list gained the sources.js and importer.js twins
+(deviations 12–13). README's sample-content section, allowlist sentence,
+feature summary and layout listing were re-based on the shipped tree;
+TESTING.md's header, test-page list and matrix gained the Phase 7 rows.

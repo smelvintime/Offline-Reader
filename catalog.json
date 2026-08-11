@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-11T01:35:58.402Z",
+  "generatedAt": "2026-08-11T03:54:07.451Z",
   "series": [
     {
       "id": "fixture:welcome",
@@ -115,7 +115,7 @@
           "updatedAt": null,
           "lang": "en",
           "src": "chapters/fixture_welcome/c-0009.json",
-          "wordCount": 511
+          "wordCount": 528
         }
       ]
     },

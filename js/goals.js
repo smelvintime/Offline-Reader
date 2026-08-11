@@ -886,6 +886,7 @@
     const span = now - session.activeSince;
     if (span > 0 && span <= STALE_SPAN_MS) {
       day.data.seconds += span / 1000;
+      bumpLifetime('seconds', span / 1000); // the same clamped span feeds the ledger (§2.3 session fold)
       day.dirty = true;
     }
     session.activeSince = now;

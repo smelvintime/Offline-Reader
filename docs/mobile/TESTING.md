@@ -1,13 +1,17 @@
-# Offline Reader — Device-matrix & memory test protocol (Phase 6)
+# Offline Reader — Device-matrix & memory test protocol (Phases 6–7)
 
 This is the final on-device gate for the Capacitor refactor
-(`docs/mobile/PLAN.md` §7). Phase 2 already did the first-look
-emulation/simulator passes; nothing here is a first look. Run it on real
-hardware built per `docs/mobile/NATIVE_BUILD.md`, record results in the
-tables at the bottom, and treat every unchecked box as a blocker, not a note.
+(`docs/mobile/PLAN.md` §7) plus the Phase 7 additions
+(`docs/mobile/PLAN7.md` §8.7 — scenarios 13–21 below). Phase 2 already did
+the first-look emulation/simulator passes; nothing here is a first look. Run
+it on real hardware built per `docs/mobile/NATIVE_BUILD.md`, record results
+in the tables at the bottom, and treat every unchecked box as a blocker, not
+a note.
 
-Contract references: `docs/ARCHITECTURE.md` (§2.2 back-button table, §2.3
-Platform, §2.4 Goals), PLAN.md §6.5 (drills), §9 (budget numbers).
+Contract references: `docs/ARCHITECTURE.md` (§2.2 unified back table +
+history sentinel, §2.3 Platform, §2.4 Goals, §2.8–§2.11 the Phase 7
+modules), PLAN.md §6.5 (drills), §9 (budget numbers), PLAN7.md §2.11
+(navigation) and §8 (gates).
 
 ---
 
@@ -27,9 +31,11 @@ tablet — exactly where breakpoint bugs hide.
 
 Also run once per release, not per device: the plain web build
 (`python3 -m http.server` from repo root) — full manual pass, zero console
-errors, and all four test pages green: `test/platform.test.html`,
+errors, and all five test pages green: `test/platform.test.html`,
 `test/goals.test.html`, `test/novel-reader.test.html`,
-`test/importer.test.html`.
+`test/importer.test.html`, `test/thoughts.test.html`. Also boot once with
+each optional module file removed (`goals.js`, `covers.js`, `thoughts.js`,
+`sources.js`, `settings.js`) — zero console errors each time.
 
 ## 2. Scenario checklist (every matrix row)
 
@@ -95,6 +101,76 @@ fine".
     page-dirs; finishing the set bumps `booksFinished` under `upload:<key>`
     exactly once.
 
+### Phase 7 additions (PLAN7 §8.7; run on the same matrix rows)
+
+13. **History sentinel & iOS edge-swipe** (iOS Safari + installed PWA; also
+    desktop browser back on the Web column) — series → browser/edge-swipe
+    back lands on home; back at home is consumed at most once, then default
+    browser behavior; rapid home↔series flapping never accumulates history
+    entries (one back always leaves cleanly — the at-most-one-sentinel
+    invariant). **In-reader cancel artifact, expected and cosmetic:** an
+    edge-swipe inside the novel or image reader plays iOS's native slide
+    against a stale page snapshot and snaps back (§2.11-A — same-document
+    history has no way to suppress the OS animation). The row verifies the
+    reader neither tears down nor loses its place: same chapter, same
+    position, no console errors, progress still flushing. **Native iOS:**
+    verify there is NO edge-swipe back anywhere (gestures deliberately off,
+    NATIVE_BUILD.md appendix) and the header back/home affordances cover
+    every screen.
+14. **Android hardware-back tour of the module screens** — from home open
+    each of importer, goals, settings, sources, thoughts, series → hardware
+    back exits each through its own close path (screen returns to where it
+    came from, no orphaned sheets/scrims, settings sheet state not leaked);
+    back inside novel/image readers still runs the reader close paths
+    (scenario 8); back on the loading screen does nothing (cancel row).
+15. **Home buttons in both readers** — series-origin novel and image
+    sessions show the diamond-home header button; tapping mid-chapter lands
+    on home with progress flushed (Continue rail reflects the position) and
+    no orphaned listeners (novel keys freed; image globals cleared).
+    Upload-origin image sessions HIDE `#home-btn` (and `#close-btn` reloads,
+    as today).
+16. **Nested zip-of-CBZs native import (memory)** — import a zip containing
+    several CBZs via the native picker: inner archives extract to
+    `Cache/pages/import-inner/` and index via `zip.list({cachePath})` with
+    **zero archive bytes in the webview** (JS heap flat during import — the
+    S3 criterion); the set is resumable after relaunch; deleting it removes
+    archive files + page dirs.
+17. **Status bar follows the app theme** (native iOS + Android) — switch
+    through dark/dim/black/nord/forest (status-bar icons stay light) and
+    light/cream/sepia/**tan** (icons flip dark); a custom theme follows its
+    background's luminance (`data-applum`); relaunch paints the themed shell
+    with no dark flash and the correct status-bar style from first frame;
+    the image reader stays pinned dark under every light theme.
+18. **Reader presets on device** — tapping a built-in preset changes every
+    bundled key in ONE relayout with the anchor held (same sentence
+    visible); presets persist per-series; "+ Save current" round-trips (note
+    the accepted iOS keyboard-overlap risk: the name input scrolls into
+    view); saved-chip delete + undo toast works; a 7th save refuses with the
+    cap toast.
+19. **Thoughts flows** — finish a novel in chapter/infinite mode → inline
+    "Depart your thoughts" CTA under the end marker → composer → save → the
+    tappable toast opens the thoughts screen (also with settings.js deleted
+    — the toast is the settings-free entrance). Known gap, not a fail: the
+    default **paged** mode renders no book-end CTA (PLAN7 completion log).
+    Finish an image series → floating chip bottom-LEFT appears once, never
+    on the novel screen, auto-dismisses ≤12 s; chapter-cadence prompts only
+    when toggled on; edit/delete round-trip; thoughts survive series
+    deletion and ride export/import.
+20. **Sources shelf & browse** — save a source (relaunch keeps it); browse a
+    listing through the gateway → cards render with covers (or generated
+    fallbacks) → tapping lands on the importer confirm screen prefilled →
+    after commit the item badges "In library"; a 25th save refuses with the
+    shelf-full toast; gateway off → honest explainer + external-link cards,
+    zero `/list` calls.
+21. **Focus, home layout & the tutorial book** — fresh install: focus sheet
+    appears once after home renders; "Start with the tour" opens *We Are
+    Readers Here*; choosing Comics relaunches to the manga tab with Latest
+    directly under Continue; reorder sections in Settings → home reflects
+    instantly and after relaunch; All Series can move but never hide;
+    "Reset to default" restores the focus-derived order. The tutorial book
+    renders correctly in all three reading modes on-device (blocks,
+    blockquote/list/rule variety, no images, cover SVG on cards).
+
 ## 3. Memory verification protocol
 
 The §9 numbers are pass/fail, not aspirations. Windows (`MEMORY_WINDOW`
@@ -153,6 +229,15 @@ Copy one block per release candidate. Version = `Platform.appVersion()` +
 | 10 eviction drills E1–E3 + localStorage | | | | | | |
 | 11 app-update drill | | | | | | |
 | 12 upload resume / 1.5 GB | | | | | | |
+| 13 sentinel / iOS edge-swipe | | | | — | — | |
+| 14 hardware-back module tour | — | — | — | | | — |
+| 15 reader home buttons | | | | | | |
+| 16 nested-zip import (memory) | | | | | | — |
+| 17 status bar follows theme | | | | | | — |
+| 18 reader presets | | | | | | |
+| 19 thoughts flows | | | | | | |
+| 20 sources shelf & browse | | | | | | |
+| 21 focus / layout / tutorial | | | | | | |
 
 **Memory results** (record the measured number, not just P/F):
 

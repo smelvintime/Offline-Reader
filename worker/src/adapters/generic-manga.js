@@ -10,7 +10,7 @@
 // (lib/extract.js findImageRun), with icons/avatars/ads filtered by dimension
 // attributes and URL shape.
 
-import { genericResolveSeries, genericResolveChapter } from './_generic.js';
+import { genericResolveSeries, genericResolveChapter, genericListSeries } from './_generic.js';
 
 export const id = 'generic-manga';
 export const label = 'Generic manga / manhwa site';
@@ -50,4 +50,10 @@ export async function resolveChapter(url, ctx) {
     bias: 'image',
     kind: ctx && ctx.kind,
   });
+}
+
+// §6.5 optional listing capability. No `listMatches` — `matches()` gates it,
+// so comic-shaped URLs list through this adapter before generic-novel.
+export async function listSeries(url, ctx) {
+  return genericListSeries(url, ctx, { adapterId: id, type: 'manga' });
 }

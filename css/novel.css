@@ -479,6 +479,43 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* ── "Depart your thoughts" CTAs (PLAN7 §2.7) ─────────────────────────────────
+   Rendered by js/novel-reader.js only when window.Thoughts exists. Skinned
+   exclusively with --nv-* tokens so all ten themes carry them; they live after
+   the block list, so they never disturb anchors or the scrollPct measure. */
+.nv-thoughts-cta {
+  display: block;
+  margin: 0.75em auto 1.5em;
+  min-height: 44px;
+  padding: 0.6rem 1.4rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  color: var(--nv-fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-indent: 0;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.nv-thoughts-cta:hover { background: var(--nv-surf-2); }
+.nv-thoughts-cta:active { transform: scale(0.97); }
+
+/* The per-chapter variant (thoughts.chapterPrompt on): quieter — a text button
+   after the bottom chapter nav, not a filled card. */
+.nv-thoughts-cta.nv-thoughts-cta-sm {
+  background: none;
+  border: none;
+  color: var(--nv-muted);
+  font-size: 0.78rem;
+  margin: 0 auto 0.75em;
+  padding: 0.7rem 1rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nv-thoughts-cta.nv-thoughts-cta-sm:hover { background: none; color: var(--nv-fg); }
+
 /* ── Tap zones (paged mode) ───────────────────────────────────────────────── */
 
 .nv-zones { position: absolute; inset: 0; z-index: 5; display: none; }
@@ -550,6 +587,11 @@
 .nv-btn:hover { background: var(--nv-surf); }
 .nv-btn:active { background: var(--nv-surf-2); }
 .nv-btn:disabled { opacity: 0.15; pointer-events: none; }
+
+/* Home (PLAN7 §2.11-C): same .nv-btn chrome; the ::after pad lifts the 40px
+   visual to the 44px tap floor without moving its neighbours. */
+.nv-btn.nv-home { position: relative; }
+.nv-btn.nv-home::after { content: ''; position: absolute; inset: -2px; }
 
 .nv-status {
   flex: 1; min-width: 0;
@@ -775,6 +817,97 @@
 }
 .nv-actions button:hover { background: var(--nv-surf-2); }
 
+/* ── Reader-mode presets (PLAN7 §2.6) ─────────────────────────────────────────
+   A horizontally scrollable chip rail at the top of the sheet. Chips paint
+   themselves in their preset's theme pair (inline styles from JS — the swatch
+   idiom) and set themselves in their preset's face via data-font below. */
+.nv-presets {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;   /* same containment as the home rails */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Top/right padding keeps the floating × badges inside the scroll box. */
+  padding: 8px 8px 4px 2px;
+}
+.nv-presets::-webkit-scrollbar { width: 0; height: 0; }
+
+.nv-preset-item { position: relative; flex-shrink: 0; display: inline-flex; }
+
+.nv-preset-chip {
+  min-height: 44px;
+  padding: 0.5rem 0.95rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+.nv-preset-chip:active { transform: scale(0.97); }
+.nv-preset-save { color: var(--nv-muted); }
+
+/* Each chip is a specimen of its preset's face. The ID prefix is load-bearing:
+   the `#novel-screen button { font: inherit }` reset outranks a bare class. */
+#novel-screen .nv-presets button[data-font='serif']    { font-family: var(--nv-face-serif); }
+#novel-screen .nv-presets button[data-font='sans']     { font-family: var(--nv-face-sans); }
+#novel-screen .nv-presets button[data-font='mono']     { font-family: var(--nv-face-mono); }
+#novel-screen .nv-presets button[data-font='literata'] { font-family: var(--nv-face-literata); }
+#novel-screen .nv-presets button[data-font='atkinson'] { font-family: var(--nv-face-atkinson); }
+/* OpenDyslexic sets much wider than the others — step the specimen down so the
+   chip stays chip-sized (the .nv-seg-fonts precedent). */
+#novel-screen .nv-presets button[data-font='dyslexic'] { font-family: var(--nv-face-dyslexic); font-size: 0.72rem; }
+
+/* Delete affordance on saved chips — a small badge whose real hit area is
+   lifted to ~44px by the ::after pad, without growing the visual. */
+.nv-preset-del {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  background: var(--nv-surf-2);
+  border: 1px solid var(--nv-border);
+  border-radius: 50%;
+  color: var(--nv-fg);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.nv-preset-del::after { content: ''; position: absolute; inset: -11px; }
+
+/* Save-current mini-form — swapped in for the rail while naming a preset. */
+.nv-preset-form { display: flex; gap: 0.45rem; align-items: center; padding: 4px 0; }
+.nv-preset-form[hidden] { display: none; }
+.nv-preset-form input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 0.7rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  color: var(--nv-fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.nv-preset-form button {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  background: var(--nv-surf);
+  border: 1px solid var(--nv-border);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nv-preset-form button:hover { background: var(--nv-surf-2); }
+
 .nv-keys { margin: 0; font-size: 0.78rem; color: var(--nv-muted); }
 .nv-keys div { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; }
 .nv-keys kbd {
@@ -808,6 +941,18 @@
   transition: opacity 0.25s;
 }
 .nv-toast[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+/* The single Undo action a toast may carry (preset delete, §2.6). */
+.nv-toast-undo {
+  margin-left: 0.55rem;
+  padding: 0.35rem 0.5rem;
+  background: none;
+  border: none;
+  color: var(--nv-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 /* ── Desktop: the sheet becomes a docked side panel ───────────────────────── */
 
@@ -856,6 +1001,18 @@
   -webkit-tap-highlight-color: transparent;
 }
 #novel-screen[data-mode='paged'] .nv-zones { touch-action: none; }
+
+/* Touch/overscroll hardening (PLAN7 §2.11-C): the scroll modes scroll
+   vertically only — pan-y keeps a sideways wobble from starting a horizontal
+   scroll, and overscroll-behavior-x stops chained horizontal rubber-banding on
+   iOS. Paged mode is untouched: its .nv-zones layer keeps touch-action:none
+   above the prose, so drag-to-turn still wins the gesture. CSS cannot stop the
+   OS edge swipe — the history sentinel (catalogue) owns that. */
+#novel-screen[data-mode='chapter'] .nv-viewport,
+#novel-screen[data-mode='infinite'] .nv-viewport {
+  overscroll-behavior-x: contain;
+  touch-action: pan-y;
+}
 
 /* Column-break control. Pagination is the browser's job (we never hand-split a
    block), so the only lever we have over where a page ends is these hints: an

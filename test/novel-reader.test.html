@@ -35,6 +35,11 @@
   <button onclick="T.testLoadedDiagnostics().then(T.report)">lru defaults</button>
   <button onclick="T.testLru().then(T.report)">lru drill</button>
   <button onclick="T.testImgPinning().then(T.report)">img pinning</button>
+  <button onclick="T.testPresets().then(T.report)">presets apply</button>
+  <button onclick="T.testPresetSaveLoad().then(T.report)">presets save/load</button>
+  <button onclick="T.testPresetNameXss().then(T.report)">presets xss</button>
+  <button onclick="T.testThoughtsCta().then(T.report)">thoughts cta</button>
+  <button onclick="T.testHomeButton().then(T.report)">home button</button>
 </div>
 <div id="log"></div>
 
@@ -65,9 +70,14 @@ window.proxyImageUrl = function (u) {
 };
 
 // Catalogue is absent; close() falls back to showScreen('home-screen') which is
-// a no-op here. Record the call so the test can assert teardown happened.
+// a no-op here. Record the calls so the tests can assert teardown happened and
+// that the home button routes through goHome, never goBack.
 window.__navigatedAway = 0;
-window.Catalogue = { goBack: function () { window.__navigatedAway++; } };
+window.__wentHome = 0;
+window.Catalogue = {
+  goBack: function () { window.__navigatedAway++; },
+  goHome: function () { window.__wentHome++; },
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixture — 6 chapters × ~40 blocks of deterministic prose.
@@ -214,12 +224,19 @@ const T = {
   /** Wipe every trace of a previous run so each test starts cold. */
   async reset() {
     try { localStorage.clear(); } catch (e) {}
+    // Store caches both pref bags in memory; clearing localStorage alone
+    // leaves the previous test's prefs live. reload() re-reads the (now
+    // empty) storage, so prefs really start cold.
+    try { Store.prefs.reload(); } catch (e) {}
     if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
     try { await Store.deleteProgress(SERIES.id); } catch (e) {}
     try { await Store.deleteProgress(LRU_SERIES.id); } catch (e) {}
     window.__resolveCalls.length = 0;
     window.__navigatedAway = 0;
+    window.__wentHome = 0;
+    window.__pwned = undefined;
     window.__resolveDelay = undefined;
+    try { delete window.Thoughts; } catch (e) { window.Thoughts = undefined; }
     this.unstubTuning();
   },
 
@@ -507,6 +524,331 @@ const T = {
     ok(!img(3) && figs[3] && figs[3].classList.contains('nv-img-failed'),
        'capacitor-evil:// scheme is refused');
     window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  // ── Reader-mode presets (PLAN7 §2.6) ───────────────────────────────────────
+
+  /** The chip rail lives in the settings sheet, which is built at ensureDom
+      and re-rendered on every sheet open. Toggle the sheet through its real
+      button so external pref writes land in the rail. */
+  refreshSheet() {
+    const btn = document.querySelector('#novel-screen [aria-label="Reading settings"]');
+    if (!btn) throw new Error('no settings button');
+    if (window.NovelReader.state().sheetOpen) btn.click();   // close…
+    btn.click();                                             // …open → re-render
+  },
+
+  presetChip(name) {
+    return [...document.querySelectorAll('#novel-screen .nv-presets .nv-preset-chip')]
+      .find(b => b.textContent === name) || null;
+  },
+
+  /** Apply-batch: every bundled key lands in ONE relayout, the anchor holds,
+      and the writes are per-series (the storeSet path). */
+  async testPresets() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    await this.reset();
+    await this.open(1);
+
+    const names = ['Classic paperback', 'Night scroll', 'Dyslexia-friendly', 'Dense terminal', 'Large print'];
+    ok(names.every(n => !!this.presetChip(n)), 'all five built-in chips render',
+       [...document.querySelectorAll('#novel-screen .nv-preset-chip')].map(b => b.textContent).join('|'));
+
+    // Move a few pages in so the anchor is meaningfully non-zero.
+    this.press('ArrowRight'); this.press('ArrowRight'); this.press('ArrowRight');
+    let s0 = window.NovelReader.state();
+    const anchorBefore = s0.anchor;
+    ok(anchorBefore.blockIdx > 0, 'anchor moved off block 0 before applying', anchorBefore.blockIdx);
+
+    // Large print: paged → paged (no mode change) — exactly one layout pass.
+    const l1 = s0.layoutCount;
+    this.presetChip('Large print').click();
+    let s = window.NovelReader.state();
+    ok(s.layoutCount - l1 === 1, 'same-mode preset costs exactly one relayout', s.layoutCount - l1);
+    const p = s.prefs;
+    ok(s.mode === 'paged' && p.fontFamily === 'atkinson' && p.fontSize === 26 && p.lineHeight === 1.8
+       && p.width === 'normal' && p.align === 'left' && p.paraSpacing === 'normal' && p.indent === false
+       && p.letterSpacing === 0.02 && p.wordSpacing === 0.08 && p.theme === 'light',
+       'Large print applied every bundled key', JSON.stringify(p));
+    ok(s.anchor.chapterId === anchorBefore.chapterId && s.anchor.blockIdx === anchorBefore.blockIdx
+       && s.anchor.charInBlock === anchorBefore.charInBlock,
+       'anchor kept across the batch', JSON.stringify(s.anchor));
+    ok(this.anchorVisible(), 'anchored block still on screen');
+    ok(p.customBg === '#f4ecd8' && p.customFg === '#43341f',
+       'custom colours untouched by a built-in', p.customBg + '/' + p.customFg);
+
+    // Night scroll: paged → infinite (mode change) — still one layout pass.
+    const l2 = s.layoutCount;
+    this.presetChip('Night scroll').click();
+    s = window.NovelReader.state();
+    ok(s.mode === 'infinite' && s.prefs.theme === 'black' && s.prefs.fontFamily === 'sans'
+       && s.prefs.fontSize === 18 && s.prefs.width === 'narrow',
+       'Night scroll applied, including the mode', s.mode + '/' + s.prefs.theme);
+    ok(s.layoutCount - l2 === 1, 'mode-changing preset still costs exactly one relayout', s.layoutCount - l2);
+    ok(s.anchor.chapterId === anchorBefore.chapterId && s.anchor.blockIdx === anchorBefore.blockIdx,
+       'anchor survives the mode rebuild', JSON.stringify(s.anchor));
+
+    // Persistence: per-series (storeSet), never global.
+    ok(Store.prefs.getFor(SERIES.id, 'novel.fontSize', null) === 18,
+       'preset wrote per-series prefs', Store.prefs.getFor(SERIES.id, 'novel.fontSize', null));
+    ok(Store.prefs.get('novel.fontSize', 'unset') === 'unset',
+       'global prefs untouched', Store.prefs.get('novel.fontSize', 'unset'));
+
+    // A toast names the preset.
+    const toastEl = document.querySelector('#novel-screen .nv-toast');
+    ok(!!toastEl && !toastEl.hidden && toastEl.textContent.indexOf('Night scroll') !== -1,
+       'toast names the applied preset', toastEl && toastEl.textContent);
+
+    // No "active preset" state is stored anywhere.
+    ok(Store.prefs.get('novel.presets', null) === null, 'applying stores no active-preset state');
+
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  /** Save-current round-trips through novel.presets; corrupt entries drop
+      silently on read; values re-validate at apply time; cap 6 refuses;
+      delete works and Undo restores. */
+  async testPresetSaveLoad() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    await this.reset();
+    await this.open(1);
+    const strip = () => document.querySelector('#novel-screen .nv-presets');
+    const form  = () => document.querySelector('#novel-screen .nv-preset-form');
+    const saveChip = () => [...strip().querySelectorAll('button')].find(b => b.textContent === '+ Save current');
+    const customItems = () => [...strip().querySelectorAll('.nv-preset-item')].filter(i => i.querySelector('.nv-preset-del'));
+
+    ok(!!saveChip(), 'trailing "+ Save current" chip renders');
+    ok(customItems().length === 0, 'no custom chips on a cold profile');
+
+    // Distinctive snapshot: bump the size twice (19 → 21).
+    this.press('+'); this.press('+');
+    saveChip().click();
+    ok(form() && !form().hidden && strip().hidden, 'mini-form swaps in for the rail');
+    const input = form().querySelector('input');
+    ok(input && input.value === 'My preset 1', 'name prefilled "My preset N"', input && input.value);
+    input.value = 'Evening train';
+    [...form().querySelectorAll('button')].find(b => b.textContent === 'Save').click();
+    ok(form().hidden && !strip().hidden, 'form swaps back out after saving');
+
+    const stored = Store.prefs.get('novel.presets', null);
+    ok(Array.isArray(stored) && stored.length === 1 && stored[0].name === 'Evening train',
+       'saved into novel.presets', JSON.stringify(stored));
+    ok(stored[0].prefs.fontSize === 21 && stored[0].prefs.mode === 'paged'
+       && stored[0].prefs.fontFamily === 'serif' && stored[0].prefs.customBg === undefined,
+       'snapshot is the current effective prefs (no custom colours outside the custom theme)',
+       JSON.stringify(stored[0].prefs));
+
+    const item = customItems()[0];
+    ok(!!item && item.querySelector('.nv-preset-chip').textContent === 'Evening train'
+       && !!item.querySelector('.nv-preset-del'),
+       'custom chip renders after built-ins with a delete affordance');
+
+    // Drift, then load the saved preset back — the round trip.
+    this.press('-'); this.press('-'); this.press('-');
+    ok(window.NovelReader.state().prefs.fontSize === 18, 'drifted away from the snapshot',
+       window.NovelReader.state().prefs.fontSize);
+    item.querySelector('.nv-preset-chip').click();
+    ok(window.NovelReader.state().prefs.fontSize === 21, 'saved preset round-trips through the pref',
+       window.NovelReader.state().prefs.fontSize);
+
+    // Corrupt entries are dropped silently on read.
+    Store.prefs.set('novel.presets', [
+      { name: 'Sane', prefs: { fontSize: 22 } },
+      { bogus: 1 }, 'nope', 42, null,
+      { name: '', prefs: {} },
+      { name: 'NoPrefs' },
+      { name: 'BadPrefs', prefs: 7 },
+      { name: ['arr'], prefs: {} },
+    ]);
+    this.refreshSheet();
+    ok(customItems().length === 1
+       && customItems()[0].querySelector('.nv-preset-chip').textContent === 'Sane',
+       'hand-corrupted entries dropped silently on read', customItems().length);
+
+    // Values re-validate through the readPrefs rules at apply time.
+    Store.prefs.set('novel.presets', [{ name: 'Partial', prefs: { fontSize: 900, width: 'bogus', theme: 'sepia' } }]);
+    this.refreshSheet();
+    const widthBefore = window.NovelReader.state().prefs.width;
+    const lBefore = window.NovelReader.state().layoutCount;
+    this.presetChip('Partial').click();
+    const sP = window.NovelReader.state();
+    ok(sP.prefs.fontSize === 32, 'out-of-range number clamps exactly like readPrefs', sP.prefs.fontSize);
+    ok(sP.prefs.width === widthBefore, 'invalid enum value leaves that knob unchanged', sP.prefs.width);
+    ok(sP.prefs.theme === 'sepia', 'valid keys in the same preset still apply', sP.prefs.theme);
+    ok(sP.layoutCount - lBefore === 1, 'partial preset is still one relayout', sP.layoutCount - lBefore);
+
+    // Cap 6: the 7th save refuses with a toast; nothing is evicted.
+    const six = []; for (let i = 0; i < 6; i++) six.push({ name: 'P' + i, prefs: { fontSize: 20 } });
+    Store.prefs.set('novel.presets', six);
+    this.refreshSheet();
+    saveChip().click();
+    ok(form().hidden, 'save refused at the cap — the form never opens');
+    const toastEl = document.querySelector('#novel-screen .nv-toast');
+    ok(!toastEl.hidden && /full/i.test(toastEl.textContent), 'cap toast shown', toastEl.textContent);
+    ok(Store.prefs.get('novel.presets', []).length === 6, 'nothing evicted at the cap');
+
+    // Delete is immediate (no confirm) with a single-level Undo.
+    customItems()[2].querySelector('.nv-preset-del').click();
+    ok(Store.prefs.get('novel.presets', []).length === 5, 'delete removes immediately');
+    const undoBtn = toastEl.querySelector('button');
+    ok(!!undoBtn && undoBtn.textContent === 'Undo' && !toastEl.hidden, 'undo toast offered');
+    undoBtn.click();
+    const after = Store.prefs.get('novel.presets', []);
+    ok(after.length === 6 && after[2].name === 'P2', 'Undo restores the preset at its index',
+       JSON.stringify(after.map(x => x.name)));
+
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  /** Preset names are third-party strings: a hostile name must render as
+      literal text, clamped to 40 chars, creating no nodes and running nothing. */
+  async testPresetNameXss() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    await this.reset();
+    await this.open(1);
+    const HOSTILE = '<img src=x onerror="window.__pwned=1"><script>window.__pwned=1<\/script>';
+    Store.prefs.set('novel.presets', [{ name: HOSTILE, prefs: { fontSize: 20 } }]);
+    this.refreshSheet();
+    const strip = document.querySelector('#novel-screen .nv-presets');
+    const chip = [...strip.querySelectorAll('.nv-preset-chip')].find(b => b.textContent.indexOf('<img') === 0);
+    ok(!!chip, 'hostile name still renders as a chip');
+    ok(chip && chip.textContent === HOSTILE.slice(0, 40), 'name is literal text, clamped to 40',
+       chip && chip.textContent);
+    ok(strip.querySelectorAll('img, script').length === 0, 'no elements created from the name');
+    // Applying it routes the name through the toast — also textContent-only.
+    chip.click();
+    const toastEl = document.querySelector('#novel-screen .nv-toast');
+    ok(toastEl.querySelectorAll('img, script').length === 0, 'toast renders the name inert');
+    // And through the save form.
+    this.refreshSheet();
+    const saveChip = [...strip.querySelectorAll('button')].find(b => b.textContent === '+ Save current');
+    saveChip.click();
+    const form = document.querySelector('#novel-screen .nv-preset-form');
+    form.querySelector('input').value = HOSTILE;
+    [...form.querySelectorAll('button')].find(b => b.textContent === 'Save').click();
+    const stored = Store.prefs.get('novel.presets', []);
+    ok(stored.length === 2 && stored[1].name === HOSTILE.slice(0, 40), 'saved name clamped to 40',
+       JSON.stringify(stored[1] && stored[1].name));
+    ok(document.querySelectorAll('#novel-screen .nv-presets img, #novel-screen .nv-presets script').length === 0,
+       'saved hostile chip is inert');
+    ok(!window.__pwned, 'no script executed');
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  // ── "Depart your thoughts" CTAs (PLAN7 §2.7, novel-reader half) ───────────
+
+  async testThoughtsCta() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    await this.reset();
+    window.__thoughtCalls = [];
+    window.Thoughts = {
+      open: function (p) { window.__thoughtCalls.push(p); },
+      openScreen: function () {}, close: function () {},
+    };
+    const q = sel => document.querySelectorAll('#novel-screen ' + sel);
+
+    // Last chapter, chapter mode → the book CTA sits right after .nv-end.
+    await this.open(6);
+    this.mode('chapter');
+    ok(q('.nv-end').length === 1, 'end marker renders on the last chapter');
+    let cta = document.querySelector('#novel-screen .nv-thoughts-cta');
+    ok(!!cta && cta.textContent === 'Depart your thoughts', 'book CTA renders');
+    ok(!!cta && !!cta.previousElementSibling && cta.previousElementSibling.classList.contains('nv-end'),
+       'CTA sits immediately after the end marker');
+    ok(!!cta && !cta.hasAttribute('data-b'), 'CTA carries no block index (outside blockEls)');
+    const sec = document.querySelector('#novel-screen .nv-section');
+    ok(sec.querySelectorAll('[data-b]').length === CHAPTERS[5].blocks.length,
+       'block indices undisturbed by the CTA', sec.querySelectorAll('[data-b]').length);
+    cta.click();
+    ok(window.__thoughtCalls.length === 1, 'CTA calls Thoughts.open exactly once');
+    const call = window.__thoughtCalls[0];
+    ok(!!call && call.kind === 'book' && call.seriesId === SERIES.id
+       && call.seriesTitle === SERIES.title && call.chapterId === null && call.chapterTitle === null,
+       'book-level payload (chapter fields null)', JSON.stringify(call));
+
+    // Infinite mode: the CTA follows .nv-end there too.
+    this.mode('infinite');
+    await new Promise(r => setTimeout(r, 100));
+    cta = document.querySelector('#novel-screen .nv-thoughts-cta');
+    ok(!!cta && !!cta.previousElementSibling && cta.previousElementSibling.classList.contains('nv-end'),
+       'infinite mode carries the CTA after the end marker');
+
+    // Chapter cadence is off by default…
+    await this.open(1);
+    this.mode('chapter');
+    ok(q('.nv-thoughts-cta').length === 0, 'no chapter CTA while thoughts.chapterPrompt is off');
+    // …and opt-in via the pref.
+    Store.prefs.set('thoughts.chapterPrompt', true);
+    await this.open(1);
+    const sm = document.querySelector('#novel-screen .nv-thoughts-cta');
+    ok(!!sm && sm.classList.contains('nv-thoughts-cta-sm'), 'smaller text-button variant when toggled on');
+    ok(!!sm && !!sm.previousElementSibling && sm.previousElementSibling.classList.contains('nv-chnav'),
+       'chapter CTA follows the bottom chapter nav');
+    sm.click();
+    const c2 = window.__thoughtCalls[window.__thoughtCalls.length - 1];
+    ok(!!c2 && c2.kind === 'chapter' && c2.chapterId === 'c-0001'
+       && c2.chapterTitle === 'The Ledger of Small Debts',
+       'chapter payload carries chapter context', JSON.stringify(c2));
+
+    // Module absent → nothing renders, no errors (§0.5).
+    delete window.Thoughts;
+    await this.open(6);
+    ok(q('.nv-thoughts-cta').length === 0, 'no CTA with window.Thoughts absent');
+    ok(q('.nv-end').length === 1, 'end marker unaffected by the missing module');
+
+    Store.prefs.set('thoughts.chapterPrompt', false);
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  // ── Home header button (PLAN7 §2.11-C) ────────────────────────────────────
+
+  async testHomeButton() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    await this.reset();
+    await this.open(1);
+    const home = document.querySelector('#novel-screen .nv-header [aria-label="Home"]');
+    ok(!!home, 'home button renders in the header');
+    ok(!!home && home.classList.contains('nv-btn') && home.classList.contains('nv-home'),
+       'home button carries the .nv-btn chrome + the 44px pad class');
+    ok(!!home && !!home.querySelector('svg path'), 'diamond glyph present');
+    const back = document.querySelector('#novel-screen .nv-header [aria-label="Close reader"]');
+    ok(!!back && back.nextElementSibling === home, 'home sits directly after the back chevron');
+
+    // Move somewhere non-trivial so the flush has something to say.
+    this.press('ArrowRight'); this.press('ArrowRight');
+    home.click();
+    ok(window.NovelReader.isOpen() === false, 'reader fully closed (api.isOpen() false)');
+    ok(window.__wentHome === 1, 'Catalogue.goHome called exactly once', window.__wentHome);
+    ok(window.__navigatedAway === 0, 'goBack NOT used for the home exit', window.__navigatedAway);
+    await new Promise(r => setTimeout(r, 80));
+    const p = await Store.getProgress(SERIES.id);
+    ok(!!p && p.chapterId === 'c-0001' && p.pct > 0, 'progress flushed before leaving',
+       p && (p.chapterId + '@' + p.pct));
     return out;
   },
 

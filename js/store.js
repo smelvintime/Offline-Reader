@@ -16,15 +16,17 @@
   'use strict';
 
   const DB_NAME    = 'offline-reader';
-  // v2 adds the dayLogs store (goals). The upgrade handler only creates what
-  // is missing, so a fresh install and a v1 upgrade converge on the same shape.
-  const DB_VERSION = 2;
+  // v2 adds the dayLogs store (goals); v3 adds the thoughts store. The upgrade
+  // handler only creates what is missing, so a fresh install and any older
+  // version converge on the same shape.
+  const DB_VERSION = 3;
 
   const STORE_SERIES   = 'userSeries';
   const STORE_CHAPTERS = 'chapters';
   const STORE_PROGRESS = 'progress';
   const STORE_BLOBS    = 'blobs';
   const STORE_DAYLOGS  = 'dayLogs';
+  const STORE_THOUGHTS = 'thoughts';
 
   // ── IndexedDB plumbing ────────────────────────────────────────────────────
 
@@ -38,6 +40,7 @@
     [STORE_PROGRESS]: new Map(),
     [STORE_BLOBS]:    new Map(),
     [STORE_DAYLOGS]:  new Map(),
+    [STORE_THOUGHTS]: new Map(),
   };
 
   function memKey(k) { return Array.isArray(k) ? k.join('\x00') : String(k); }
@@ -75,6 +78,10 @@
         if (!db.objectStoreNames.contains(STORE_DAYLOGS)) {
           const d = db.createObjectStore(STORE_DAYLOGS, { keyPath: 'day' });
           d.createIndex('updatedAt', 'updatedAt');
+        }
+        if (!db.objectStoreNames.contains(STORE_THOUGHTS)) {
+          const t = db.createObjectStore(STORE_THOUGHTS, { keyPath: 'id' });
+          t.createIndex('seriesId', 'seriesId');
         }
       };
 
@@ -160,6 +167,7 @@
     if (storeName === STORE_PROGRESS) return value.seriesId;
     if (storeName === STORE_CHAPTERS) return [value.seriesId, value.id];
     if (storeName === STORE_DAYLOGS)  return value.day;
+    if (storeName === STORE_THOUGHTS) return value.id;
     return value;
   }
 
@@ -196,6 +204,9 @@
     await idbDelete(STORE_SERIES, id);
     await clearChapters(id);
     await deleteProgress(id);
+    // Deliberately NO cascade to thoughts: a thought is the reader's own
+    // writing, not series data — seriesTitle is denormalized on each row so
+    // it still renders after the series is gone.
   }
 
   // ── Cached chapter content ────────────────────────────────────────────────
@@ -467,6 +478,47 @@
     });
   }
 
+  // ── Thoughts ──────────────────────────────────────────────────────────────
+  //
+  // The reader's own reflections, left when closing a book (or, opted in, a
+  // chapter). One row per thought, keyed by a store-minted id; `seriesTitle`
+  // is denormalized so a thought outlives its series (deleteUserSeries does
+  // not cascade here — see the note there). Single writer by contract:
+  // js/thoughts.js. The text is third-party prose at render time.
+
+  function mintThoughtId() {
+    let rand = '';
+    while (rand.length < 4) rand += Math.random().toString(36).slice(2);
+    return 't-' + Date.now().toString(36) + '-' + rand.slice(0, 4);
+  }
+
+  async function listThoughts(opts) {
+    const seriesId = opts && opts.seriesId;
+    const limit = (opts && opts.limit) || Infinity;
+    const rows = (await idbGetAll(STORE_THOUGHTS)) || [];
+    return rows.filter(function (r) {
+      return !seriesId || r.seriesId === seriesId;
+    }).sort(function (a, b) {
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    }).slice(0, limit);
+  }
+
+  async function putThought(thought) {
+    if (!thought) throw new Error('Store.putThought: thought is required');
+    const record = Object.assign({}, thought, {
+      id: thought.id || mintThoughtId(),
+      createdAt: thought.createdAt || now(),
+      updatedAt: now(),
+    });
+    await idbPut(STORE_THOUGHTS, record);
+    return record;
+  }
+
+  async function deleteThought(id) {
+    if (!id) return;                       // missing id is a no-op
+    await idbDelete(STORE_THOUGHTS, id);
+  }
+
   // ── Blobs ─────────────────────────────────────────────────────────────────
   //
   // On the web these live in the IndexedDB `blobs` store (out-of-line keys —
@@ -622,6 +674,7 @@
     pruneChapterCache, estimateUsage,
     getProgress, putProgress, listProgress, deleteProgress,
     getDayLog, putDayLog, listDayLogs, clearDayLogs,
+    listThoughts, putThought, deleteThought,
     putBlob, getBlob, deleteBlob,
     prefs: prefs,
     // Diagnostics — true when IndexedDB was unavailable and we fell back to RAM.

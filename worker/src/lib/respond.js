@@ -15,6 +15,7 @@ export const ERR = {
   not_found: 404,
   no_adapter: 422,
   parse_failed: 422,
+  list_failed: 422,
   bad_content_type: 415,
   too_large: 413,
   rate_limited: 429,

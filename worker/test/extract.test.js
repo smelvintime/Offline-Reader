@@ -8,7 +8,9 @@ import { extractMeta, sniffInfoPairs } from '../src/lib/meta.js';
 import {
   prune,
   pickProseContainer,
+  findLinkCluster,
   findTocCluster,
+  findListingCluster,
   findImageRun,
   findNextLink,
   parseChapterNum,
@@ -122,6 +124,82 @@ describe('findTocCluster — honest failure', () => {
     assert.ok(toc, 'should still return what it found');
     assert.equal(toc.confidence, 'low');
     assert.equal(toc.links.length, 3);
+  });
+});
+
+describe('findLinkCluster — the shared core behind TOC and listing detection', () => {
+  test('with the default (chapter) prior it finds exactly what findTocCluster finds', () => {
+    const root = parseHtml(fixture('novel-series.html'));
+    prune(root, 'light');
+    const core = findLinkCluster(root, NOVEL_SERIES);
+    const toc = findTocCluster(root, NOVEL_SERIES);
+    assert.ok(core && toc);
+    assert.equal(core.score, toc.score, 'the wrapper must not change the score');
+    assert.deepEqual(
+      core.entries.map((e) => e.href),
+      toc.links.map((l) => l.href),
+    );
+    assert.equal(typeof core.stats.chapterish, 'number');
+    assert.equal(typeof core.stats.numbered, 'number');
+  });
+
+  test('returns null below minLinks', () => {
+    const root = parseHtml('<html><body><a href="/x">one</a></body></html>');
+    assert.equal(findLinkCluster(root, 'https://x.test/'), null);
+  });
+});
+
+describe('findListingCluster — listing page', () => {
+  const LISTING = 'https://wandering-ink.test/browse/';
+  const root = parseHtml(fixture('listing-page.html'));
+  prune(root, 'light');
+  const hit = findListingCluster(root, LISTING);
+
+  test('finds the twenty series cards, not the nav, sidebar or pagination', () => {
+    assert.ok(hit, 'expected a listing cluster');
+    assert.equal(hit.items.length, 20);
+    const joined = hit.items.map((i) => i.url).join(' ');
+    assert.ok(!joined.includes('/login'), 'nav leaked');
+    assert.ok(!joined.includes('page='), 'pagination leaked');
+    assert.ok(!joined.includes('/privacy'), 'footer leaked');
+  });
+
+  test('titles come from the link text, trimmed', () => {
+    assert.equal(hit.items[0].title, 'The Salt Road');
+    assert.equal(hit.items[8].title, 'The Room Above the Tannery');
+  });
+
+  test('covers are per-item and resolve lazy-load attributes', () => {
+    assert.equal(hit.items[0].cover, 'https://cdn1.wi-img.gwfixture.org/thumbs/salt-road.jpg');
+    // data-src past the base64 placeholder
+    assert.equal(hit.items[2].cover, 'https://cdn2.wi-img.gwfixture.org/thumbs/tin-quarter.jpg');
+    // srcset fallback via the existing blocks.js imageSrc helper (last candidate)
+    assert.equal(hit.items[4].cover, 'https://cdn3.wi-img.gwfixture.org/thumbs/bad-fresco@2x.jpg');
+    // coverless cards yield '' instead of stealing a neighbour's image
+    const covers = hit.items.map((i) => i.cover);
+    assert.equal(covers.filter((c) => !c).length, 2);
+    const nonEmpty = covers.filter(Boolean);
+    assert.equal(new Set(nonEmpty).size, nonEmpty.length, 'no cover may repeat across items');
+  });
+
+  test('reports high confidence for a covered grid', () => {
+    assert.equal(hit.confidence, 'high');
+  });
+
+  test('the chapter TOC page still resolves as chapters, the listing page as series', () => {
+    // The two priors pick different clusters from their respective pages —
+    // the refactor must not have blurred them together.
+    const seriesRoot = parseHtml(fixture('novel-series.html'));
+    prune(seriesRoot, 'light');
+    const listing = findListingCluster(seriesRoot, NOVEL_SERIES);
+    assert.ok(listing, 'the listing prior still finds the strongest link cluster');
+    // On a series page the strongest same-shaped cluster is the chapter list.
+    assert.match(listing.items[0].url, /chapter-\d+$/);
+  });
+
+  test('returns null when there is nothing listing-shaped', () => {
+    const empty = parseHtml('<html><body><p>Nothing here.</p><a href="/x">one</a></body></html>');
+    assert.equal(findListingCluster(empty, 'https://x.test/'), null);
   });
 });
 

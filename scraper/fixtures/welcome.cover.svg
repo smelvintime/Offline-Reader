@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" width="300" height="450" role="img" aria-label="We Are Readers Here">
+  <!-- The reader: design 7 of the generated-cover family (rotated squares, thin
+       rules, small dots, flat fills) — hand-committed here in indigo/amber as
+       the family's origin story. A seated figure, an open book, a diamond ground. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#191734"/>
+      <stop offset="100%" stop-color="#242054"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="300" height="450" fill="url(#bg)"/>
+
+  <!-- diamond field behind the figure -->
+  <polygon points="150,118 262,230 150,342 38,230" fill="#2b2766"/>
+  <polygon points="150,138 242,230 150,322 58,230" fill="none" stroke="#4c46a3" stroke-width="1.5"/>
+
+  <!-- dot stars -->
+  <g fill="#a5b4fc">
+    <circle cx="58" cy="84" r="2.5"/>
+    <circle cx="236" cy="66" r="2"/>
+    <circle cx="266" cy="132" r="2.5"/>
+    <circle cx="34" cy="168" r="2"/>
+    <circle cx="252" cy="308" r="2"/>
+    <circle cx="46" cy="300" r="2.5"/>
+  </g>
+
+  <!-- the app's diamond mark -->
+  <g transform="translate(150 52)">
+    <polygon points="0,-12 12,0 0,12 -12,0" fill="none" stroke="#fbbf24" stroke-width="2"/>
+    <circle cx="0" cy="0" r="2.5" fill="#fbbf24"/>
+  </g>
+
+  <!-- ground rule with small diamonds -->
+  <line x1="40" y1="332" x2="260" y2="332" stroke="#8b93ff" stroke-width="2"/>
+  <g fill="#8b93ff">
+    <polygon points="62,332 68,326 74,332 68,338"/>
+    <polygon points="226,332 232,326 238,332 232,338"/>
+  </g>
+
+  <!-- the reader: circle head, angular shoulders and knees, an open-V book -->
+  <g fill="#fbbf24">
+    <circle cx="141" cy="184" r="16"/>
+    <!-- torso, leaning toward the book -->
+    <polygon points="130,204 156,208 170,244 160,290 118,286 116,238"/>
+    <!-- seat and raised thigh to the knee -->
+    <polygon points="116,286 160,290 190,270 198,284 158,308 120,332 104,332 106,296"/>
+    <!-- shin from knee to the ground -->
+    <polygon points="188,272 200,282 210,330 194,332"/>
+  </g>
+  <!-- the open-V book, resting against the knees -->
+  <polygon points="196,262 170,246 170,270 196,284" fill="#ffe3a3"/>
+  <polygon points="196,262 222,246 222,270 196,284" fill="#ffd487"/>
+  <line x1="196" y1="262" x2="196" y2="284" stroke="#242054" stroke-width="2"/>
+
+  <g fill="#e9e7f8" font-family="Georgia, 'Times New Roman', serif" text-anchor="middle">
+    <text x="150" y="398" font-size="24">We Are Readers</text>
+    <text x="150" y="426" font-size="24">Here</text>
+  </g>
+  <text x="150" y="88" fill="#8b93ff" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="3" text-anchor="middle">THE OWNER'S TOUR</text>
+</svg>

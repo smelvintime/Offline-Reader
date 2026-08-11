@@ -270,3 +270,41 @@ restored mechanically by `npm install` + `npm run sync`.
 - **Anything structurally weird in `ios/`/`android/`** — delete the directory,
   `npx cap add ios` (or `android`), re-apply the list above. That workflow is
   the design, not a workaround.
+
+## Appendix: back gestures (a deliberate default)
+
+The generated iOS project ships with WKWebView's
+`allowsBackForwardNavigationGestures` at its default — **off** — and that
+default is deliberate and load-bearing (PLAN7 §2.11-B; the user veto hook is
+PLAN7 §12.2). Do not flip it on while poking around a regenerated `ios/`.
+
+Why it stays off. The app is a same-document SPA: screens change via a
+`data-screen` attribute, and browser history holds at most a one-entry
+sentinel (catalogue.js). WKWebView animates edge-swipes against page
+*snapshots*, and on same-document history every such animation is a stale
+snapshot that then snaps to the real screen. That leaves two honest options:
+
+- **Gestures on + sentinel routing** — honors "standard edge-swipe outside
+  readers", but every swipe navigation in the native app animates a stale
+  snapshot, the in-reader cancel becomes a visible slide-and-snap-back
+  flicker in the core feel, and the behavior is device-timing-dependent —
+  verifiable only on hardware.
+- **Gestures off (the shipped default)** — readers are protected by
+  construction and no snapshot artifact exists anywhere, but the native iOS
+  app has **no edge-swipe back at all**: navigation outside readers is the
+  header back/close buttons and the home buttons in both readers. (Safari
+  and the installed PWA keep their edge-swipe — the history sentinel serves
+  them.)
+
+The shipped decision is the second: a stale-snapshot animation on every
+navigation is a worse everyday feel than reaching for the header. Android is
+unaffected either way — hardware/gesture back arrives as Capacitor's
+`backButton` event and is dispatched per screen by `js/platform.js` (the
+unified back table, ARCHITECTURE §2.2).
+
+**Parked as future work, behind on-device verification:** a tiny native
+plugin that toggles `allowsBackForwardNavigationGestures` per screen — on
+for shell screens, off whenever `data-screen` enters a reader — which would
+give the best of both. It only earns its keep if a device check shows the
+mid-session toggle takes effect reliably and the shell-screen snapshot
+artifact feels acceptable; until someone runs that check, it stays parked.

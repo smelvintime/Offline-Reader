@@ -1,0 +1,537 @@
+/* Offline Reader — depart your thoughts skin. Owned by js/thoughts.js.
+ *
+ * Three surfaces share this file (PLAN7 §2.7): the reading screen
+ * (#thoughts-screen), the composer sheet (.tho-scrim + .tho-sheet, parked on
+ * <body> so it can float over whichever screen asked for it — novel end,
+ * image chip, or a list row's Edit), and the two pieces of floating chrome
+ * (.tho-chip, .tho-toast).
+ *
+ * Tokens consume the §2.9 derived layer (--surf-1/--border/--accent-ink…,
+ * defined by css/settings.css under html[data-apptheme]) with today's dark
+ * literals as fallbacks — no attribute set, or settings.js deleted, and every
+ * value resolves to the shipped dark look; the test harness loads this sheet
+ * the same way. The chip and the toast are the exception: they float over
+ * READER surfaces, which theme themselves (the image reader is pinned dark),
+ * so their colours are pinned dark below — the goals pill/toast doctrine.
+ *
+ * Blur budget: ZERO backdrop-filter in this file. The chip is the §2.4
+ * precedent verbatim: solid rgba(18,18,18,0.92), radius 100px, no blur.
+ *
+ * Mobile-first; narrowest target is a 360 px phone. The one breakpoint is
+ * 720 px, where the composer docks right (the novel.css/goals.css precedent).
+ */
+
+#thoughts-screen,
+.tho-scrim,
+.tho-sheet {
+  --tho-bg:          var(--bg, #0a0a0a);
+  --tho-text:        var(--text, #f0f0f0);
+  --tho-muted:       var(--muted, #a0a0a0);
+  --tho-surf-1:      var(--surf-1, rgba(255, 255, 255, 0.04));
+  --tho-surf:        var(--surf, rgba(255, 255, 255, 0.08));
+  --tho-surf-2:      var(--surf-2, rgba(255, 255, 255, 0.12));
+  --tho-border:      var(--border, rgba(255, 255, 255, 0.1));
+  --tho-border-soft: var(--border-soft, rgba(255, 255, 255, 0.06));
+  --tho-accent:      var(--accent, #6366f1);
+  --tho-accent-ink:  var(--accent-ink, #a5b4fc);
+  --tho-accent-soft: color-mix(in srgb, var(--tho-accent) 14%, transparent);
+  --tho-danger:      var(--danger, #f0616d);
+  --tho-r:           10px;                  /* house card radius */
+  --tho-r-sm:        8px;                   /* nested / chips */
+  --tho-tap:         44px;                  /* the floor for a finger */
+  --tho-dur:         150ms;
+  --tho-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Screen shell ─────────────────────────────────────────────────────────── */
+
+#thoughts-screen {
+  display: none;               /* showScreen() flips this to flex */
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  z-index: 140;                /* the goals/settings tier — screens never show together */
+  background: var(--tho-bg);
+  color: var(--tho-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Visible ring from the keyboard only — a persistent outline after a tap
+   reads as a bug. Outline never changes the element's own shape. */
+#thoughts-screen :focus-visible,
+.tho-sheet :focus-visible,
+.tho-chip:focus-visible,
+.tho-toast:focus-visible {
+  outline: 2px solid var(--tho-accent, #6366f1);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+#thoughts-screen :focus:not(:focus-visible),
+.tho-sheet :focus:not(:focus-visible),
+.tho-chip:focus:not(:focus-visible),
+.tho-toast:focus:not(:focus-visible) { outline: none; }
+
+#thoughts-screen .tho-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.75rem;
+  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--tho-border);
+  /* Solid, not glass — the blur budget stays with the readers. */
+  background: var(--tho-bg);
+}
+
+#thoughts-screen .tho-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#thoughts-screen .tho-icon-btn,
+.tho-sheet .tho-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--tho-r);
+  background: transparent;
+  color: var(--tho-text);
+  cursor: pointer;
+  transition: background var(--tho-dur);
+}
+#thoughts-screen .tho-icon-btn:active,
+.tho-sheet .tho-icon-btn:active { background: var(--tho-surf); transform: scale(0.94); }
+#thoughts-screen .tho-icon-btn svg,
+.tho-sheet .tho-icon-btn svg { flex-shrink: 0; }
+
+#thoughts-screen .tho-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 0.875rem;
+  padding-left: calc(0.875rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.875rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+#thoughts-screen .tho-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Chapter-cadence toggle row (the goals sheet-row grammar) ─────────────── */
+
+#thoughts-screen .tho-row {
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--tho-border-soft);
+}
+#thoughts-screen .tho-row-label {
+  display: block;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--tho-muted);
+  margin-bottom: 0.5rem;
+}
+#thoughts-screen .tho-toggle {
+  width: 100%; min-height: var(--tho-tap);
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--tho-surf); border: 1px solid transparent; border-radius: var(--tho-r);
+  color: var(--tho-text);
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  text-align: left;
+  transition: background var(--tho-dur), color var(--tho-dur);
+}
+#thoughts-screen .tho-toggle .tho-state {
+  flex-shrink: 0;
+  padding: 0.2rem 0.6rem; border-radius: var(--tho-r-sm);   /* squared off, not pill-shaped */
+  background: var(--tho-surf-2); font-size: 0.72rem; font-weight: 700;
+}
+#thoughts-screen .tho-toggle[aria-pressed='true'] { border-color: var(--tho-accent); color: var(--tho-accent-ink); }
+#thoughts-screen .tho-toggle[aria-pressed='true'] .tho-state { background: var(--tho-accent); color: #fff; }
+#thoughts-screen .tho-toggle:active { transform: scale(0.97); }
+
+/* ── The list — grouped by series, newest first ───────────────────────────── */
+
+#thoughts-screen .tho-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+#thoughts-screen .tho-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+#thoughts-screen .tho-group-head:first-child { margin-top: 0; }
+#thoughts-screen .tho-group-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#thoughts-screen .tho-group-count {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--tho-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#thoughts-screen .tho-item {
+  background: var(--tho-surf-1);
+  border: 1px solid var(--tho-border);
+  border-radius: var(--tho-r);
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+#thoughts-screen .tho-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+#thoughts-screen .tho-kind {
+  flex-shrink: 0;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--tho-r-sm);
+  background: var(--tho-surf-2);
+  color: var(--tho-accent-ink);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+#thoughts-screen .tho-item-chapter {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--tho-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#thoughts-screen .tho-item-date {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--tho-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reader's words. pre-wrap keeps their line breaks; anywhere-wrapping
+   keeps a pasted URL from forcing horizontal scroll. Rendered via
+   textContent only — this rule is presentation, the JS is the boundary. */
+#thoughts-screen .tho-item-text {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#thoughts-screen .tho-item-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+#thoughts-screen .tho-btn {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  background: var(--tho-surf);
+  border: 1px solid var(--tho-border);
+  border-radius: var(--tho-r);
+  color: var(--tho-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--tho-dur), transform var(--tho-dur);
+}
+#thoughts-screen .tho-btn:active { background: var(--tho-surf-2); transform: scale(0.97); }
+#thoughts-screen .tho-btn.tho-btn-danger { color: var(--tho-danger); border-color: color-mix(in srgb, var(--tho-danger) 40%, transparent); }
+
+/* Empty state — dashed border, the house "nothing here yet" voice. */
+#thoughts-screen .tho-empty {
+  border: 1px dashed var(--tho-border);
+  border-radius: var(--tho-r);
+  padding: 1.4rem 1rem;
+  color: var(--tho-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+#thoughts-screen .tho-more {
+  width: 100%;
+  min-height: var(--tho-tap);
+  background: var(--tho-surf-1);
+  border: 1px solid var(--tho-border);
+  border-radius: var(--tho-r);
+  color: var(--tho-accent-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--tho-dur), transform var(--tho-dur);
+}
+#thoughts-screen .tho-more:active { background: var(--tho-surf); transform: scale(0.98); }
+
+/* ── Composer sheet (parked on <body>; floats over any screen) ────────────── */
+
+.tho-scrim {
+  position: fixed; inset: 0;
+  z-index: 380;                /* over every screen (novel is 200), under the toasts (410) */
+  background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.28s ease;
+}
+.tho-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+.tho-sheet {
+  position: fixed; z-index: 390;
+  left: 0; right: 0; bottom: 0;
+  max-height: 86%;
+  display: flex; flex-direction: column;
+  background: var(--tho-bg);
+  color: var(--tho-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-top: 1px solid var(--tho-border);
+  border-radius: 24px 24px 0 0;   /* sheet tops are the one place 24px is allowed */
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.28s var(--tho-ease);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+}
+/* [hidden] keeps the sheet displayed but translated off-screen so the hide can
+   animate; `inert` (set in JS) is what actually removes it from the tab order. */
+.tho-sheet[hidden] { display: flex !important; transform: translateY(101%); pointer-events: none; }
+
+.tho-sheet .tho-sheet-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--tho-border);
+}
+/* The series title — a third-party string; one line, ellipsized. */
+.tho-sheet .tho-sheet-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tho-sheet .tho-sheet-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem 1rem 1rem;
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.tho-sheet .tho-sheet-date {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--tho-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 1rem = 16px — anything smaller and iOS zooms the page on focus. */
+.tho-sheet .tho-ta {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 7.5rem;
+  max-height: 40vh;
+  resize: none;
+  padding: 0.7rem 0.8rem;
+  background: var(--tho-surf-1);
+  border: 1px solid var(--tho-border);
+  border-radius: var(--tho-r);
+  color: var(--tho-text);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.55;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tho-sheet .tho-ta::placeholder { color: var(--tho-muted); }
+.tho-sheet .tho-ta:focus { border-color: var(--tho-accent); outline: none; }
+
+.tho-sheet .tho-sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.tho-sheet .tho-save {
+  flex: 1 1 auto;
+  min-height: 48px;
+  padding: 0 1.1rem;
+  border: 0;
+  border-radius: var(--tho-r);
+  background: var(--tho-accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background var(--tho-dur), transform var(--tho-dur);
+}
+.tho-sheet .tho-save:active { transform: scale(0.98); }
+.tho-sheet .tho-discard {
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 0 1.1rem;
+  background: var(--tho-surf);
+  border: 1px solid var(--tho-border);
+  border-radius: var(--tho-r);
+  color: var(--tho-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--tho-dur), transform var(--tho-dur);
+}
+.tho-sheet .tho-discard:active { background: var(--tho-surf-2); transform: scale(0.98); }
+
+/* ── Floating chip (image-reader book end) ────────────────────────────────── */
+
+/* The §2.4 floating-chrome precedent verbatim: solid rgba(18,18,18,0.92),
+   radius 100px, NO backdrop-filter, safe-area padded. Docked bottom-LEFT —
+   the autoscroll bar owns bottom-centre, the goals pill bottom-right; all
+   three can be up at once without touching. Pinned dark: it floats over the
+   image reader, which is pinned dark itself (§2.9). z-index 250 matches the
+   goals pill tier, over the reader chrome (100) and autoscroll bar (200). */
+.tho-chip {
+  position: fixed;
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  max-width: calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  z-index: 250;
+  min-height: var(--tho-tap, 44px);
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 1rem;
+  background: rgba(18, 18, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 100px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: #f0f0f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tho-chip:active { transform: scale(0.97); }
+.tho-chip.tho-chip-hidden { opacity: 0; transform: translateY(100px); pointer-events: none; }
+
+/* ── Toast (tappable — a real button; the entrance that needs no settings) ── */
+
+/* The .gl-toast geometry with a solid background — it can appear over an open
+   reader, and the blur budget is spent. Pinned dark for the same reason as
+   the chip. pointer-events only while visible, so a faded toast can never
+   swallow a tap meant for what is under it. */
+.tho-toast {
+  position: fixed;
+  z-index: 410;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 10px);
+  max-width: min(calc(92vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 30rem);
+  padding: 0.7rem 1rem;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: #f0f0f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+.tho-toast.visible { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+/* ── Wide screens ─────────────────────────────────────────────────────────── */
+
+@media (min-width: 720px) {
+  /* The composer docks as a right-hand panel — the novel.css:788 precedent;
+     the keyboard-overlap note in §2.7 does not apply here. */
+  .tho-sheet {
+    left: auto; top: 0; bottom: 0;
+    width: 24rem;
+    max-height: none;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--tho-border);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .tho-sheet[hidden] { transform: translateX(101%); }
+}
+
+/* ── Hover — pointer-fine devices only, never the touch default ───────────── */
+
+@media (hover: hover) and (pointer: fine) {
+  #thoughts-screen .tho-icon-btn:hover,
+  .tho-sheet .tho-icon-btn:hover { background: var(--tho-surf); }
+  #thoughts-screen .tho-toggle:hover,
+  #thoughts-screen .tho-btn:hover { background: var(--tho-surf-2); }
+  #thoughts-screen .tho-more:hover { background: var(--tho-surf); }
+  .tho-sheet .tho-discard:hover { background: var(--tho-surf-2); }
+  .tho-sheet .tho-save:hover { filter: brightness(1.08); }
+  .tho-chip:hover { background: rgba(30, 30, 34, 0.95); }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #thoughts-screen *,
+  .tho-scrim,
+  .tho-sheet,
+  .tho-chip,
+  .tho-toast {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

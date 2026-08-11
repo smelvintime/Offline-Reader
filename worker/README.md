@@ -27,7 +27,7 @@ Contract: [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §1 (content model),
 ```bash
 cd worker
 npm install
-npm test                 # 197 tests, no network required
+npm test                 # 234 tests, no network required
 npx wrangler deploy      # needs a Cloudflare account
 ```
 
@@ -68,12 +68,12 @@ curl https://gw.example.workers.dev/health
 ```jsonc
 {
   "ok": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "adapters": ["mangadex", "generic-manga", "generic-novel"],
   "adapterDetail": [
-    { "id": "mangadex",      "label": "MangaDex",                         "priority": 10 },
-    { "id": "generic-manga", "label": "Generic manga / manhwa site",      "priority": 90 },
-    { "id": "generic-novel", "label": "Generic novel / web-fiction site", "priority": 100 }
+    { "id": "mangadex",      "label": "MangaDex",                         "priority": 10,  "canList": true },
+    { "id": "generic-manga", "label": "Generic manga / manhwa site",      "priority": 90,  "canList": true },
+    { "id": "generic-novel", "label": "Generic novel / web-fiction site", "priority": 100, "canList": true }
   ],
   "kv": false,                                     // is a KV namespace bound?
   "allowlist": { "mode": "static-only", "staticEntries": 13 },
@@ -85,6 +85,8 @@ curl https://gw.example.workers.dev/health
 
 Use this to confirm a deploy, and to check whether KV actually got bound —
 `"kv": false` means `/image` is running on the compiled-in static allowlist only.
+`canList` reports the optional `/list` capability per adapter, so a client can
+gate its browse UI off `/health` instead of guessing.
 
 ### `GET /image?url=<encoded>`
 
@@ -217,6 +219,54 @@ Image chapters:
 Page URLs are the **upstream** URLs. The client wraps them in `/image?url=…`
 itself (`js/reader.js` already does this via `window.gatewayUrl`).
 
+### `GET /list?url=<encoded browse/catalogue page>`
+
+Turns a site's browse or catalogue page into a series listing. This is the
+gateway half of the app's Sources feature.
+
+```bash
+curl "https://gw.example.workers.dev/list?url=https%3A%2F%2Fexample.org%2Fbrowse%2F"
+```
+
+```jsonc
+{
+  "ok": true,
+  "adapter": "generic-novel",
+  "source": { "title": "Wandering Ink", "url": "https://example.org/browse/" },
+  "items": [
+    {
+      "title": "The Salt Road",
+      "url": "https://example.org/series/the-salt-road/",   // feed this to /resolve
+      "cover": "https://img.example.org/thumbs/salt-road.jpg", // optional
+      "type": "webnovel"                                     // optional hint, never trusted
+    }
+    // …
+  ],
+  "nextUrl": "https://example.org/browse/?page=2"            // optional; feed back into /list
+}
+```
+
+- **Listing is an optional adapter capability** (`listSeries`, gated by the
+  optional `listMatches` or, when absent, by `matches`). `/health`'s
+  `adapterDetail` reports `canList` per adapter. In the shipped registry
+  `generic-novel` lists everything, so `no_adapter` guards only future
+  configurations.
+- Items carry the **raw series-page URL** the client feeds back into
+  `/resolve`; the listing **never mints series ids** — the client and
+  `/resolve` own id hashing.
+- Caps: at most **60 items** per response, titles clamped to 200 chars; the
+  page fetch rides the same byte/timeout caps as `/resolve`.
+- Pagination is client-driven: one page fetch per request, `nextUrl` when the
+  site (or the MangaDex API's offset paging) offers more.
+- Rate bucket: `parse` (shared with `/resolve` and `/chapter`).
+- Cover hosts discovered here are learned into the `/image` allowlist, capped
+  at **4 hosts per request** and memoized per isolate — see
+  [the image allowlist](#the-image-allowlist).
+- Sends the `X-Or-Adapter` response header; cached 300 s.
+
+An adapter that ran but found no usable listing answers `list_failed` (422) —
+distinct from `no_adapter` (no adapter claimed the URL at all).
+
 ### Errors
 
 Every failure is the same envelope with a real non-2xx status and CORS headers:
@@ -233,6 +283,7 @@ Every failure is the same envelope with a real non-2xx status and CORS headers:
 | `not_found`         | 404    | unknown endpoint                                           |
 | `no_adapter`        | 422    | no adapter claimed the URL                                 |
 | `parse_failed`      | 422    | adapter ran but could not make sense of the page           |
+| `list_failed`       | 422    | `/list` adapter ran but found no usable series listing     |
 | `bad_content_type`  | 415    | `/image` got a response that was not `image/*`             |
 | `too_large`         | 413    | body exceeded the size cap                                 |
 | `rate_limited`      | 429    | per-client budget exhausted (sends `Retry-After`)          |
@@ -314,15 +365,34 @@ A lying `Content-Length` does not help — the streaming counter aborts anyway.
 ### The image allowlist
 
 `/image` is allowlist-gated so it cannot be used as an open image proxy for the
-whole internet. Two tiers:
+whole internet. The invariant: **the allowlist grows only via a successful
+`/resolve`, `/chapter`, or `/list` parse — never via `/image` itself.** `/image`
+remains the only allowlist-*gated* endpoint. Two tiers:
 
 1. **Static** — compiled into [`src/lib/allowlist.js`](src/lib/allowlist.js):
    MangaDex (`uploads.mangadex.org`, `*.mangadex.network`), Flame Comics,
    Project Gutenberg, Standard Ebooks, and a couple of common cover hosts.
    Extend without editing code via the `EXTRA_ALLOWED_HOSTS` var
    (comma/whitespace separated, supports `*.host`).
-2. **Learned** — hostnames observed during a *successful* `/resolve` or
-   `/chapter`, written to KV with a **30-day TTL**, max 12 per request.
+2. **Learned** — hostnames observed during a *successful* `/resolve`,
+   `/chapter` or `/list`, written to KV with a **30-day TTL**. Max 12 per
+   `/resolve`/`/chapter` request; max **4** per `/list` request (cover CDNs —
+   listing pages almost always serve thumbnails from one host, and broken
+   thumbnails on first browse would mis-sell the feature).
+
+**The `/list` write memo.** `learnHosts` skips only *statically* allowed hosts —
+an already-learned host is re-put on every call. That is fine for `/resolve`
+and `/chapter` (single-shot flows), but `/list` is a browse loop on the 30/60 s
+parse bucket: without mitigation, one user re-browsing a source re-writes the
+same 1–4 cover hosts on every page — 30 req/min × up to 4 puts ≈ 120 KV
+writes/min, burning the free tier's 1,000 writes/day in minutes, from one
+client, before any abuse. `/list` therefore keeps an in-isolate memo of
+host → last-put time (`src/lib/gateway.js`, the ratelimit-bucket idiom) and
+skips hosts put within the last ~6 h. Repeat browsing from a warm isolate then
+writes nothing; **the residual cost is one put-batch per cold isolate per
+host**, bounded by isolate churn — a personal deployment stays far inside the
+free tier, and even a busy one only pays ≤ 4 writes per isolate spawn per
+source, not per request.
 
 **KV is optional.** With no namespace bound the worker still runs: tier 2 is
 skipped, `/image` serves the static list only, and `/health` reports
@@ -357,7 +427,9 @@ the free tier allows only 1,000 writes/day.
 
 ```
 src/adapters/<id>.js  →  { id, label, priority, matches(url, ctx),
-                           resolveSeries(url, ctx), resolveChapter(url, ctx) }
+                           resolveSeries(url, ctx), resolveChapter(url, ctx),
+                           // optional (§6.5) — the /list capability:
+                           listSeries(url, ctx)?, listMatches(url)? }
 ```
 
 Registered in [`src/adapters/index.js`](src/adapters/index.js). Every adapter
@@ -372,6 +444,15 @@ whose `matches()` returns true is a candidate; **the lowest `priority` wins.**
 `ctx` provides `fetchHtml(url)`, `fetchJson(url)`, `absolutize(href, base)`,
 `chapterSrc(url, kind)`, `imageSrc(url)` and `env`.
 
+**Listing is optional.** The five members above stay required; `listSeries` and
+`listMatches` may be absent — but a present member of the wrong type is a boot
+error, exactly like a malformed required member. `/list` picks the first
+adapter (in priority order) that implements `listSeries` AND whose
+`listMatches(url)` — or `matches(url)` when the gate is absent — claims the
+URL. For MangaDex, `listMatches` accepts mangadex.org browse/search/root URLs
+(anything that is *not* a single title/chapter); the generic adapters gate
+listing on their ordinary `matches`, so `generic-novel` lists everything.
+
 ### `mangadex`
 
 JSON API only (`api.mangadex.org`) — **no HTML scraping**. mangadex.org is a
@@ -380,6 +461,12 @@ publishes an API for exactly this use. Series come from `/manga/<uuid>` plus a
 paginated `/manga/<uuid>/feed`; pages come from `/at-home/server/<uuid>`.
 Reading direction is inferred from `originalLanguage` (ja/zh → `rtl`, ko →
 `vertical`). Capped at 1,200 chapters per series.
+
+Listing uses the search API: the browse URL's `q`/`title` param becomes the
+`title` filter; with no query the default is most-followed, English-available
+titles, 32 per page, `includes[]=cover_art` for thumbnails. `nextUrl` pages by
+`offset` on the same mangadex.org URL so the client feeds it straight back into
+`/list`.
 
 ### The HTML-parsing approach, and why
 
@@ -417,6 +504,13 @@ Shared heuristics live in `src/lib/extract.js`:
   200px) and URL shape (`logo`, `avatar`, `banner`, `sprite`, `thumb`, …), and
   lazy-loading attributes (`data-src`, `srcset`, …) resolved past base64
   placeholders.
+- **Listing cluster** — the same same-shaped-link core as the TOC finder
+  (`findLinkCluster`), with the chapter-ish text prior swapped for a listing
+  prior: reward count, href-prefix similarity and a cover image inside each
+  link's card; no chapter-text reward; the nav-word and pagination penalties
+  kept. Each item's cover is the first usable `<img>` in its own card (the
+  highest ancestor not shared with another item), lazy-load attributes
+  resolved.
 
 Metadata always comes from **Open Graph / JSON-LD / `<meta>` first**
 (`src/lib/meta.js`), with label/value sniffing ("Author: X", "Status: Y") and
@@ -522,16 +616,19 @@ What this means in practice:
 - `/image` is cheap. It streams, does almost no CPU work, and the edge cache
   absorbs repeats. A reading session of 200 pages is ~200 requests, most of
   which will be cache hits after the first reader.
-- **`/resolve` and `/chapter` parse HTML and are the CPU risk.** A large series
-  page can approach or exceed the free plan's 10 ms CPU budget, which surfaces
-  as a 1102 "Worker exceeded resource limits" error. The 5 MB HTML cap, the
-  single-pass measurement in `extract.js`, the 4-page pagination cap and the
-  2,000-chapter cap all exist to bound this, but a genuinely huge page on the
-  free plan may still fail. If you hit it, the $5 plan removes the problem.
+- **`/resolve`, `/chapter` and `/list` parse HTML and are the CPU risk.** A
+  large series page can approach or exceed the free plan's 10 ms CPU budget,
+  which surfaces as a 1102 "Worker exceeded resource limits" error. The 5 MB
+  HTML cap, the single-pass measurement in `extract.js`, the 4-page pagination
+  cap, the 2,000-chapter cap and `/list`'s 60-item / one-page-per-request caps
+  all exist to bound this, but a genuinely huge page on the free plan may still
+  fail. If you hit it, the $5 plan removes the problem.
 - The **1,000 KV writes/day** free limit is the real ceiling on the learned
-  allowlist. Learning is capped at 12 hosts per resolve and entries live 30 days,
-  so a normal personal deployment will not come close — but a busy public one
-  will, and writes simply start failing (degrading to static-only, not erroring).
+  allowlist. Learning is capped at 12 hosts per resolve, 4 per `/list` (and
+  `/list`'s writes are memoized per isolate for ~6 h — see the allowlist
+  section), and entries live 30 days, so a normal personal deployment will not
+  come close — but a busy public one will, and writes simply start failing
+  (degrading to static-only, not erroring).
 
 A personal deployment for one household reads comfortably inside every free tier.
 
@@ -544,17 +641,17 @@ cd worker
 npm test          # node --test test/
 ```
 
-197 tests, **no live network** — every upstream response is a saved HTML fixture
+234 tests, **no live network** — every upstream response is a saved HTML fixture
 in `test/fixtures/` or an inline string, and `globalThis.fetch` is stubbed.
 
 | file                  | covers                                                        |
 | --------------------- | ------------------------------------------------------------- |
 | `security.test.js`    | URL validation, SSRF rejection, redirect re-validation, header non-forwarding, size caps |
 | `blocks.test.js`      | block vocabulary, unknown-type degradation, paragraph integrity, XSS boundary |
-| `extract.test.js`     | prose container, TOC cluster, image run, metadata preference   |
-| `adapters.test.js`    | registry shape, selection by priority, all three adapters against fixtures |
+| `extract.test.js`     | prose container, TOC cluster, listing cluster + shared link-cluster core, image run, metadata preference |
+| `adapters.test.js`    | registry shape (incl. the optional listing members), selection by priority, all three adapters (resolve + list) against fixtures |
 | `allowlist.test.js`   | static tier, learned tier, TTL, KV-optional and KV-outage paths |
-| `endpoints.test.js`   | every route end-to-end through the default export              |
+| `endpoints.test.js`   | every route end-to-end through the default export, incl. `/list` (caps, SSRF, learn-cap, warm-isolate memo, `list_failed`) |
 
 To exercise it against a real HTTP server:
 

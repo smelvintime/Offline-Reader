@@ -15,6 +15,14 @@
 // it reads, merges its own arrays in memory, and hands putDayLog a complete
 // patch — the store just replaces fields.
 //
+// It is likewise the only writer of the `goals.lifetime` pref (PLAN7 §2.3):
+// an all-time ledger fed by the very same fold deltas as the day log, seeded
+// once from dayLogs, and deliberately KEPT when "Reset goal history" clears
+// them. Its numbers follow the PLAN7 §1.2 rule — finite ≥ 0, fractions
+// VALID: words accumulate as floats and persist unrounded, rounding is
+// display-only — so the validator must never demand integers, or it would
+// re-seed on every read and destroy the ledger it exists to keep.
+//
 // The folding edge cases of PLAN.md §5.1 are the spec, not decoration:
 // baselines reset on chapter change (open zeroes positional fields, which
 // would otherwise read as huge deltas), deltas clamp at zero, words need a
@@ -46,6 +54,9 @@
   const STREAK_SCAN_LIMIT = 400;
 
   const TIMER_KEY = 'or.timer'; // localStorage mirror; deliberately NOT in the native Preferences mirror (§5.1)
+
+  const LIFETIME_KEY = 'goals.lifetime'; // the all-time ledger (PLAN7 §2.3); rides or.prefs → natively mirrored for free
+  const LIFETIME_SEED_LIMIT = 4000;      // dayLog rows the one-time seed may read — over a decade of daily rows
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
 
@@ -169,6 +180,15 @@
     const m = Math.floor((total % 3600) / 60);
     const s = total % 60;
     return h > 0 ? h + ':' + pad2(m) + ':' + pad2(s) : m + ':' + pad2(s);
+  }
+
+  // The "since" line under the all-time tiles — a local date in the reader's
+  // locale; the raw key is the fallback if formatting ever fails.
+  function fmtSinceDay(dayStr) {
+    const d = parseDay(dayStr);
+    if (!d) return String(dayStr);
+    try { return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+    catch (e) { return String(dayStr); }
   }
 
   // ── Guarded cross-module access ───────────────────────────────────────────
@@ -327,6 +347,21 @@
 
   const agg = { streak: 0, weekRows: [], chaptersPeriod: 0, booksPeriod: 0 };
 
+  // The all-time ledger (PLAN7 §2.3). `data` accrues live deltas from init
+  // onward, even before `loaded` — the loadDay idiom: whatever folds in early
+  // sits on top of whatever the pref read / dayLog seed lands later.
+  // `finishedToday` is the per-day book dedupe set: lifetime counts finish
+  // EVENTS, once per book per local day, deliberately decoupled from the
+  // mutable books-period setting (see foldLifetimeBookFinish).
+  const lifetime = {
+    data: { seconds: 0, words: 0, pages: 0, chapters: 0, books: 0 },
+    since: null,              // 'YYYY-MM-DD' the totals count from
+    finishedToday: new Set(), // cleared on day rollover, like day.counted
+    loaded: false,            // pref read or seed finished; flushes gate on this
+    seeding: false,           // a dayLog seed is in flight (abandoned if a valid pref arrives first)
+    dirty: false,
+  };
+
   let lastScreen = '';
   let lastFlushAt = 0;
   let recomputeGen = 0;
@@ -401,6 +436,7 @@
   }
 
   function flushDay() {
+    flushLifetime(); // the ledger rides every day-flush moment (§2.3 cadence)
     if (!day.dirty || !day.loaded) return;
     day.dirty = false;
     lastFlushAt = Date.now();
@@ -424,9 +460,11 @@
       day.dirty = false;
       persistDay(day.key, day.data);
     }
+    flushLifetime(); // bank the straddling seconds on the ledger too
     setDayKey(today);
     day.data = emptyDay();
     day.counted.clear(); // the per-day chapter dedupe set is exactly per-day
+    lifetime.finishedToday.clear(); // the lifetime book dedupe is per-day too (§2.3)
     day.loaded = false;
     day.dirty = false;
     lastFlushAt = now;
@@ -440,6 +478,141 @@
       day.data.seriesTouched.push(id);
       day.dirty = true;
     }
+  }
+
+  // ── Lifetime ledger (PLAN7 §2.3 — single writer, like dayLogs) ────────────
+
+  // Validated on read, like every pref. Malformed = missing key, wrong type,
+  // non-finite or negative number, or a bad `since` — and NOTHING else:
+  // fractional numbers are VALID (words persist as floats), and unknown
+  // extra keys are ignored, never malformed, so an additive future field
+  // cannot nuke the totals. Only a malformed read re-seeds (§1.2).
+  function readLifetimePref() {
+    let raw = prefGet(LIFETIME_KEY, null);
+    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { return null; } }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out = { seconds: 0, words: 0, pages: 0, chapters: 0, books: 0, since: null };
+    const keys = ['seconds', 'words', 'pages', 'chapters', 'books'];
+    for (let i = 0; i < keys.length; i++) {
+      const v = raw[keys[i]];
+      if (typeof v !== 'number' || !isFinite(v) || v < 0) return null;
+      out[keys[i]] = v; // fractions kept as-is — never floored, never a reason to re-seed
+    }
+    if (typeof raw.since !== 'string' || !parseDay(raw.since)) return null;
+    out.since = raw.since;
+    return out;
+  }
+
+  // Synchronous and cheap (prefs are localStorage), so it can piggyback every
+  // day-flush moment. Persists a fresh copy, never the live object, and
+  // stores words UNROUNDED — persistDay's Math.round is for dayLogs only.
+  function persistLifetime() {
+    try {
+      if (window.Store && window.Store.prefs) {
+        window.Store.prefs.set(LIFETIME_KEY, {
+          seconds: lifetime.data.seconds,
+          words: lifetime.data.words,
+          pages: lifetime.data.pages,
+          chapters: lifetime.data.chapters,
+          books: lifetime.data.books,
+          since: lifetime.since,
+        });
+      }
+    } catch (e) { /* quota — the in-memory ledger still runs this session */ }
+  }
+
+  function flushLifetime() {
+    if (!lifetime.dirty || !lifetime.loaded) return;
+    lifetime.dirty = false;
+    persistLifetime();
+  }
+
+  function bumpLifetime(key, delta) {
+    if (!(delta > 0)) return;
+    lifetime.data[key] += delta;
+    lifetime.dirty = true;
+  }
+
+  // Lifetime measures finish EVENTS: one increment per book per local day,
+  // decoupled from the goal period — an all-time ledger must not depend on
+  // the current (mutable) books-period setting. Dedupe is this per-day set
+  // PLUS today's day-log array, which covers a mid-day reload where the
+  // earlier finish only exists in the stored row loadDay merged in. Runs
+  // BEFORE foldBookFinish at both call sites — the entry that call pushes
+  // must not mask a legitimate first count — and a later-day re-finish
+  // inside one goal period still counts here while foldBookFinish dedupes
+  // it away. Re-reading a book on a later day counts again, by design.
+  function foldLifetimeBookFinish(id) {
+    if (lifetime.finishedToday.has(id)) return;
+    if (day.data.booksFinished.indexOf(id) !== -1) return;
+    lifetime.finishedToday.add(id);
+    bumpLifetime('books', 1);
+    flushLifetime(); // a finished book is worth an immediate write (the foldBookFinish rule)
+  }
+
+  // At init: a pref that parses clean is adopted VERBATIM and never
+  // re-seeded — resets are the reader's, not the app's. Absent or malformed
+  // → reconstruct from dayLogs.
+  function initLifetime() {
+    const p = readLifetimePref();
+    if (p) {
+      lifetime.data = { seconds: p.seconds, words: p.words, pages: p.pages, chapters: p.chapters, books: p.books };
+      lifetime.since = p.since;
+      lifetime.loaded = true;
+      return;
+    }
+    lifetime.seeding = true;
+    seedLifetime();
+  }
+
+  // One-time reconstruction. Books = the sum of booksFinished lengths across
+  // days (consistent with the per-day increment rule); since = the earliest
+  // day found (today when none). Honest caveat: a re-seed is a FLOOR, not an
+  // exact replay — the engine suppresses same-period re-finish rows in later
+  // day logs, and dayLog words were rounded at write. The sums land ON TOP
+  // of whatever folded in while the read was in flight (the loadDay idiom);
+  // the sliver of double-count risk in that window is the same class the day
+  // loader accepts, and the seed can fire at most once per install.
+  async function seedLifetime() {
+    let rows = [];
+    if (storeReady()) {
+      try { rows = (await window.Store.listDayLogs({ limit: LIFETIME_SEED_LIMIT })) || []; } catch (e) { rows = []; }
+    }
+    if (!lifetime.seeding) return; // a valid pref arrived mid-read (bulk reload / reset) — it wins
+    lifetime.seeding = false;
+    let earliest = null;
+    rows.forEach(function (r) {
+      if (!r) return;
+      lifetime.data.seconds  += Math.max(0, numOr0(r.seconds));
+      lifetime.data.words    += Math.max(0, numOr0(r.words));
+      lifetime.data.pages    += Math.max(0, numOr0(r.pages));
+      lifetime.data.chapters += Math.max(0, numOr0(r.chaptersCompleted));
+      if (Array.isArray(r.booksFinished)) lifetime.data.books += r.booksFinished.length;
+      const k = r.day != null ? String(r.day) : '';
+      if (parseDay(k) && (earliest == null || k < earliest)) earliest = k;
+    });
+    lifetime.since = earliest || day.key || localDay();
+    lifetime.loaded = true;
+    lifetime.dirty = false;
+    persistLifetime();
+    renderScreen();
+  }
+
+  // Live re-adoption: the pref blob can be rewritten under us — the platform
+  // mirror restore after a WebKit eviction, or a sibling tab — and both
+  // surface as or:prefs events. A valid incoming ledger replaces the
+  // in-memory one so the next flush cannot clobber restored history; an
+  // invalid one changes nothing (re-seeding is init-only). Our own flushes
+  // re-read as identical values, so adoption is idempotent.
+  function adoptLifetimeFromPref() {
+    const p = readLifetimePref();
+    if (!p) return;
+    lifetime.data = { seconds: p.seconds, words: p.words, pages: p.pages, chapters: p.chapters, books: p.books };
+    lifetime.since = p.since;
+    lifetime.loaded = true;
+    lifetime.seeding = false;
+    lifetime.dirty = false;
+    renderScreen();
   }
 
   // ── Aggregates: streak, week chart, period counts ─────────────────────────
@@ -636,6 +809,7 @@
         const wc = chapterWordCount(lastSeriesId, chapterId);
         if (typeof wc === 'number' && isFinite(wc) && wc > 0) {
           day.data.words += pctDelta * wc;
+          bumpLifetime('words', pctDelta * wc); // the same fractional delta, unrounded (§1.2)
           day.dirty = true;
         }
         // Unknown wordCount → 0 words; the session clock still counts the time.
@@ -647,6 +821,7 @@
         const pageDelta = Math.max(0, pageIdx - b.pageIdx);
         if (pageDelta > 0) {
           day.data.pages += pageDelta;
+          bumpLifetime('pages', pageDelta);
           day.dirty = true;
         }
         b.pageIdx = pageIdx;
@@ -658,6 +833,7 @@
         if (!day.counted.has(ck)) {
           day.counted.add(ck);
           day.data.chaptersCompleted += 1;
+          bumpLifetime('chapters', 1);
           day.dirty = true;
         }
       }
@@ -665,7 +841,10 @@
     }
 
     touchSeries(lastSeriesId);
-    if (isBookFinish(lastSeriesId, row)) foldBookFinish(lastSeriesId);
+    if (isBookFinish(lastSeriesId, row)) {
+      foldLifetimeBookFinish(lastSeriesId); // before foldBookFinish — the order is load-bearing (see the fn)
+      foldBookFinish(lastSeriesId);
+    }
   }
 
   // ── Folding: or:upload-progress (§6.3) ────────────────────────────────────
@@ -682,11 +861,14 @@
     const id = 'upload:' + String(d.libraryKey);
     const pages = Math.max(0, intOr0(d.pagesDelta));
     const chapters = Math.max(0, intOr0(d.chaptersDelta));
-    if (pages > 0) { day.data.pages += pages; day.dirty = true; }
-    if (chapters > 0) { day.data.chaptersCompleted += chapters; day.dirty = true; }
+    if (pages > 0) { day.data.pages += pages; bumpLifetime('pages', pages); day.dirty = true; }
+    if (chapters > 0) { day.data.chaptersCompleted += chapters; bumpLifetime('chapters', chapters); day.dirty = true; }
     touchSeries(id);
     const prev = uploadCompleted.get(id) === true;
-    if (d.completed && !prev) foldBookFinish(id);
+    if (d.completed && !prev) {
+      foldLifetimeBookFinish(id); // before foldBookFinish, same as the reader path
+      foldBookFinish(id);
+    }
     uploadCompleted.set(id, !!d.completed);
   }
 
@@ -1068,6 +1250,27 @@
     stats.appendChild(ui.statBooks.tile);
     view.appendChild(stats);
 
+    // All-time ledger — directly under the period stats, same tile grammar
+    // (§2.3). Always rendered, zeros included: history that survives a reset
+    // should look like a fixture, not a reward.
+    const lifetimeSection = el('section', 'gl-lifetime');
+    lifetimeSection.appendChild(el('div', 'gl-card-label', 'All time'));
+    const ltStats = el('div', 'gl-stats');
+    ui.ltHours = statTile('hours read');
+    ui.ltWords = statTile('words');
+    ui.ltPages = statTile('pages');
+    ui.ltChapters = statTile('chapters');
+    ui.ltBooks = statTile('books');
+    ltStats.appendChild(ui.ltHours.tile);
+    ltStats.appendChild(ui.ltWords.tile);
+    ltStats.appendChild(ui.ltPages.tile);
+    ltStats.appendChild(ui.ltChapters.tile);
+    ltStats.appendChild(ui.ltBooks.tile);
+    lifetimeSection.appendChild(ltStats);
+    ui.ltSince = el('div', 'gl-lifetime-since', '');
+    lifetimeSection.appendChild(ui.ltSince);
+    view.appendChild(lifetimeSection);
+
     ui.offNote = el('div', 'gl-card');
     ui.offNote.hidden = true;
     ui.offNote.appendChild(el('div', 'gl-off-note',
@@ -1152,6 +1355,17 @@
     setText(ui.statPagesChapters.value, day.data.pages + ' / ' + day.data.chaptersCompleted);
     setText(ui.statBooks.value, String(agg.booksPeriod));
     setText(ui.statBooks.label, c.booksPeriod === 'year' ? 'books this year' : 'books this month');
+
+    // All-time ledger — rounding happens HERE and only here (§1.2): storage
+    // keeps the floats. Hours show one decimal under 100.
+    const lt = lifetime.data;
+    const hours = lt.seconds / 3600;
+    setText(ui.ltHours.value, hours < 100 ? hours.toFixed(1) : Math.round(hours).toLocaleString());
+    setText(ui.ltWords.value, Math.round(lt.words).toLocaleString());
+    setText(ui.ltPages.value, Math.round(lt.pages).toLocaleString());
+    setText(ui.ltChapters.value, Math.round(lt.chapters).toLocaleString());
+    setText(ui.ltBooks.value, Math.round(lt.books).toLocaleString());
+    setText(ui.ltSince, lifetime.since ? 'since ' + fmtSinceDay(lifetime.since) : '');
 
     // Time goal card.
     ui.timeCard.card.hidden = !(c.enabled && c.timeTarget > 0);
@@ -1527,6 +1741,17 @@
     actionRow.appendChild(actions);
     body.appendChild(actionRow);
 
+    // The ledger's own reset — separate action, separate confirm (§2.3).
+    const lifetimeRow = el('div', 'gl-row');
+    lifetimeRow.appendChild(el('span', 'gl-row-label', 'Lifetime'));
+    const lifetimeActions = el('div', 'gl-actions');
+    const resetLifetimeBtn = el('button', 'gl-btn gl-btn-danger', 'Reset lifetime totals');
+    resetLifetimeBtn.type = 'button';
+    resetLifetimeBtn.addEventListener('click', function () { confirmResetLifetime(); });
+    lifetimeActions.appendChild(resetLifetimeBtn);
+    lifetimeRow.appendChild(lifetimeActions);
+    body.appendChild(lifetimeRow);
+
     root.appendChild(sheet);
     ui.scrim = scrim;
     ui.sheet = sheet;
@@ -1543,7 +1768,7 @@
   async function confirmResetHistory() {
     const ok = await askConfirm({
       title: 'Reset goal history',
-      message: 'Delete all goal history? Your goal settings are kept.',
+      message: 'Delete all goal history? Your goal settings are kept. Lifetime totals are kept.',
       okLabel: 'Reset',
       cancelLabel: 'Cancel',
     });
@@ -1557,9 +1782,34 @@
     finishedThisPeriod = new Set();
     baselines.clear();
     uploadCompleted.clear();
+    // The lifetime ledger deliberately survives — that is the point of the
+    // separate accumulator (§2.3); its pref parses clean, so no re-seed can
+    // resurrect anything either.
     dispatchGoalsChanged();
     recompute();
     toast('Goal history reset');
+  }
+
+  // "Reset goal history" keeps the ledger; this is the ledger's own reset —
+  // a fresh zero with a fresh since-date, persisted immediately so the next
+  // boot reads a VALID pref and cannot seed the cleared totals back in.
+  async function confirmResetLifetime() {
+    const ok = await askConfirm({
+      title: 'Reset lifetime totals',
+      message: 'Zero the all-time reading totals? Goal history and settings are kept.',
+      okLabel: 'Reset',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
+    lifetime.data = { seconds: 0, words: 0, pages: 0, chapters: 0, books: 0 };
+    lifetime.since = localDay();
+    lifetime.loaded = true;
+    lifetime.seeding = false; // a seed in flight would resurrect what the reader just zeroed
+    lifetime.dirty = false;
+    persistLifetime();
+    dispatchGoalsChanged();
+    renderScreen();
+    toast('Lifetime totals reset');
   }
 
   function syncSheet() {
@@ -1694,6 +1944,16 @@
         seriesTouched: day.data.seriesTouched.slice(),
       } : null,
       streak: agg.streak,
+      lifetime: {
+        loaded: !!lifetime.loaded,
+        // raw and unrounded — diagnostics see what storage sees (§1.2)
+        seconds: lifetime.data.seconds,
+        words: lifetime.data.words,
+        pages: lifetime.data.pages,
+        chapters: lifetime.data.chapters,
+        books: lifetime.data.books,
+        since: lifetime.since,
+      },
       timer: timer ? {
         deadline: timer.deadline,
         minutes: timer.minutes,
@@ -1727,7 +1987,13 @@
     window.addEventListener('or:prefs', function (ev) {
       const d = ev && ev.detail;
       const key = d ? d.key : null;
+      // The ledger's own flushes also ride or:prefs now, at persistDay
+      // cadence (§2.3). That is a data write, not a settings change: adopt
+      // (idempotent for our own writes) and skip the machinery below, or
+      // every 30 s flush would trigger a full dayLog recompute.
+      if (key === LIFETIME_KEY) { adoptLifetimeFromPref(); return; }
       if (key != null && String(key).indexOf('goals.') !== 0) return; // null key = bulk reload — re-read everything
+      if (key == null) adoptLifetimeFromPref(); // a bulk reload may carry a restored ledger (native mirror)
       updatePillVisibility();
       recomputeActive(Date.now());
       if (sheetOpen) syncSheet();
@@ -1772,6 +2038,7 @@
     restoreTimer();
     wireEvents();
 
+    initLifetime();
     loadDay();
     recompute();
     recomputeActive(Date.now());

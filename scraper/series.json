@@ -23,39 +23,10 @@
   "series": [
     {
       "source": "fixture",
-      "id": "lamplighter",
+      "id": "welcome",
       "type": "lightnovel",
       "enabled": true,
-      "_note": "Hand-written placeholder prose. Never touches the network, so the app always has something to read."
-    },
-    {
-      "source": "fixture",
-      "id": "ninth-bell",
-      "type": "lightnovel",
-      "enabled": true,
-      "_note": "Original sample serial, 24 chapters of ~1,100 words. The long-serial case: infinite scroll and 'continue reading'."
-    },
-    {
-      "source": "fixture",
-      "id": "floor-zero",
-      "type": "webnovel",
-      "enabled": true,
-      "_note": "Original sample web novel, 40 chapters of ~300 words. The short-chapter case: fast chapter-to-chapter navigation."
-    },
-    {
-      "source": "fixture",
-      "id": "still-water",
-      "type": "lightnovel",
-      "enabled": true,
-      "_note": "Original sample novel, 6 chapters of ~3,500 words. The long-chapter case: paged mode and anchor preservation."
-    },
-    {
-      "source": "fixture",
-      "id": "ashfall",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical",
-      "_note": "Original sample image series, 8 chapters x 10 committed SVG pages. The image-reader case, with no network and no hosting."
+      "_note": "The tutorial book — the offline floor. Every chapter teaches a feature in place."
     },
 
     {
@@ -111,71 +82,6 @@
       "genres": ["Historical", "War", "Classic"],
       "description": "War and Peace is organised as books within volumes, so its chapter titles carry a book prefix. Included to exercise deep chapter lists.",
       "maxChapters": 60
-    },
-
-    {
-      "source": "mangadex",
-      "id": "32d76d19-8a05-4db0-9fc2-e0b0648fe9d0",
-      "type": "manga",
-      "enabled": true,
-      "_note": "Jujutsu Kaisen"
-    },
-    {
-      "source": "mangadex",
-      "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
-      "type": "manga",
-      "enabled": true,
-      "_note": "One Punch Man"
-    },
-    {
-      "source": "mangadex",
-      "id": "c52b2ce3-7f95-469c-96b0-479524fb7a1a",
-      "type": "manga",
-      "enabled": true,
-      "_note": "Chainsaw Man"
-    },
-    {
-      "source": "mangadex",
-      "id": "e78a489b-6632-4d61-b00b-5206f5b8b22b",
-      "type": "manga",
-      "enabled": true,
-      "_note": "Boruto"
-    },
-
-    {
-      "source": "flamecomics",
-      "slug": "solo-leveling",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical"
-    },
-    {
-      "source": "flamecomics",
-      "slug": "return-of-the-mount-hua-sect",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical"
-    },
-    {
-      "source": "flamecomics",
-      "slug": "omniscient-reader",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical"
-    },
-    {
-      "source": "flamecomics",
-      "slug": "player-who-cant-level-up",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical"
-    },
-    {
-      "source": "flamecomics",
-      "slug": "volcanic-age",
-      "type": "manhwa",
-      "enabled": true,
-      "readingDirection": "vertical"
     }
   ]
 }

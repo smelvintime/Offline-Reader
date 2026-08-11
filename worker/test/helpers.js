@@ -14,12 +14,14 @@ export function fixture(name) {
 /** Minimal in-memory KV namespace with the subset of the API we use. */
 export function kvStub() {
   const store = new Map();
-  return {
+  const kv = {
     store,
+    puts: 0, // total put() calls — the /list learn-memo tests assert on this
     async get(key) {
       return store.has(key) ? store.get(key) : null;
     },
     async put(key, value) {
+      kv.puts += 1;
       store.set(key, value);
       return undefined;
     },
@@ -27,6 +29,7 @@ export function kvStub() {
       store.delete(key);
     },
   };
+  return kv;
 }
 
 /** Collects waitUntil promises so tests can await background work. */

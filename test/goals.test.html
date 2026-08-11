@@ -122,6 +122,13 @@ function assertEq(actual, expected, label) {
   report(Object.is(actual, expected), label, JSON.stringify(actual) + ' (wanted ' + JSON.stringify(expected) + ')');
 }
 
+// Float comparison for the lifetime ledger — words accumulate as fractional
+// IEEE sums (0.35 − 0.1 is not exactly 0.25), so equality is a tolerance.
+function assertApprox(actual, expected, label) {
+  report(typeof actual === 'number' && Math.abs(actual - expected) < 1e-6, label,
+    String(actual) + ' (wanted ~' + String(expected) + ')');
+}
+
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 // Poll a (possibly async) condition on REAL time — the fake clock may be days
@@ -236,6 +243,23 @@ window.__done = (async function main() {
   assertEq(goBackCalls, 1, 'close() delegates to Catalogue.goBack()');
   document.body.dataset.screen = 'home-screen';
   await sleep(80); // let the screen observer settle
+
+  // ── All-time section: renders, with zeros, before any history (§2.3) ──────
+  // The harness cleared dayLogs and stripped goals.* prefs before goals.js
+  // loaded, so init seeded an empty ledger: zeros, since = the fake today.
+  const ltSection = document.querySelector('#goals-screen .gl-lifetime');
+  assert(!!ltSection, 'All-time section built at init');
+  await until(function () { const l = st().lifetime; return l && l.loaded; },
+    'lifetime ledger settles (empty table → zero seed)');
+  const ltValues = document.querySelectorAll('#goals-screen .gl-lifetime .gl-stat-value');
+  assertEq(ltValues.length, 5, 'five all-time tiles (hours, words, pages, chapters, books)');
+  assertEq(ltValues[0].textContent, '0.0', 'hours tile renders 0.0 with no history');
+  assertEq(ltValues[1].textContent, '0', 'words tile renders 0 with no history');
+  assertEq(ltValues[4].textContent, '0', 'books tile renders 0 with no history');
+  assertEq(getComputedStyle(ltValues[0]).fontVariantNumeric, 'tabular-nums', 'all-time tiles use tabular-nums');
+  const sinceEl = document.querySelector('#goals-screen .gl-lifetime-since');
+  assert(!!sinceEl && sinceEl.textContent.indexOf('since ') === 0 && sinceEl.textContent.indexOf('2027') !== -1,
+    'since line renders the seed date', sinceEl && sinceEl.textContent);
 
   // ── Folding: words, clamping, baseline reset (§5.1) ───────────────────────
   fireProgress('s-txt', { chapterId: 'c1', pct: 0.5, completed: false });
@@ -480,6 +504,168 @@ window.__done = (async function main() {
   fireProgress('s-txt', { chapterId: 'c1', pct: 0.1, completed: false });
   fireProgress('s-txt', { chapterId: 'c1', pct: 0.2, completed: false });
   assertEq(st().today.words, 100, 'post-rollover folds land on the new day');
+
+  // ── Lifetime ledger: delta accumulation (PLAN7 §2.3) ──────────────────────
+  // Every fold above also accumulated here; the direct putDayLog rows (the
+  // streak seeds) deliberately did NOT — lifetime observes folds, not store
+  // writes. Words: 200 + 100 + 100 on the 15th, +100 on the 16th. Books:
+  // s-txt, s-dec, nf, upload:k1 on the 15th, plus s-dec2 — finished "on the
+  // 14th" only by a direct store write, so its first FOLD (the 15th) counts.
+  assertEq(st().lifetime.since, '2027-01-15', 'lifetime: empty-table seed stamped since = today-at-init');
+  assertApprox(st().lifetime.words, 500, 'lifetime: words accumulated across every fold (500)');
+  assertEq(st().lifetime.pages, 13, 'lifetime: pages accumulated, reader + upload (13)');
+  assertEq(st().lifetime.chapters, 2, 'lifetime: chapters accumulated, reader + upload (2)');
+  assertEq(st().lifetime.books, 5, 'lifetime: five distinct finish events so far');
+  assert(st().lifetime.seconds > 0, 'lifetime: session seconds accrued');
+
+  // Fractional accumulation — floats in, floats kept (§1.2 numeric rule).
+  fireProgress('s-txt', { chapterId: 'c2', pct: 0.10, completed: false }); // chapter switch → baseline reset
+  fireProgress('s-txt', { chapterId: 'c2', pct: 0.35, completed: false }); // +0.25 × 2000
+  assertApprox(st().lifetime.words, 1000, 'lifetime: post-reset delta folds (+500)');
+  fireProgress('s-txt', { chapterId: 'c2', pct: 0.3512, completed: false }); // +0.0012 × 2000 = 2.4
+  assertApprox(st().lifetime.words, 1002.4, 'lifetime: fractional words accumulate unrounded');
+
+  // Books are per-day finish EVENTS, decoupled from the goal period: s-txt
+  // was finished on the 15th (lifetime +1 then); re-finishing on the 16th —
+  // inside the same books month — adds another 1 (+2 across the two days)
+  // while the period stat and the day log stay untouched. Same-day repeats
+  // never double.
+  const booksBefore = st().lifetime.books;
+  fireProgress('s-txt', { chapterId: 'c3', pct: 1, completed: true });
+  assertEq(st().lifetime.books, booksBefore + 1,
+    'later-day re-finish inside one goal period: lifetime counts the book again');
+  assertEq(st().today.booksFinished.length, 0, 'the period dedupe still keeps the new day log clean');
+  fireProgress('s-txt', { chapterId: 'c3', pct: 1, completed: true });
+  assertEq(st().lifetime.books, booksBefore + 1, 'same-day double finish counts once');
+  window.Store.prefs.set('goals.booksPeriod', 'month'); // no-op value — forces a recompute + render
+  await until(function () { return statValue(3) === '5'; },
+    'books-this-period stat stays 5 while lifetime went +1 (per-day vs per-period)');
+
+  // The ledger persists UNROUNDED, in its own pref, on the flush cadence.
+  window.dispatchEvent(new Event('pagehide'));
+  await until(async function () {
+    const r = await window.Store.getDayLog('2027-01-16');
+    return r && Math.round(r.words) === st().today.words;
+  }, 'pre-drill flush persisted today');
+  const prefLive = window.Store.prefs.get('goals.lifetime', null);
+  assert(prefLive && typeof prefLive === 'object', 'goals.lifetime pref written');
+  assert(prefLive && prefLive.words % 1 !== 0, 'pref stores words UNROUNDED (fraction present)',
+    String(prefLive && prefLive.words));
+  assertEq(prefLive && prefLive.books, st().lifetime.books, 'pref carries the live books total');
+
+  // ── Lifetime ledger: seeding + validation (fresh instances in iframes) ────
+  // Init-time behavior needs fresh module instances; iframes share this
+  // origin's localStorage and IndexedDB, so a prepared pref + the stored
+  // day logs are exactly what a relaunch would see.
+  const allRows = await window.Store.listDayLogs({ limit: 4000 });
+  const exp = { seconds: 0, words: 0, pages: 0, chapters: 0, books: 0 };
+  let expSince = null;
+  allRows.forEach(function (r) {
+    exp.seconds += r.seconds || 0;
+    exp.words += r.words || 0;
+    exp.pages += r.pages || 0;
+    exp.chapters += r.chaptersCompleted || 0;
+    if (Array.isArray(r.booksFinished)) exp.books += r.booksFinished.length;
+    if (expSince == null || String(r.day) < expSince) expSince = String(r.day);
+  });
+  assertEq(exp.books, 5, 'fixture sanity: stored day logs carry 5 finish entries');
+  assertEq(expSince, '2027-01-08', 'fixture sanity: earliest stored day is 2027-01-08');
+
+  function loadGoalsFrame() {
+    const f = document.createElement('iframe');
+    f.style.display = 'none';
+    f.srcdoc = '<!DOCTYPE html><html><body>'
+      + '<script src="../js/store.js"><\/script>'
+      + '<script src="../js/goals.js"><\/script>'
+      + '</body></html>';
+    document.body.appendChild(f);
+    return f;
+  }
+  function frameLifetime(f) {
+    try {
+      const W = f.contentWindow;
+      if (W && W.Goals) return W.Goals.state().lifetime;
+    } catch (e) {}
+    return null;
+  }
+
+  // Malformed pref (wrong type in one field) → a fresh instance re-seeds
+  // from dayLogs: books = the SUM of booksFinished lengths, since = the
+  // earliest day found.
+  window.Store.prefs.set('goals.lifetime',
+    { seconds: 'corrupt', words: 1, pages: 1, chapters: 1, books: 1, since: '2027-01-01' });
+  const frameA = loadGoalsFrame();
+  await until(function () { const l = frameLifetime(frameA); return l && l.loaded; },
+    'iframe A: fresh instance booted against the malformed pref', 8000);
+  const seeded = frameLifetime(frameA);
+  assertEq(seeded.books, exp.books, 'malformed pref re-seeds: books = sum of booksFinished lengths');
+  assertApprox(seeded.words, exp.words, 'malformed pref re-seeds: words = dayLog sum');
+  assertApprox(seeded.seconds, exp.seconds, 'malformed pref re-seeds: seconds = dayLog sum');
+  assertEq(seeded.since, expSince, 'seed stamps since = earliest day log');
+  frameA.parentNode.removeChild(frameA);
+
+  // A fractional-numbers pref (with an unknown extra key) is VALID — adopted
+  // verbatim, never re-seeded. This is the regression the §1.2 numeric rule
+  // exists for: an ints-only validator would re-seed on every read,
+  // destroying deltas and resurrecting cleared history.
+  window.Store.prefs.set('goals.lifetime',
+    { seconds: 12.5, words: 123.45, pages: 3, chapters: 2, books: 1, since: '2026-01-01', future: 'ignored' });
+  const frameB = loadGoalsFrame();
+  await until(function () { const l = frameLifetime(frameB); return l && l.loaded; },
+    'iframe B: fresh instance booted against the fractional pref', 8000);
+  const kept = frameLifetime(frameB);
+  assertApprox(kept.words, 123.45, 'fractional-words pref parses VALID — no re-seed');
+  assertEq(kept.books, 1, 'valid pref adopted verbatim (books untouched by the dayLog sum)');
+  assertEq(kept.since, '2026-01-01', 'valid pref keeps its since');
+  let rawAfter = null;
+  try { rawAfter = JSON.parse(localStorage.getItem('or.prefs'))['goals.lifetime']; } catch (e) {}
+  assert(rawAfter && Math.abs(rawAfter.words - 123.45) < 1e-6,
+    'the valid pref was NOT rewritten by the fresh instance');
+  frameB.parentNode.removeChild(frameB);
+
+  // ── Resets: history keeps the ledger; the ledger has its own reset ────────
+  // Re-pin this instance's ledger to known values through the pref — a
+  // rewrite under a running module (the native-mirror restore path, a
+  // sibling tab) is adopted live.
+  window.Store.prefs.set('goals.lifetime',
+    { seconds: 3600, words: 1234.5, pages: 10, chapters: 3, books: 2, since: '2026-12-31' });
+  assertEq(st().lifetime.books, 2, 'a rewritten goals.lifetime pref is adopted live');
+  assertApprox(st().lifetime.words, 1234.5, 'adoption keeps the fraction');
+
+  const confirmCalls = [];
+  window.Platform = { confirm: function (opts) { confirmCalls.push(opts || {}); return Promise.resolve(true); } };
+  const dangerBtns = Array.prototype.slice.call(document.querySelectorAll('#goals-screen .gl-btn-danger'));
+  const resetHistoryBtn = dangerBtns.filter(function (b) { return b.textContent === 'Reset history'; })[0];
+  const resetLifetimeBtn = dangerBtns.filter(function (b) { return b.textContent === 'Reset lifetime totals'; })[0];
+  assert(!!resetHistoryBtn, 'Reset history button present in the sheet');
+  assert(!!resetLifetimeBtn, 'Reset lifetime totals button present in the sheet');
+
+  resetHistoryBtn.click();
+  await until(async function () {
+    const rows = await window.Store.listDayLogs({ limit: 10 });
+    return rows.length === 0 && st().today.words === 0;
+  }, 'reset history clears the day logs');
+  assert(confirmCalls.length === 1
+    && String(confirmCalls[0].message).indexOf('Lifetime totals are kept.') !== -1,
+    'reset-history confirm names the lifetime guarantee');
+  assertEq(st().lifetime.books, 2, 'lifetime books survive a history reset');
+  assertApprox(st().lifetime.words, 1234.5, 'lifetime words survive a history reset');
+  assertEq(st().lifetime.since, '2026-12-31', 'lifetime since survives a history reset');
+  const prefKept = window.Store.prefs.get('goals.lifetime', null);
+  assert(prefKept && Math.abs(prefKept.words - 1234.5) < 1e-6,
+    'the ledger pref survives clearDayLogs (separate storage)');
+
+  resetLifetimeBtn.click();
+  await until(function () {
+    const l = st().lifetime;
+    return l.books === 0 && l.words === 0 && l.seconds === 0;
+  }, 'reset lifetime zeroes the ledger');
+  assertEq(st().lifetime.since, '2027-01-16', 'reset lifetime restarts since at today');
+  assert(confirmCalls.length === 2 && confirmCalls[1].title === 'Reset lifetime totals',
+    'reset lifetime asked its own confirm');
+  const prefZero = window.Store.prefs.get('goals.lifetime', null);
+  assert(prefZero && prefZero.words === 0 && prefZero.books === 0 && prefZero.since === '2027-01-16',
+    'the zeroed ledger persisted immediately (no re-seed on the next boot)');
 
   // ── Cleanup: this origin is also the dev origin ───────────────────────────
   try {

@@ -23,30 +23,40 @@ Contents:
 hand if you plan to run the builder again — your edits will be overwritten. Edit
 `scraper/series.json` instead and rebuild.
 
-Five of the entries are never fetched from anywhere. They are **fixtures** —
-original prose and artwork written for this repository and committed alongside
-it — so the app always has something to open even when every website it fetches
-from is unreachable. Each one is shaped to exercise a different part of the
-reader:
+The bundled catalogue is deliberately small: **one tutorial book plus six
+public-domain classics**, all prose, all fully readable offline.
 
-| Series | Type | Size | What it is there to test |
-| --- | --- | --- | --- |
-| The Lamplighter's Almanac | `lightnovel` | 4 ch | The smallest possible example to copy (§6) |
-| The Ninth Bell of the Meridian Gull | `lightnovel` | 24 ch, 27k words | Infinite scroll across many chapters |
-| Elevator to Floor Zero | `webnovel` | 40 ch, 12k words | Fast chapter-to-chapter navigation |
-| The Weight of Still Water | `lightnovel` | 6 ch, 21k words | Paged mode — long chapters paginate deeply |
-| Ashfall Courier | `manhwa` | 8 ch, 80 pages | The image reader, with pages drawn as SVG |
+The tutorial — ***We Are Readers Here*** (`fixture:welcome`) — is a **fixture**:
+original prose written for this repository and committed alongside it, never
+fetched from anywhere. It is the owner's tour of the app, written as a book
+(nine short chapters; each one teaches a feature in the place where it lives),
+and it is the catalogue's **offline floor**: if every website is unreachable,
+the app still has something real to open. The six classics come from Project
+Gutenberg (Frankenstein, Pride and Prejudice, Moby Dick, The Adventures of
+Sherlock Holmes, Alice's Adventures in Wonderland, War and Peace), and their
+chapter files are committed too, so they read offline as well.
 
-Ashfall Courier's pages are hand-written SVG committed to `chapters/`, so the
-image path works with no network, no gateway, and nothing hosted anywhere.
+The floor is enforced, not hoped for. `npm run validate` **fails** a catalogue
+that is empty, one that ships no bundled chapter files, or one whose enabled
+`fixture:welcome` ships none — and `scraper/src/check-welcome.js` (the second
+half of the validate script) holds the tutorial itself to its contract: exactly
+nine chapters, each opening with an `h2`, 400–800 words per chapter, at least
+one `blockquote` / `ul`-or-`ol` / `hr` / `note` across the book, and no `img`
+blocks. You can rewrite the tutorial's prose freely; the shape is CI's.
+
+The five earlier sample fixtures (the Lamplighter, Ninth Bell, Floor Zero,
+Still Water and Ashfall series) and the MangaDex / Flame Comics entries were
+retired in Phase 7 — a fresh install now leads with the book that teaches, not
+with an auto-populated shelf. The `mangadex` and `flamecomics` sources are still
+in the builder; re-adding an entry to `series.json` is all it takes to use them.
 
 > **Note on the version committed here:** the machine that produced the current
-> `catalog.json` had no network access to `gutenberg.org`, `api.mangadex.org` or
-> `flamecomics.xyz` — the egress policy answered `HTTP 403` to every request — so
-> the committed catalogue contains the fixture series only. The Gutenberg,
-> MangaDex and Flame Comics entries are configured and enabled in
-> `scraper/series.json`; running `npm run scrape` from a machine that can reach
-> those sites fills them in. Nothing was invented to paper over the gap.
+> `catalog.json` had no network access to `gutenberg.org` — the egress policy
+> answered `HTTP 403` to every request — so the six Gutenberg entries were
+> **carried over** from the previously committed catalogue (the builder's normal
+> failure policy, §4). Their chapter files were already committed, so nothing is
+> missing from the app; a rebuild from a machine that can reach `gutenberg.org`
+> simply refreshes them. Nothing was invented to paper over the gap.
 
 ---
 
@@ -133,7 +143,7 @@ are not left wondering where the rest went.
 `https://flamecomics.xyz/manga/volcanic-age` → `"slug": "volcanic-age"`.
 
 **Fixture** — the name of a file in `scraper/fixtures/`, without the `.json`.
-`scraper/fixtures/lamplighter.json` → `"id": "lamplighter"`.
+`scraper/fixtures/welcome.json` → `"id": "welcome"`.
 
 ---
 
@@ -162,16 +172,19 @@ The run ends with a summary that looks like this:
 
 ```
 ── Run summary ──────────────────────────────────────────────────
-source       entries  ok  failed  skipped  carried  chapters  words
-fixture            1   1       0        0        0         4  1,216
-gutenberg          6   0       6        0        0         0      0
+source     entries  ok  failed  skipped  carried  chapters  words
+fixture          1   1       0        0        0         9  4,197
+gutenberg        6   0       6        0        6         0      0
 
 Failed (6): gutenberg:84, gutenberg:1342, …
-Catalogue: 1 series, 4 chapters
-Sizes: catalog.json 2.2 KB, chapters/ 9.0 KB
+Carried over from the previous catalog.json (6):
+  · gutenberg:84 (fetch failed, kept 28 chapters from the previous catalogue)
+  …
+Catalogue: 7 series, 218 chapters
+Sizes: catalog.json 65.6 KB, chapters/ 2.92 MB
 
 ── Validation ───────────────────────────────────────────────────
-validate: OK — 1 series, 4 chapters, 4 chapter files checked, 0 warning(s)
+validate: OK — 7 series, 218 chapters, 218 chapter files checked, 0 warning(s)
 ```
 
 Things worth knowing about how it behaves:
@@ -182,7 +195,11 @@ Things worth knowing about how it behaves:
 - **The check at the end is not optional.** Every run finishes by validating the
   files it just wrote against the contract in `docs/ARCHITECTURE.md` §1. If
   something is wrong the run exits with an error and tells you which file and
-  which field.
+  which field. The same check enforces the offline floor: an empty catalogue, a
+  catalogue with no bundled chapter files, or a catalogue missing the tutorial
+  book (`fixture:welcome`) is an error, not a warning. `npm run validate`
+  additionally runs `src/check-welcome.js`, which holds the tutorial's content
+  to its shape (§1).
 - **Removed series clean up after themselves.** Setting `"enabled": false` and
   rebuilding drops the series from `catalog.json` and deletes its chapter folder.
 - The same thing runs automatically every six hours on GitHub
@@ -252,7 +269,7 @@ Each chapter carries **exactly one** way of getting its content:
 
 Two of them at once is an error; the checker will say so.
 
-### A chapter file, `chapters/fixture_lamplighter/c-0001.json`
+### A chapter file, `chapters/fixture_welcome/c-0001.json`
 
 Prose is stored as a list of **blocks** — one per paragraph, heading, scene
 break or quotation. There is no HTML anywhere: the reader puts blocks on screen
@@ -261,19 +278,19 @@ code into the app.
 
 ```jsonc
 {
-  "seriesId": "fixture:lamplighter",
+  "seriesId": "fixture:welcome",
   "id": "c-0001",
   "num": 1,
-  "title": "Chapter One: The Lamp at the End of the Lane",
+  "title": "The Book That Reads You Back",
   "kind": "text",                     // "text" or "image"
   "blocks": [
-    { "t": "h2", "c": "Chapter One: The Lamp at the End of the Lane" },
-    { "t": "p",  "c": "The last lamp on Weatherbell Lane had been out for eleven days…" },
+    { "t": "h2", "c": "The Book That Reads You Back" },
+    { "t": "p",  "c": "Most apps introduce themselves with a slideshow…" },
     { "t": "hr" },
-    { "t": "blockquote", "c": "Light is not a thing you carry to a place…" },
-    { "t": "note", "c": "Sample content: this series is original placeholder prose…" }
+    { "t": "blockquote", "c": "A reader's attention is a loan, not a gift…" },
+    { "t": "note", "c": "This is the owner's tour of the Offline Reader…" }
   ],
-  "wordCount": 361
+  "wordCount": 513
 }
 ```
 
@@ -302,8 +319,9 @@ You have two ways to do this. The first is easier and survives rebuilds.
 
 ### Option A — a fixture (recommended)
 
-1. Copy `scraper/fixtures/lamplighter.json` to
-   `scraper/fixtures/my-story.json`.
+1. Copy `scraper/fixtures/welcome.json` to
+   `scraper/fixtures/my-story.json`. (Delete its `_readme` — the shape rules it
+   describes are enforced only for the tutorial itself, not for your series.)
 2. Edit the title, author, description and chapters. Each chapter is
    `{ "title": "…", "blocks": [ … ] }` using the block types in the table above.
    Chapter numbers and ids are filled in for you, in the order you write them.
@@ -336,9 +354,10 @@ in beside the chapters exactly like the cover:
 }
 ```
 
-`Ashfall Courier` is the worked example — see `scraper/fixtures/ashfall.json`
-and the SVG pages in `scraper/fixtures/ashfall/`. Any image format works; SVG is
-used there only because it stays small and readable in a git diff.
+(The bundled sample image fixture, `Ashfall Courier`, was retired in Phase 7,
+so there is no committed worked example any more — but the mechanism above is
+unchanged and this snippet is the whole of it. Any image format works; SVG was
+used there only because it stays small and readable in a git diff.)
 
 ### Option B — writing catalog.json yourself
 

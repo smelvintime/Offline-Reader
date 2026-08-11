@@ -1,0 +1,169 @@
+{
+  "_readme": [
+    "The tutorial book — the offline floor of the catalogue. Nothing here is",
+    "scraped and nothing here is copyrighted: the prose is original, written",
+    "for this repository. Each chapter teaches one part of the app in the",
+    "place where that part lives, so the book itself is the app's tour.",
+    "Its shape is CI-enforced by scraper/src/check-welcome.js: exactly nine",
+    "chapters, each opening with an h2, 400-800 words per chapter, at least",
+    "one blockquote / ul-or-ol / hr / note across the book, and no img blocks.",
+    "Copy this file to make your own series — see docs/CATALOGUE.md.",
+    "Allowed block types: p h2 h3 h4 hr blockquote pre ul ol img note."
+  ],
+
+  "title": "We Are Readers Here",
+  "altTitles": [],
+  "author": "The Offline Reader",
+  "artist": null,
+  "status": "completed",
+  "genres": ["Guide", "Slice of Life"],
+  "tags": ["tutorial", "offline"],
+  "language": "en",
+  "cover": "welcome.cover.svg",
+  "description": "The owner's tour of this app, written as a book — because around here, the book is the interface. Nine short chapters; each one teaches by doing.",
+
+  "chapters": [
+    {
+      "title": "The Book That Reads You Back",
+      "blocks": [
+        { "t": "h2", "c": "The Book That Reads You Back" },
+        { "t": "p", "c": "Most apps introduce themselves with a slideshow. Arrows, dots, a button marked Skip that everyone presses. We would rather not spend your first minute that way. This is a book, and you are already reading it — which means the tour has already begun, and you are, if we may say so, doing rather well." },
+        { "t": "p", "c": "Here is the arrangement. Each chapter of this book teaches one part of the app, in the place where that part actually lives. Nothing is required of you. You can read straight through and touch nothing, and the app will go on quietly working the way it works. But when a chapter invites you to try something, the thing it names will be on the screen in front of you, close enough to reach. That is the design principle of this whole application: around here, the book is the interface." },
+        { "t": "hr" },
+        { "t": "p", "c": "Begin with the pages themselves. That quiet bar at the bottom of this page — the one that looks like a design flourish — is how you turn pages. Tap the right side and the book obliges. Tap the left and it takes you back, no questions asked. Or ignore it entirely and swipe, the way you would nudge a real page you were not quite done with." },
+        { "t": "p", "c": "If your copy of this book is scrolling instead of turning, that is a mode, not a mistake. Some readers scroll; the app respects that, and the whole of chapter two is about choosing. For now, whichever way the text moves is the right way." },
+        { "t": "p", "c": "Next, touch the middle of the page once, on the prose itself. The header and its buttons step out of the room; the words stay. Touch again and the furniture comes back. A book should be mostly book. The controls here know they are staff, not family, and they wait to be called." },
+        { "t": "p", "c": "While the header is visible, look at its left corner. The chevron steps back the way you came, one screen at a time. Beside it sits a small diamond — the app's own mark — and that one goes all the way home, to your shelf, from anywhere in the app. You cannot get lost here. There is always a door, and it is always in the same place." },
+        { "t": "blockquote", "c": "A reader's attention is a loan, not a gift. An interface repays it by getting out of the way." },
+        { "t": "p", "c": "One more thing before chapter two, and it requires nothing of you at all. Your place in this book is already saved. It was saved when you opened it, it has been saved as you read, and it will be saved if you leave in the middle of a sentence, which you are welcome to do. There is no bookmark to remember, because the app does the remembering. That is its job, not yours." },
+        { "t": "note", "c": "This is the owner's tour of the Offline Reader, written as a book because a reading app is best explained where the reading happens. It ships inside the app and never touches the network." }
+      ]
+    },
+    {
+      "title": "Three Ways to Turn a Page",
+      "blocks": [
+        { "t": "h2", "c": "Three Ways to Turn a Page" },
+        { "t": "p", "c": "Every reader holds a quiet, lifelong opinion about how text should move. Some want pages that turn, decisively, the way paper turns. Some want to sink down through a chapter the way you sink through a long letter. Some want the entire book to be one continuous corridor with no doors in it at all. This app declines to referee the question. It offers all three ways and keeps its own opinion to itself." },
+        { "t": "ul", "items": [
+          "Paged — the text stands still and turns when you say so. The nearest thing to paper, and the kindest to a mind that likes to look up and find the paragraph still where it left it.",
+          "Scroll — one chapter at a time, top to bottom, with the next chapter waiting politely behind a bar at the end.",
+          "Endless — chapters follow one another without a seam, for readers who would rather not be reminded that chapters end."
+        ] },
+        { "t": "p", "c": "Changing between them takes two taps. Tap the page once to call the controls back, then find the small button marked Aa in the header. The sheet that rises holds the reader's settings, and its first row is the mode row — Paged, Scroll, Endless, three plain words. Tap one now, if you are curious. This is the chapter for experiments, and nothing you try in it is permanent." },
+        { "t": "hr" },
+        { "t": "p", "c": "Notice what did not happen when you switched. You did not lose your place. The paragraph you were reading was re-set, re-flowed, and put back in front of you in the new shape, without being asked. The app treats your position in the text as the one sacred thing it manages. Modes are furniture. The text is the house, and you were not moved out of it." },
+        { "t": "p", "c": "As for which mode to choose — we can offer observations, not verdicts. Paged suits long, dense books, and any hour when you want the sentence to stand still while you think about it. Scroll suits shorter chapters, and reading with one hand on a crowded train. Endless suits serials, and the particular time of night when stopping is a decision you would rather not be asked to make twenty times." },
+        { "t": "blockquote", "c": "There is no correct way to move through a book. There is only the way that lets you forget you are moving at all." },
+        { "t": "p", "c": "And if you close that sheet and never open it again, that is a legitimate choice too. Every default in this app was picked to be livable. The Aa button is not homework. It is a standing offer, and it will still be standing in a year." },
+        { "t": "p", "c": "It has more to offer than modes, though. The next chapter is about the letters themselves." }
+      ]
+    },
+    {
+      "title": "Set Your Type",
+      "blocks": [
+        { "t": "h2", "c": "Set Your Type" },
+        { "t": "p", "c": "We should talk about the letters themselves. Somewhere above this line there is a small button marked Aa, and behind it lives every opinion this app has about typography — which is to say, none it will not surrender. Make the type larger. Loosen the lines. Choose the typeface your eyes trust. The page will hold your place while you decide; that is its job, not yours." },
+        { "t": "p", "c": "The typefaces deserve proper introductions. Literata was drawn for exactly this work: long stretches of prose on a screen, hour after hour, without calling attention to itself. Atkinson Hyperlegible comes from the Braille Institute, engineered so that no letter can be mistaken for its neighbor — many readers with low vision swear by it, and plenty with ordinary vision keep it anyway. OpenDyslexic weights the bottom of each letterform to keep it from flipping and swapping in the mind's eye; if reading has always felt like slightly harder work than people claim it is, give it ten minutes. And the plain serif, sans and mono faces are your device's own, for readers whose taste runs to the familiar." },
+        { "t": "p", "c": "Below the faces sit the measures, and they are worth a slow minute each: text size, line height, line width, alignment, paragraph spacing, first-line indent, letter spacing, word spacing. Small numbers, large consequences. A slightly taller line can be the difference between reading for forty minutes and reading for four." },
+        { "t": "hr" },
+        { "t": "p", "c": "If that list sounds like work, the top of the sheet disagrees. There you will find presets — whole reading setups applied in one tap. Classic paperback, for a justified, indented, cream-colored page. Night scroll, for the late hours. Dyslexia-friendly, with the face and the loose, generous spacing set together the way they should be. Dense terminal, for those who secretly want the book to look like a log file. Large print, which is exactly what it says." },
+        { "t": "p", "c": "A preset is a starting point, not a contract. Tap one, then nudge whatever it did not get quite right — the preset will not sulk, and nothing keeps track of whether you stayed faithful to it. When you build a combination you love, save it as your own; it joins the row with the others, under whatever name you give it." },
+        { "t": "blockquote", "c": "Typography is the interior design of reading. You are allowed to move the furniture. You live here." },
+        { "t": "p", "c": "One last row in that sheet matters more than its size suggests: Apply to all series. Settings in this reader belong to the book you set them in — the shape you give this tutorial follows this tutorial, and the next book starts fresh from the defaults. That is deliberate; a dense reference and a light serial deserve different rooms. But when you find the shape you want everywhere, Apply to all series makes it the house style, in one motion, for every book on the shelf." },
+        { "t": "p", "c": "Go on — make this page yours before the next chapter. We will look different when you get there, and that is rather the point." }
+      ]
+    },
+    {
+      "title": "Reading After Dark",
+      "blocks": [
+        { "t": "h2", "c": "Reading After Dark" },
+        { "t": "p", "c": "Reading is a daytime word for an activity mostly practiced at night. The lamp goes off, the phone stays on, and one more chapter becomes a unit of time. An app built for readers has to take the dark hours seriously, and this one does — in two places, which this chapter visits in order." },
+        { "t": "p", "c": "The first is the Aa sheet you met last chapter. Beneath the type controls sits a row of painted squares, each one a theme for the page itself. Dark and dim, for low light. True black, which on an OLED screen switches the pixels off entirely — the page becomes the dark, and the battery quietly thanks you. Light, cream, sepia and tan, for daylight and for readers who like a page that remembers paper. Nord and forest, cooler and greener, for eyes that find the warm tones cloying. Tap through them now; the page re-dresses itself around your place without losing it." },
+        { "t": "p", "c": "And at the end of the row, custom. Choose any two colors — one for the page, one for the ink — and the reader derives everything else: the dimmed labels, the borders, the quiet in-between shades. Two decisions, one theme, entirely yours. If you have ever wanted a page the exact color of your reading lamp, this is where that happens." },
+        { "t": "hr" },
+        { "t": "p", "c": "The page, though, is only half the room. Close a book and the shelf is still there — the home screen, the menus, the series pages — and by default they all wear dark. If black might not be your cup of tea, change the whole room, not just the page: the app-wide themes live in Settings, and they are the same palettes, plus the same two-color custom, applied to everything outside the book. A cream shelf around a sepia page. Black everything. A forest-green app holding a tan paperback. The combinations are your business." },
+        { "t": "p", "c": "The two are deliberately separate. The reader has its own themes, inside the book, so the page you tuned at midnight is not undone by the shelf you brightened at noon. Set each one once, and both will keep." },
+        { "t": "blockquote", "c": "Darkness is not a feature. It is a courtesy — to your eyes, to the person asleep beside you, and to the battery, in that order." },
+        { "t": "p", "c": "One honest limit. The comic reader stays dark under every theme, deliberately: pictures carry their own light, and a bright margin around a night scene helps nobody. That is a decision, not an omission, and prose is unaffected by it." },
+        { "t": "p", "c": "You are, at this point, reading a book you have reshaped twice. It remembers all of it, and it will remember it tomorrow. On to filling the shelf." }
+      ]
+    },
+    {
+      "title": "The Shelf Grows",
+      "blocks": [
+        { "t": "h2", "c": "The Shelf Grows" },
+        { "t": "p", "c": "A reading app that can only read its own catalogue is a waiting room. The point of a shelf is that it grows — with your files, your finds, and the books you have paid for. This chapter is about bringing your own; the next is about the wider world." },
+        { "t": "p", "c": "On the home screen there is a button marked Add series. Behind it are two doors. One is Add by link, which we will save for the next chapter. The other is Open a file, and it accepts the three formats that matter to a reader:" },
+        { "t": "ul", "items": [
+          "EPUB — the standard book format used nearly everywhere outside the big locked stores.",
+          "TXT — plain text, the cockroach of file formats, unkillable and entirely welcome here.",
+          "CBZ — comics and manga, a simple zip of page images."
+        ] },
+        { "t": "p", "c": "Where the file lives hardly matters. Pick it from the Files app — Downloads, iCloud, a synced folder, wherever it landed. Or work the other way around: find the file anywhere on your device, tap Share, and hand it to this app the way you would pass a book across a table. Either way it is unpacked, given a place on the shelf with a cover and a chapter list, and treated exactly like everything else here — same reader, same saved place, same type settings you built in chapter three." },
+        { "t": "hr" },
+        { "t": "p", "c": "A word about bought books, calmly. If your store lets you download a DRM-free EPUB or CBZ, it opens here like any other file; a book locked to its store stays with that store, and this app will not pretend otherwise, nor help pick the lock. The import screen keeps a short, honest list of which stores hand you your files — Humble Bundle, Leanpub, Smashwords and the DRM-free publisher stores among them — and which do not. It is a shorter list than it ought to be, and that is the industry's doing, not yours." },
+        { "t": "p", "c": "And if the shelf is thin tonight, there is always the public domain. Project Gutenberg offers some seventy thousand books, free and DRM-free, in EPUB — the classics whose copyrights expired long ago. Six of them came bundled with this app, so they are on your shelf already, sitting a little below this tutorial, waiting with the patience of books that have already waited a century. The import screen keeps a direct door to the rest — free classics, no lock, nothing to sign." },
+        { "t": "blockquote", "c": "A shelf is autobiography. Fill it accordingly." },
+        { "t": "p", "c": "Try it now, if a file is within reach. This book will hold your place while you are gone; that is, as we may have mentioned, its job." }
+      ]
+    },
+    {
+      "title": "Elsewhere, Brought Home",
+      "blocks": [
+        { "t": "h2", "c": "Elsewhere, Brought Home" },
+        { "t": "p", "c": "Somewhere out there is a site you already read on. A web-novel archive, a translation group's house, a serial that updates on Tuesdays. The usual arrangement is that you go to it — through a browser, past the pop-ups, into whatever that site believes a reading experience is. This chapter is about the reverse arrangement." },
+        { "t": "p", "c": "Open Add series on the home screen and choose Add by link. Paste the address of a series page — the page that lists its chapters — and the app fetches that list, shows you exactly what it found, and waits for you to confirm before anything joins the shelf. What arrives is that series inside this reader: your typography, your themes, your saved place, laid over their chapters. Nothing is copied to any server along the way; the arrangement is between your device and theirs." },
+        { "t": "p", "c": "Do that twice for one site and you will want the site itself within reach. That is what sources are for. On the sources screen you can save it — a name, an address, nothing more — and it appears on your home screen as a shelf of its own. Saved sources are bookmarks with superpowers: tap one and you can browse the site's catalogue from inside the app, covers and all, and add any series you find from right where you stand. Anything already on your shelf is marked as such while you browse, so you will not shelve the same book twice by accident. The shelf holds twenty-four sources, and when it is full the app says so plainly rather than quietly discarding an old friend." },
+        { "t": "hr" },
+        { "t": "p", "c": "Now the honest part. Browsing someone else's site from inside an app takes a small helper — a content gateway that fetches pages and reads chapter lists on your behalf. It is optional equipment, and some installations run without it. When it is off, the app tells you so, in plain words, exactly where the browsing would have been. Your saved sources still work as ordinary links that open the site itself; nothing spins forever, and nothing pretends." },
+        { "t": "blockquote", "c": "An app should tell you what it cannot do in the same calm voice it uses for what it can. Anything else is theater." },
+        { "t": "p", "c": "Sources are also, frankly, a bet on your taste. The catalogue that ships with this app is deliberately small — one tutorial and six old classics — because the interesting shelf is the one you assemble yourself. The app brings the reader. You bring the library." },
+        { "t": "p", "c": "Next: what happens to all of these books once you are actually reading them. The long game." }
+      ]
+    },
+    {
+      "title": "The Long Read",
+      "blocks": [
+        { "t": "h2", "c": "The Long Read" },
+        { "t": "p", "c": "Books worth reading are mostly too long for one sitting. That is not a flaw in books; it is a flaw in sittings. So the real test of a reading app is not the page — any app can draw a page — but the seams between sittings: the closing, the week away, the coming back." },
+        { "t": "p", "c": "Here is what this app does at the seams. Your place is saved continuously, to the paragraph, without being asked — you have been reading the proof for six chapters. Every book keeps its own place, so pausing a doorstop novel to inhale a short serial costs neither of them anything. And when you come back to the home screen, the book you were reading is waiting at the very top, in a rail called Continue reading, one tap from the sentence you left." },
+        { "t": "p", "c": "Each book also remembers how you like it. The mode, the type, the theme you set in chapters two through four belong to this book; another book can be arranged another way, and each remembers its own arrangement for as long as it sits on the shelf. A dense reference in small mono, a serial in large warm serif — the app keeps both rooms made up." },
+        { "t": "hr" },
+        { "t": "p", "c": "Then there is the matter in the app's own name. A book from the catalogue or from a source arrives chapter by chapter, over the network, as you read. But networks are for cities, and books are for planes, tents, basements and trains. On any series page you will find a download control beside each chapter, and one for the lot. Saved chapters live on your device and open with no connection at all — and the series page counts them for you, so before a flight you can see at a glance how much of the book is truly aboard." },
+        { "t": "p", "c": "The files you imported in chapter five are already fully yours, of course — they came in whole. And this tutorial, along with its six classic companions, is built into the app itself: the floor of the shelf, readable on a bare device in a dead zone with the last bar of signal long gone." },
+        { "t": "blockquote", "c": "An offline reader is a promise about the worst day, not the best one: no signal, no server, no account — and still the book opens." },
+        { "t": "p", "c": "There is nothing you need to practice in this chapter, unless a flight is imminent, in which case we recommend the download button and a long book. Read on; the next chapter is about time itself, and it has been keeping some numbers for you." }
+      ]
+    },
+    {
+      "title": "Minutes That Count",
+      "blocks": [
+        { "t": "h2", "c": "Minutes That Count" },
+        { "t": "p", "c": "There is a screen in this app that counts, and it deserves a careful introduction, because counting is where apps usually go wrong. The numbers here are not a score. Nobody sees them but you. They exist because readers, at the end of a tired week, genuinely like to know that the reading happened." },
+        { "t": "p", "c": "The screen is called Goals, and it is one tap from home. Set a daily goal there if you want one — minutes, words, pages or chapters, whichever unit feels like yours. While you read, a timer keeps quiet company; when you stop, it stops. Meet the goal and the day is marked. Meet it several days running and you have a streak, which the app records with an even temper: a streak here is a bookmark in time, not a debt, and a missed Tuesday is a Tuesday, not a referendum on your character." },
+        { "t": "p", "c": "The same screen keeps the near ledger — today, this week, this period — time spent, words passed, chapters finished, books closed. Glance at it after a good night of reading. It is a modest pleasure, and a surprisingly durable one. While a book is open, a small floating pill keeps the day's minutes within glancing distance, for those who like the clock where they can see it; the home screen carries today's progress too, so you pass your own good news on the way in." },
+        { "t": "hr" },
+        { "t": "p", "c": "Below all that sits the part we suspect you will come to like best. The app keeps a ledger of how much you have read — all of it, for you, on your device. Hours, words, pages, chapters, books, accumulated from the day you started, under a small line that says since when. Reset the recent history whenever you want a clean season; the lifetime ledger survives the reset, because a fresh start should not cost you your past. It can be zeroed too — but only by you, on purpose, in its own separate corner of the screen." },
+        { "t": "blockquote", "c": "Nobody is watching you read. The ledger is a mirror, not a window." },
+        { "t": "p", "c": "It bears saying in the plainest terms: these numbers never leave your device. There is no account behind them, no server above them, no comparison to anyone else, no week in review sent to an inbox. The app counts for the same reason a runner wears a watch — not to be judged, but to be answered, on the days you wonder whether the hours went anywhere." },
+        { "t": "p", "c": "They went into pages. The proof is on the Goals screen, accumulating quietly while you finish this book — which you are, incidentally, one chapter from doing." }
+      ]
+    },
+    {
+      "title": "Make It Yours",
+      "blocks": [
+        { "t": "h2", "c": "Make It Yours" },
+        { "t": "p", "c": "We end where most apps begin: with the settings. It seemed more polite this way. You now know what the app does; the remaining question is what you would like it to be, and that question has a room of its own." },
+        { "t": "p", "c": "Settings sits on the home screen, in the toolbar — the small diamond in this book's header will take you home whenever you are ready. Inside, the first choice is Focus: books, comics, or both. Focus is not a wall; it is a lean. Tell the app you are here for comics, and the home screen leads with what is new, the tabs default to your side of the shelf, and the ambiguous cases dress accordingly. Every tab and every feature stays reachable regardless. The app shapes its defaults around you, then respects every explicit choice you make over them." },
+        { "t": "p", "c": "Below that, the home screen itself comes apart and reassembles. Continue reading, Goals, Sources, Latest updates — reorder them, hide the ones you never glance at, lead with what you actually use. All series stays on the bill, always; a home screen without the library would be a lobby without the building. And if you rearrange yourself into a corner, one button restores the standard arrangement, no harm done." },
+        { "t": "p", "c": "The app-wide themes from chapter four live here too, alongside the door to a room called Your thoughts — which brings us to the last thing this book has to teach." },
+        { "t": "hr" },
+        { "t": "p", "c": "A word before you go. When you close the last page of a book — and you are closer to doing that than you might think — the app offers you a small, quiet space to say what the book left behind. Not a review; there are no stars and no audience. Not homework; it never insists. Just a thought, departed on the doorstep on your way out, kept where only you will ever find it. Months from now, on the thoughts screen, you will meet the person who finished that book and hear what they had to say. It is a strangely good way to remember your reading — and, we would gently argue, the entire point of finishing." },
+        { "t": "p", "c": "That is the tour. You can turn a page three ways, shape the type, light the room, grow the shelf, bring a distant site home, leave and be remembered, count the hours, and rearrange the furniture. The app has nothing further to teach — only books to hold, and it did not write those." },
+        { "t": "blockquote", "c": "We are readers here. The app is only the room the reading happens in — and the room, at last, is yours." },
+        { "t": "p", "c": "Close the cover, then. Just below this line, the app will ask what this little book left behind; it would be fitting if its first recorded thought were yours. It has been a pleasure. Go read something." },
+        { "t": "note", "c": "End of the tour. The six classics on your shelf are from Project Gutenberg, free and in the public domain. Everything that joins them from here on, you chose. — The Offline Reader" }
+      ]
+    }
+  ]
+}

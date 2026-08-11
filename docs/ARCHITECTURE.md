@@ -202,10 +202,26 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.08`** and `SHELL_ASSETS`
+The service-worker cache is **`cbz-reader-v5.09`** and `SHELL_ASSETS`
 precaches the full module list above plus all seven CSS files — the four new
 JS modules (`covers`, `thoughts`, `sources`, `settings`) and three new
 stylesheets are in the shell.
+
+**Changing a precached asset means bumping `CACHE_NAME` (binding).** The shell
+is served cache-first and `activate` deletes only caches whose name differs, so
+new `css/**`, `js/**`, `styles.css` or `index.html` shipped under an unchanged
+`CACHE_NAME` reaches **nobody** who has already opened the app — the old files
+are served from the cache indefinitely. This failure is invisible everywhere it
+would normally be caught: the diff is correct, review passes, and the test
+pages load from disk rather than through the service worker. It has already
+happened twice — two shipped CSS fixes went out against `v5.08` and no reader
+saw either.
+
+`scripts/check-sw-cache.mjs` is the guard: it parses `SHELL_ASSETS` and
+`CACHE_NAME` out of `sw.js`, diffs the branch against its base, and fails if a
+precached asset changed while `CACHE_NAME` did not. It runs on every pull
+request via `.github/workflows/ci.yml`, alongside the worker and scraper suites
+and the catalogue contract check.
 
 ### 2.1 Screens
 

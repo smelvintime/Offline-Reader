@@ -120,15 +120,13 @@
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  /* Snapping must respect the gutter these rows re-pad themselves with.
-     A snap container's snapport is its PADDING box unless scroll-padding says
-     otherwise, so `scroll-snap-align: start` on the children was resting the
-     row at scrollLeft = padding-left — eating the gutter and leaving the first
-     tab/card flush against the physical screen edge. It only showed up once a
-     row actually overflowed, which is why it read as a phone-only bug.
-     Keep these in step with the padding-left/right below. */
-  scroll-padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
-  scroll-padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
+  /* A snap container's snapport is its PADDING box unless scroll-padding says
+     otherwise, so `scroll-snap-align: start` on the children rests the row at
+     scrollLeft = padding-left and swallows that padding. Small now that the
+     rows no longer bleed, but keep it in step with the padding below or the
+     focus-ring margin goes with it. */
+  scroll-padding-left: 0.15rem;
+  scroll-padding-right: 0.15rem;
 }
 .cat-tabs::-webkit-scrollbar,
 .cat-rail::-webkit-scrollbar { width: 0; height: 0; }
@@ -150,17 +148,17 @@
 .cat-tabs {
   display: flex;
   gap: 0.35rem;
-  /* Bleed past #home-body's padding so the strip scrolls edge to edge. The
-     bleed and the re-pad both include the safe-area inset: the strip reaches
-     the physical screen edge, while its first tab still lines up with body
-     content clear of the notch. Insets can differ per side (landscape), so
-     the two edges are declared separately. */
-  margin: 0 0 1.25rem;
-  margin-left:  calc((var(--cat-pad-x) + env(safe-area-inset-left, 0px)) * -1);
-  margin-right: calc((var(--cat-pad-x) + env(safe-area-inset-right, 0px)) * -1);
-  padding: 0.15rem var(--cat-pad-x) 0.3rem;
-  padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
-  padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
+  /* Sits inside #home-body's gutter rather than bleeding through it.
+     The strip used to run edge to edge — negative margins out to the physical
+     screen edge, then re-padded so the FIRST tab still lined up with body
+     content. That only held at rest: the moment the strip scrolled, tabs ran
+     straight into the screen edge, which is the thing that looked wrong.
+     Keeping the row inside the gutter means it clips at the same line every
+     other card and label stops at, in every scroll position. The small
+     horizontal padding is breathing room for focus rings, not a gutter — the
+     gutter is #home-body's job. */
+  margin: 0 -0.15rem 1.25rem;
+  padding: 0.15rem 0.15rem 0.3rem;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x proximity;
@@ -197,13 +195,9 @@
 .cat-rail {
   display: flex;
   gap: 0.6rem;
-  /* Same inset-aware bleed as .cat-tabs above. */
-  margin: 0;
-  margin-left:  calc((var(--cat-pad-x) + env(safe-area-inset-left, 0px)) * -1);
-  margin-right: calc((var(--cat-pad-x) + env(safe-area-inset-right, 0px)) * -1);
-  padding: 0.15rem var(--cat-pad-x) 0.5rem;
-  padding-left:  calc(var(--cat-pad-x) + env(safe-area-inset-left, 0px));
-  padding-right: calc(var(--cat-pad-x) + env(safe-area-inset-right, 0px));
+  /* Inside the gutter, same as .cat-tabs above and for the same reason. */
+  margin: 0 -0.15rem;
+  padding: 0.15rem 0.15rem 0.5rem;
   overflow-x: auto;
   scroll-snap-type: x proximity;
 }

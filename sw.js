@@ -1,4 +1,12 @@
-const CACHE_NAME = 'cbz-reader-v5.08';
+// BUMP THIS whenever anything in SHELL_ASSETS changes.
+//
+// The shell is cache-first, and `activate` only clears caches whose name does
+// not match, so a stale CACHE_NAME serves the OLD css/js to every browser that
+// has already opened the app — forever. Two shipped CSS fixes went out against
+// v5.08 without a bump and reached nobody; the code was right and the readers
+// still had the bug. If you touched styles.css, css/**, or any js/** file in
+// the list below, this line changes too.
+const CACHE_NAME = 'cbz-reader-v5.09';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [

@@ -1,0 +1,56 @@
+name: CI
+
+# The repository had no pull-request CI at all, which is how two shipped CSS
+# fixes reached main without the service worker's CACHE_NAME being bumped — the
+# code was right, the diff reviewed fine, and no reader ever saw either change.
+# This runs the checks that would have caught it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check-sw-cache diffs against the base branch, so it needs history.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The worker genuinely has no runtime dependencies — its suite is
+      # node:test over source that imports nothing outside node: — so it runs
+      # with no install at all.
+      - name: Worker tests
+        working-directory: worker
+        run: npm test
+
+      # The scraper does need its two: the boilerplate tests import
+      # sources/gutenberg.js, which reaches lib/http.js and axios.
+      - name: Install scraper dependencies
+        working-directory: scraper
+        run: npm install --no-audit --no-fund
+
+      - name: Scraper tests
+        working-directory: scraper
+        run: npm test
+
+      - name: Catalogue contract (ARCHITECTURE.md §1 and §8)
+        working-directory: scraper
+        run: node src/validate.js && node src/check-welcome.js
+
+      # No --depth here: the check diffs base...HEAD, which needs the merge-base
+      # to be reachable. A shallow fetch of the base branch would leave it
+      # missing and quietly break the guard. checkout already pulled full
+      # history (fetch-depth: 0), so this is just making sure the ref exists.
+      - name: Service worker cache bumped for shell changes
+        run: |
+          BASE="${{ github.event.pull_request.base.ref || 'main' }}"
+          git fetch --no-tags origin "$BASE" || true
+          node scripts/check-sw-cache.mjs "origin/$BASE"

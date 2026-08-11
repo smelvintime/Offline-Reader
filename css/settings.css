@@ -126,6 +126,16 @@ html[data-apptheme='custom'][data-applum='light'] {
   --set-tap:         44px;                  /* the floor for a finger */
   --set-dur:         150ms;
   --set-ease:        cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* The invitation pair. The house 150ms/material curve is right for a
+     control answering a tap — it should feel immediate. The first-run sheet
+     is not answering a tap, it is greeting someone, and the same timing reads
+     as abrupt there. Slower, and on a curve that arrives without braking:
+     most of the distance is covered early, then it settles rather than stops.
+     Used only by the onboarding surfaces, never by the settings controls. */
+  --set-dur-calm:    560ms;
+  --set-ease-calm:   cubic-bezier(0.22, 1, 0.36, 1);
+  --set-stagger:     70ms;
 }
 
 /* ── Screen shell ────────────────────────────────────────────────────────── */
@@ -304,9 +314,88 @@ html[data-apptheme='custom'][data-applum='light'] {
 #settings-screen .set-swatch-custom,
 .set-focus-sheet .set-swatch-custom { background: var(--set-surf); }
 
+/* ── The arrival ──────────────────────────────────────────────────────────
+   The sheet slides up as one object, then its contents settle in reading
+   order — heading, then each block down the page. Staggering matters more
+   than the individual durations: everything appearing at once is a dialog,
+   things appearing in sequence is someone showing you around. The offsets are
+   small (70ms) so it reads as one gesture with depth rather than a queue.
+
+   Keyed off :not([hidden]) so the animation restarts whenever the sheet is
+   actually opened, with `both` holding the start frame until the delay is up
+   — otherwise every block would flash at full opacity before animating. */
+@keyframes set-settle {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.set-focus-sheet:not([hidden]) .set-sheet-head,
+.set-focus-sheet:not([hidden]) .set-sheet-body > * {
+  animation: set-settle var(--set-dur-calm) var(--set-ease-calm) both;
+}
+.set-focus-sheet:not([hidden]) .set-sheet-head        { animation-delay: 140ms; }
+.set-focus-sheet:not([hidden]) .set-sheet-body > *:nth-child(1) { animation-delay: calc(140ms + var(--set-stagger)); }
+.set-focus-sheet:not([hidden]) .set-sheet-body > *:nth-child(2) { animation-delay: calc(140ms + var(--set-stagger) * 2); }
+.set-focus-sheet:not([hidden]) .set-sheet-body > *:nth-child(3) { animation-delay: calc(140ms + var(--set-stagger) * 3); }
+.set-focus-sheet:not([hidden]) .set-sheet-body > *:nth-child(4) { animation-delay: calc(140ms + var(--set-stagger) * 4); }
+.set-focus-sheet:not([hidden]) .set-sheet-body > *:nth-child(5) { animation-delay: calc(140ms + var(--set-stagger) * 5); }
+
+/* The three focus cards settle individually inside their own container, so
+   the choice itself unfolds rather than landing as a block of three. */
+.set-focus-sheet:not([hidden]) .set-cards > * {
+  animation: set-settle var(--set-dur-calm) var(--set-ease-calm) both;
+}
+.set-focus-sheet:not([hidden]) .set-cards > *:nth-child(1) { animation-delay: 260ms; }
+.set-focus-sheet:not([hidden]) .set-cards > *:nth-child(2) { animation-delay: 320ms; }
+.set-focus-sheet:not([hidden]) .set-cards > *:nth-child(3) { animation-delay: 380ms; }
+
+/* Hover/press on the focus cards uses the calm curve too — a card that
+   springs under the finger undoes the tone the arrival just set. */
+.set-focus-sheet .set-card {
+  transition: background var(--set-dur-calm) var(--set-ease-calm),
+              border-color var(--set-dur-calm) var(--set-ease-calm),
+              transform 200ms var(--set-ease-calm);
+}
+
 /* The sheet's own framing for the grid: a quiet heading and a little air, so
    it reads as a second question under "What do you read?". */
 .set-focus-sheet .set-theme-block { margin-top: 1.1rem; }
+
+/* ── Where the library lives ──────────────────────────────────────────────
+   A reassurance, not a control: no border box shouting for attention, just a
+   soft surface and quiet type. It is the last thing to settle in, which is
+   the right order — you are told where your reading lives after you have been
+   asked what you read and how it should look. */
+.set-focus-sheet .set-account-block { margin-top: 1.1rem; }
+.set-focus-sheet .set-account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem;
+  background: var(--set-surf-1);
+  border: 1px solid var(--set-border-soft);
+  border-radius: var(--set-r);
+}
+.set-focus-sheet .set-account-copy {
+  margin: 0;
+  color: var(--set-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.set-focus-sheet .set-account-btn {
+  align-self: flex-start;
+  min-height: var(--set-tap);
+  padding: 0.5rem 1rem;
+  background: var(--set-accent-soft);
+  border: 1px solid var(--set-accent);
+  border-radius: var(--set-r-sm);
+  color: var(--set-accent-ink);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--set-dur-calm) var(--set-ease-calm);
+}
 .set-focus-sheet .set-theme-label {
   display: block;
   margin-bottom: 0.5rem;
@@ -478,7 +567,9 @@ html[data-apptheme='custom'][data-applum='light'] {
   inset: 0;
   z-index: 380;                /* over every screen, under the toasts (410) */
   background: rgba(0, 0, 0, 0.5);
-  transition: opacity 0.28s ease;
+  /* Dims at the sheet's pace so the room darkens WITH the arrival rather than
+     snapping dark and then waiting for it. */
+  transition: opacity var(--set-dur-calm) var(--set-ease-calm);
 }
 .set-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
 
@@ -497,7 +588,7 @@ html[data-apptheme='custom'][data-applum='light'] {
   border-top: 1px solid var(--set-border);
   border-radius: 24px 24px 0 0;   /* sheet tops are the one place 24px is allowed */
   box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
-  transition: transform 0.28s var(--set-ease);
+  transition: transform var(--set-dur-calm) var(--set-ease-calm);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   -webkit-tap-highlight-color: transparent;
 }
@@ -651,5 +742,12 @@ html[data-apptheme='custom'][data-applum='light'] {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+    /* The delay matters as much as the duration here. Zeroing durations alone
+       would leave the staggered arrival intact — blocks still appearing one
+       after another, just instantly each — which is exactly the sequenced
+       motion this preference asks us not to perform. Everything lands at
+       once. */
+    animation-delay: 0ms !important;
+    transition-delay: 0ms !important;
   }
 }

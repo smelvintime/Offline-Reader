@@ -202,10 +202,10 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.09`** and `SHELL_ASSETS`
-precaches the full module list above plus all seven CSS files — the four new
-JS modules (`covers`, `thoughts`, `sources`, `settings`) and three new
-stylesheets are in the shell.
+The service-worker cache is **`cbz-reader-v5.10`** and `SHELL_ASSETS`
+precaches the full module list above plus all seven CSS files — the five
+optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`)
+and three new stylesheets are in the shell.
 
 **Changing a precached asset means bumping `CACHE_NAME` (binding).** The shell
 is served cache-first and `activate` deletes only caches whose name differs, so
@@ -907,6 +907,46 @@ the key away) so the focus-derived default applies again.
 - **Toolbar**: a Settings button rendered only when `window.AppSettings`
   exists (the Goals-button pattern).
 
+### 2.13 `window.Identity` — the account seam (optional module)
+
+`js/identity.js` exists so accounts can arrive later without the reader, the
+catalogue, the store or the settings screen learning anything about auth. It
+ships one provider, `local`, which is **not an account**: it mints a random id
+for the install, keeps it in `identity.deviceId`, and never sends it anywhere.
+There is no network call in the file and nothing in it can produce one.
+
+```js
+Identity.state()   // { provider, label, canSignIn, signedIn, accountLabel, local }
+Identity.deviceId()
+Identity.register(provider)   // the seam — a backend installs itself here
+Identity.on(fn)               // also fires window 'or:identity-changed'
+Identity.signIn() / signOut() / refresh()
+```
+
+A provider supplies `{ id, label, canSignIn, state(), signIn(), signOut() }`.
+`state()` is **synchronous** on purpose — UI renders against it mid-paint, and
+an async check would make every consumer handle a loading state for what is,
+today, a constant. `refresh()` re-asks the provider and emits on change.
+
+**Honesty rules (binding).** The module never reports `signedIn` it cannot
+back, never exposes a sign-in control that does nothing, and never implies data
+leaves the device. `canSignIn` stays false until something real backs it, and
+onboarding copy is written against that flag rather than against a plan:
+
+- **local** — "It lives on this device… you can add one later… until you ask,
+  nothing leaves." No control rendered.
+- **canSignIn** — offers a real Sign in button.
+- **signedIn** — names the account.
+
+That last two branches ship today and are unreachable today; they exist so the
+day a provider registers, the UI is already correct. This is what makes it a
+seam rather than a placeholder.
+
+**Scope.** `local` does not change §8: nothing is uploaded, there is no server,
+and the README/COPYRIGHT claims stand as written. A future provider that syncs
+anything **must** revise both — that is a product decision with a paper trail,
+not a config change.
+
 ---
 
 ## 3. `window.Store` — persistence API
@@ -1109,6 +1149,7 @@ renders after the series is gone. A deliberate non-cascade.
 | `goals.idleCutoff`    | int minutes `1..30` (default `5`)              | goals        |
 | `goals.reminder.enabled` | boolean (default `false`; UI only when `Platform.notify.canNotify()`) | goals |
 | `goals.reminder.time` | string `/^([01]\d\|2[0-3]):[0-5]\d$/` (default `20:00`) | goals |
+| `identity.deviceId` | opaque string ≥ 8 chars, minted on first read (`crypto.randomUUID`, falling back to `getRandomValues`, then `Math.random`). Identifies an **installation**, not a person; never transmitted — §2.13 | identity |
 | `app.focus` | `books` \| `comics` \| `both` (default `both`; unset = never chosen → the focus sheet offers once) | settings writes; catalogue reads |
 | `app.theme` | `dark` \| `dim` \| `black` \| `light` \| `cream` \| `sepia` \| `tan` \| `nord` \| `forest` \| `custom` (default `dark`) | settings writes+applies; platform reads (status bar) |
 | `app.customBg` / `app.customFg` | `#rrggbb` (`/^#[0-9a-fA-F]{6}$/`; defaults `#0a0a0a` / `#f0f0f0`) | settings |

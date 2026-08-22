@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-20T12:44:56.035Z",
+  "generatedAt": "2026-08-22T01:05:22.197Z",
   "series": [
     {
       "id": "fixture:welcome",
@@ -432,11 +432,11 @@
     {
       "id": "gutenberg:1342",
       "type": "lightnovel",
-      "title": "Pride and Prejudice",
+      "title": "Project Gutenberg #1342",
       "altTitles": [],
       "cover": "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg",
       "description": "Sixty-one short-to-medium chapters — the long multi-part novel in this sample, and the one to scroll through when testing infinite mode. This sample ships the first 61 of 62 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
-      "author": "Jane Austen",
+      "author": null,
       "artist": null,
       "status": "completed",
       "genres": [
@@ -1606,11 +1606,11 @@
     {
       "id": "gutenberg:11",
       "type": "lightnovel",
-      "title": "Alice's Adventures in Wonderland",
+      "title": "Project Gutenberg #11",
       "altTitles": [],
-      "cover": "https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg",
+      "cover": null,
       "description": "Twelve short chapters, verse interludes and scene breaks — small enough to download over a bad connection while testing. This sample ships the first 12 of 13 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
-      "author": "Lewis Carroll",
+      "author": null,
       "artist": null,
       "status": "completed",
       "genres": [
@@ -1756,9 +1756,9 @@
       "type": "lightnovel",
       "title": "War and Peace",
       "altTitles": [],
-      "cover": "https://www.gutenberg.org/cache/epub/2600/pg2600.cover.medium.jpg",
+      "cover": null,
       "description": "War and Peace is organised as books within volumes, so its chapter titles carry a book prefix. Included to exercise deep chapter lists. This sample ships the first 60 of 365 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
-      "author": "graf Leo Tolstoy",
+      "author": "Leo Tolstoy",
       "artist": null,
       "status": "completed",
       "genres": [

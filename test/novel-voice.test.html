@@ -35,6 +35,8 @@
   <button onclick="T.testFollow().then(T.report)">follow (paged)</button>
   <button onclick="T.testAutoAdvance().then(T.report)">auto next chapter</button>
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
+  <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
+  <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testNativeTts().then(T.report)">native tts</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
@@ -220,6 +222,7 @@ async function freshOpen(opts) {
   // Ensure a clean session and default prefs unless a test overrides them.
   if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
   synthStub.reset();
+  try { localStorage.removeItem('or.voiceGuard'); } catch (e) {}
   Store.prefs.set('voice.engine', 'device');
   Store.prefs.set('voice.deviceVoice', '');
   Store.prefs.set('voice.rate', 1);
@@ -514,6 +517,82 @@ const T = {
     return { name: 'user chapter nav', pass };
   },
 
+  async testCrashGuard() {
+    let pass = true;
+    await freshOpen();
+    // A fresh guard — what a mid-utterance crash leaves behind — must
+    // suppress autoplay: the session starts paused with the place seeded.
+    localStorage.setItem('or.voiceGuard', String(Date.now()));
+    V().toggle();
+    await pause(150);
+    pass = ok(V().state().active && !V().state().playing, 'guarded session starts paused') && pass;
+    pass = ok(synthStub.spoken.length === 0, 'no utterance auto-fired under the guard') && pass;
+    // An explicit play re-arms it; two completed utterances stand it down.
+    VT().resume();
+    await waitFor(() => synthStub.spoken.length >= 2, 3000, 'spoke after explicit play');
+    await waitFor(() => !localStorage.getItem('or.voiceGuard'), 2000, 'guard cleared');
+    pass = ok(true, 'two completed utterances clear the guard') && pass;
+    endSession();
+
+    // A clean pause is proof of life and clears an armed guard immediately.
+    await freshOpen();
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    VT().pause();
+    pass = ok(!localStorage.getItem('or.voiceGuard'), 'pause clears the guard') && pass;
+    endSession();
+    return { name: 'crash guard', pass };
+  },
+
+  async testMemoryTier() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const origDownloaded = ne.downloaded;
+    const origEnsure = ne.ensureReady;
+    try {
+      // low memory: release() frees the engine immediately.
+      window.Platform = { memoryClass: function () { return 'low'; } };
+      let terminated = 0;
+      ne.worker = { postMessage: function () {}, terminate: function () { terminated++; } };
+      ne.readyPromise = Promise.resolve(); ne.ready = true;
+      ne.release();
+      pass = ok(terminated === 1 && ne.worker === null, 'low memory: release disposes immediately') && pass;
+
+      // high memory: release keeps the engine warm behind an idle timer.
+      window.Platform = { memoryClass: function () { return 'high'; } };
+      terminated = 0;
+      ne.worker = { postMessage: function () {}, terminate: function () { terminated++; } };
+      ne.readyPromise = Promise.resolve(); ne.ready = true;
+      ne.release();
+      pass = ok(terminated === 0 && !!ne.worker && !!ne.idleTimer, 'high memory: release keeps the engine warm') && pass;
+      ne.dispose();
+
+      // Prewarm on book open fires on HIGH-memory devices only, even with the
+      // model on disk.
+      let warmed = 0;
+      ne.downloaded = function () { return Promise.resolve(true); };
+      ne.ensureReady = function () { warmed++; return Promise.resolve(); };
+      await freshOpen();
+      Store.prefs.set('voice.engine', 'neural');
+      window.Platform = { memoryClass: function () { return 'mid'; } };
+      await window.NovelReader.open({ series: SERIES, chapter: SERIES.chapters[0], blocks: CHAPTERS[0].blocks, resume: null });
+      await pause(150);
+      pass = ok(warmed === 0, 'mid memory: no background prewarm on book open') && pass;
+      window.Platform = { memoryClass: function () { return 'high'; } };
+      await window.NovelReader.open({ series: SERIES, chapter: SERIES.chapters[0], blocks: CHAPTERS[0].blocks, resume: null });
+      await pause(150);
+      pass = ok(warmed >= 1, 'high memory: book open prewarms the downloaded engine', 'warmed=' + warmed) && pass;
+    } finally {
+      ne.downloaded = origDownloaded;
+      ne.ensureReady = origEnsure;
+      ne.ready = false; ne.readyPromise = null; ne.worker = null;
+      Store.prefs.set('voice.engine', 'device');
+      delete window.Platform;
+      endSession();
+    }
+    return { name: 'memory tier', pass };
+  },
+
   async testNativeTts() {
     let pass = true;
     // Simulate the native app: Platform.tts present. On real Android the
@@ -680,7 +759,8 @@ const T = {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
-      T.testUserNav, T.testNativeTts, T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
+      T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
+      T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

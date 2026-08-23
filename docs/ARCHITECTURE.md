@@ -206,7 +206,7 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.13`** and `SHELL_ASSETS`
+The service-worker cache is **`cbz-reader-v5.14`** and `SHELL_ASSETS`
 precaches the full module list above plus all eight CSS files — the six
 optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`,
 `novel-voice`) and their stylesheets are in the shell. NOT in the shell:
@@ -1018,10 +1018,21 @@ Two engines behind one controller:
   per-sentence delivery) and per-call overhead is paid once per group, which
   is what keeps slower-than-realtime devices ahead of playback, with two
   groups always generating ahead. The worker is NOT torn down on reader
-  close: it idles out after ~2 minutes unused (a warm session skips the full
-  model re-init), and opening a book with the Natural voice selected
-  pre-warms it in the background — but only when the weights are already on
+  close: it idles out after last use on a **memory-class schedule** (§2.3 —
+  high: 2 min, mid: 30 s, low: immediately; half a gigabyte of idle model on
+  a 3 GB phone is an OOM kill waiting to happen), and opening a book with
+  the Natural voice selected pre-warms it in the background on
+  **high-memory devices only** — and only when the weights are already on
   disk; prewarm never starts a download.
+
+Narration also carries a **crash-loop breaker** (`or.voiceGuard`, §3.3):
+some platforms can take the whole page down when speech starts (WebKit has
+hard-crashed home-screen web apps on `speechSynthesis.speak`; low-memory
+phones OOM under the neural engine). The flag is armed before a session's
+first utterance and cleared by two completed utterances, pause/stop, or
+`pagehide` — a real crash clears nothing, so the next session finds it
+fresh and starts paused with an explanatory toast instead of auto-playing
+back into the wall.
 
 **Coupling to the reader is one call each way.** novel-reader.js calls
 `NovelVoice.readerEvent(kind, info, bridge)` with `'open'`, `'close'` and
@@ -1325,6 +1336,7 @@ synchronous source of truth.
 | `or.gap` | page-gap level index | yes — hide-time copy only |
 | `or.autoscroll` | JSON `{ speedIdx, scrollMode }` | yes — hide-time copy only |
 | `or.timer` | goals countdown `{ deadline, minutes }` | **no — deliberately.** Losing a running countdown to a WebKit eviction is accepted; resurrecting an expired one would chime for a timer the user never saw survive. |
+| `or.voiceGuard` | epoch-ms timestamp — novel-voice's crash-loop breaker (§2.14): written before a narration session's first utterance, cleared after two utterances complete, on pause/stop, and on `pagehide`. Found fresh (<10 min) at the next session start = the last attempt likely took the page down → that session starts paused instead of auto-playing. | **no — deliberately.** It describes one runtime's crash, not the reader's data; mirroring it would trip the breaker on the other runtime. |
 
 ---
 

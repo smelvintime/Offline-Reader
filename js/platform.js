@@ -295,6 +295,78 @@
     cancelDaily: function () { return Promise.resolve(); },
   };
 
+  // ── Reader voice: native speech synthesis (ARCHITECTURE §2.14) ────────────
+  //
+  // Android's System WebView does not implement window.speechSynthesis — the
+  // Chrome browser has it, the WebView never wired the TTS service binding —
+  // so the reader voice's device tier would sit silent in the native app.
+  // This facade wraps @capacitor-community/text-to-speech; novel-voice.js
+  // prefers it over speechSynthesis whenever available() is true and keeps
+  // everything else (ranking, the sentence queue, the watchdog) identical.
+  // On iOS the plugin also buys background narration: `category: 'playback'`
+  // keeps the audio session alive with the screen off (given the
+  // UIBackgroundModes step in NATIVE_BUILD.md).
+
+  let ttsVoicesCache = null;     // getSupportedVoices result, fetched once
+  let ttsVoicesPromise = null;
+
+  const tts = {
+    available: function () { return !!plugin('TextToSpeech'); },
+
+    // → Promise<SpeechSynthesisVoice-shaped[]> ({ name, lang, voiceURI,
+    // default, localService }). Cached; never rejects; [] means "none (yet)".
+    voices: function () {
+      const TTS = plugin('TextToSpeech');
+      if (!TTS) return Promise.resolve([]);
+      if (ttsVoicesCache) return Promise.resolve(ttsVoicesCache);
+      if (!ttsVoicesPromise) {
+        ttsVoicesPromise = TTS.getSupportedVoices()
+          .then(function (r) {
+            ttsVoicesCache = (r && Array.isArray(r.voices)) ? r.voices : [];
+            return ttsVoicesCache;
+          })
+          .catch(function () { ttsVoicesPromise = null; return []; });
+      }
+      return ttsVoicesPromise;
+    },
+
+    // Speaks ONE utterance; the returned promise resolves `true` when the
+    // utterance FINISHES (the plugin's contract — novel-voice's queue depends
+    // on it) and rejects only on real engine failure. A missing plugin is an
+    // EXPECTED condition and resolves `false` per the §2.3 contract — callers
+    // gate on available() and treat false as "nothing was spoken".
+    speak: function (text, opts) {
+      const TTS = plugin('TextToSpeech');
+      if (!TTS) return Promise.resolve(false);
+      const o = opts || {};
+      const call = function (voiceIdx, lang) {
+        const req = {
+          text: String(text || ''),
+          rate: typeof o.rate === 'number' ? o.rate : 1,
+          pitch: typeof o.pitch === 'number' ? o.pitch : 1,
+          category: 'playback',
+        };
+        if (voiceIdx >= 0) req.voice = voiceIdx;
+        if (lang) req.lang = lang;
+        return TTS.speak(req).then(function () { return true; });
+      };
+      if (!o.voiceURI) return call(-1, null);
+      return tts.voices().then(function (list) {
+        for (let i = 0; i < list.length; i++) {
+          if (list[i] && list[i].voiceURI === o.voiceURI) return call(i, list[i].lang || null);
+        }
+        return call(-1, null);   // stale pref (voice uninstalled) → engine default
+      });
+    },
+
+    stop: function () {
+      const TTS = plugin('TextToSpeech');
+      if (!TTS) return Promise.resolve();
+      try { return TTS.stop().catch(function () {}); }
+      catch (e) { return Promise.resolve(); }
+    },
+  };
+
   // ── Native file picking (PLAN.md §6.1) ────────────────────────────────────
 
   // The picker dependency is chosen (capacitor-scaffold) for two properties
@@ -974,6 +1046,7 @@
     tuning: tuning,
 
     notify: notify,
+    tts: tts,
 
     pickFiles: pickFiles,
     readPickedFile: readPickedFile,

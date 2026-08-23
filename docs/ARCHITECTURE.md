@@ -206,7 +206,7 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.12`** and `SHELL_ASSETS`
+The service-worker cache is **`cbz-reader-v5.13`** and `SHELL_ASSETS`
 precaches the full module list above plus all eight CSS files — the six
 optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`,
 `novel-voice`) and their stylesheets are in the shell. NOT in the shell:
@@ -389,6 +389,27 @@ window.Platform = {
     canNotify(),      // → false
     scheduleDaily(),  // → Promise<false>
     cancelDaily(),    // → Promise<void>
+  },
+
+  tts: {          // reader-voice native backend (§2.14). Android's System
+                  //   WebView has no window.speechSynthesis, so novel-voice
+                  //   prefers this facade whenever available() is true.
+                  //   Backed by @capacitor-community/text-to-speech; plugin
+                  //   missing (and always on web) → unavailable → the
+                  //   speechSynthesis path runs.
+    available(),      // → boolean, at call time
+    voices(),         // → Promise<SpeechSynthesisVoice-shaped[]> — cached
+                      //   after first fetch; never rejects; [] = none (yet)
+    speak(text, { voiceURI, rate, pitch }),
+                      // → Promise<boolean>: true when the utterance FINISHES,
+                      //   false immediately when the plugin is missing (the
+                      //   expected-condition fallback — callers gate on
+                      //   available()); rejects only on real engine failure.
+                      //   voiceURI→plugin-index translation stays inside
+                      //   platform.js. iOS speaks with category 'playback'
+                      //   (background narration, given NATIVE_BUILD.md's
+                      //   UIBackgroundModes step).
+    stop(),           // → Promise<void>; never rejects
   },
 
   pickFiles({ accept, multiple }),
@@ -971,7 +992,13 @@ renders no Listen button and behaves exactly as before.
 
 Two engines behind one controller:
 
-- **Device** — `speechSynthesis`, zero download. Voices are *ranked*: name
+- **Device** — `speechSynthesis`, zero download — routed through
+  `Platform.tts` (§2.3) instead whenever that facade reports available:
+  Android's System WebView ships no `speechSynthesis`, so in the native app
+  the same engine speaks through the Capacitor TTS plugin (same ranking,
+  same queue, same watchdog; the silent media-session keep-alive loop is
+  web-only — the plugin holds its own audio session). Voices are *ranked*:
+  name
   markers (`Natural`, `Neural`, `Premium`, `Enhanced`, `Siri`, `Google`) rise,
   the eSpeak/compact/novelty set sinks, wrong-language voices go last. `''`
   (auto) means "highest-ranked for the page language"; the picker still lists

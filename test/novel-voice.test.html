@@ -35,6 +35,7 @@
   <button onclick="T.testFollow().then(T.report)">follow (paged)</button>
   <button onclick="T.testAutoAdvance().then(T.report)">auto next chapter</button>
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
+  <button onclick="T.testNativeTts().then(T.report)">native tts</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralFallback().then(T.report)">neural fallback</button>
@@ -513,6 +514,46 @@ const T = {
     return { name: 'user chapter nav', pass };
   },
 
+  async testNativeTts() {
+    let pass = true;
+    // Simulate the native app: Platform.tts present. On real Android the
+    // WebView has NO speechSynthesis at all; here the stub simply must not
+    // be touched while the facade exists.
+    const spoken = [];
+    window.Platform = {
+      tts: {
+        available: function () { return true; },
+        voices: function () {
+          return Promise.resolve([
+            { name: 'Native Compact', lang: 'en-US', voiceURI: 'n:compact', localService: true, default: true },
+            { name: 'Native Neural Premium', lang: 'en-US', voiceURI: 'n:neural', localService: true, default: false },
+          ]);
+        },
+        speak: function (text, opts) { spoken.push({ text: text, opts: opts }); return new Promise(r => setTimeout(r, 5)); },
+        stop: function () { return Promise.resolve(); },
+      },
+    };
+    try {
+      await freshOpen();
+      V().toggle();
+      await waitFor(() => spoken.length >= 2, 3000, 'native tts spoke');
+      pass = ok(synthStub.spoken.length === 0, 'speechSynthesis untouched when the native facade exists') && pass;
+      pass = ok(spoken[0].text.indexOf('Chapter 1') === 0, 'sentences route through Platform.tts', spoken[0].text) && pass;
+      pass = ok(Math.abs(spoken[0].opts.rate - 1) < 0.001, 'rate passes through the facade') && pass;
+      const ranked = VT().deviceEngine.ranked();
+      pass = ok(ranked.length === 2 && /Neural Premium/.test(ranked[0].name),
+        'native voice lists rank like web ones', ranked[0] && ranked[0].name) && pass;
+      VT().pause();
+      await pause(30);
+      pass = ok(!V().state().playing && V().state().active, 'pause works over the native engine') && pass;
+    } finally {
+      delete window.Platform;
+      VT().deviceEngine.nativeVoicesCache = null;
+      endSession();
+    }
+    return { name: 'native tts', pass };
+  },
+
   async testGrouping() {
     let pass = true;
     const s = VT().segmentBlocks(CHAPTERS[0].blocks, blockText);
@@ -639,7 +680,7 @@ const T = {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
-      T.testUserNav, T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
+      T.testUserNav, T.testNativeTts, T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

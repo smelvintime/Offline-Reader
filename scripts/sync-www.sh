@@ -20,6 +20,8 @@ rm -rf www
 mkdir www
 
 cp index.html styles.css catalog.json manifest.json icon.svg jszip.min.js sw.js www/
-cp -R css js fonts chapters icons www/
+# vendor/ carries the self-hosted natural-voice engine (§2.14) — without it the
+# native app's Natural voice would silently fall back to the device engine.
+cp -R css js fonts chapters icons vendor www/
 
 echo "www/ refreshed ($(du -sh www | cut -f1))"

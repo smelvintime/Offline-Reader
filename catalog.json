@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-23T01:12:22.183Z",
+  "generatedAt": "2026-08-23T06:37:35.290Z",
   "series": [
     {
       "id": "fixture:welcome",
@@ -432,11 +432,11 @@
     {
       "id": "gutenberg:1342",
       "type": "lightnovel",
-      "title": "Project Gutenberg #1342",
+      "title": "Pride and Prejudice",
       "altTitles": [],
       "cover": "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg",
       "description": "Sixty-one short-to-medium chapters — the long multi-part novel in this sample, and the one to scroll through when testing infinite mode. This sample ships the first 61 of 62 chapters to keep the bundled catalogue small; the full text is at gutenberg.org.",
-      "author": null,
+      "author": "Jane Austen",
       "artist": null,
       "status": "completed",
       "genres": [
@@ -1550,7 +1550,7 @@
       "type": "lightnovel",
       "title": "The Adventures of Sherlock Holmes",
       "altTitles": [],
-      "cover": "https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg",
+      "cover": null,
       "description": "Twelve Sherlock Holmes stories. Each \"chapter\" is a whole short story of eight to twelve thousand words — the very-long-chapter case for paged mode and progress tracking.",
       "author": "Arthur Conan Doyle",
       "artist": null,

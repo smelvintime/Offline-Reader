@@ -6,7 +6,7 @@
 // v5.08 without a bump and reached nobody; the code was right and the readers
 // still had the bug. If you touched styles.css, css/**, or any js/** file in
 // the list below, this line changes too.
-const CACHE_NAME = 'cbz-reader-v5.10';
+const CACHE_NAME = 'cbz-reader-v5.11';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [
@@ -20,12 +20,14 @@ const SHELL_ASSETS = [
   './css/thoughts.css',
   './css/sources.css',
   './css/settings.css',
+  './css/voice.css',
   './js/config.js',
   './js/platform.js',
   './js/store.js',
   './js/identity.js',
   './js/covers.js',
   './js/reader.js',
+  './js/novel-voice.js',
   './js/novel-reader.js',
   './js/importer.js',
   './js/goals.js',
@@ -55,11 +57,22 @@ self.addEventListener('install', event => {
   );
 });
 
+// The voice engine (~24 MB) lives in its own cache so a shell bump does not
+// evict it — nobody should re-download the narrator because a CSS file
+// changed. Bump this only when vendor/tts/** itself changes.
+const VOICE_CACHE = 'or-voice-engine-v1';
+
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        // Only reap our own shell caches. This origin also holds caches that
+        // are not ours to clear: VOICE_CACHE above, and the model caches the
+        // voice engine's runtime owns ('transformers-cache', 'kokoro-voices'
+        // — ~90 MB of downloaded weights). Deleting those on every shell bump
+        // would silently re-bill the narrator download each release.
+        keys.filter(k => k.startsWith('cbz-reader-') && k !== CACHE_NAME)
+            .map(k => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );
@@ -84,6 +97,15 @@ function isData(url) {
 // enough for it to still be there with the radio off.
 function isFont(url) {
   return url.pathname.includes('/fonts/') && url.pathname.endsWith('.woff2');
+}
+
+// The natural-voice engine (vendor/tts/** and its worker) follows the same
+// rule at a larger scale: ~24 MB nobody asked for stays out of the shell, and
+// enabling the Natural voice once keeps the whole engine for offline. The
+// model weights are cross-origin (huggingface.co) and never pass through
+// here — transformers.js keeps those in its own Cache API bucket.
+function isVoiceEngine(url) {
+  return url.pathname.includes('/vendor/tts/') || url.pathname.endsWith('/js/novel-voice-worker.js');
 }
 
 self.addEventListener('fetch', event => {
@@ -113,18 +135,20 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  if (isFont(url)) {
+  if (isFont(url) || isVoiceEngine(url)) {
+    const bucket = isFont(url) ? CACHE_NAME : VOICE_CACHE;
     event.respondWith(
       caches.match(request)
         .then(cached => cached || fetch(request).then(res => {
           if (res && res.ok) {
             const copy = res.clone();
-            caches.open(CACHE_NAME).then(c => c.put(request, copy)).catch(() => {});
+            caches.open(bucket).then(c => c.put(request, copy)).catch(() => {});
           }
           return res;
         }))
-        // A missing font is cosmetic: the stack in css/novel.css falls through
-        // to a system face, so failing here costs nothing but the specimen.
+        // A missing font is cosmetic (the CSS stack falls through to a system
+        // face) and a missing voice engine is survivable (novel-voice falls
+        // back to the device engine), so failing here breaks nothing.
         .catch(() => new Response('', { status: 503, statusText: 'Service Unavailable' }))
     );
     return;

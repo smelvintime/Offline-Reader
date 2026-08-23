@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>NovelVoice — test harness</title>
+
+  <!-- Production load order: base skin, reader skin, voice skin. -->
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../css/novel.css">
+  <link rel="stylesheet" href="../css/voice.css">
+  <style>
+    #harness {
+      position: fixed; z-index: 9000; top: 0; left: 0; right: 0;
+      display: flex; flex-wrap: wrap; gap: 4px; padding: 4px;
+      background: #111; border-bottom: 1px solid #333;
+      font: 12px/1 ui-monospace, Menlo, Consolas, monospace;
+    }
+    #harness button { padding: 4px 8px; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; cursor: pointer; }
+    #log { position: fixed; z-index: 9000; bottom: 0; left: 0; right: 0; max-height: 30vh; overflow: auto;
+           background: #000c; color: #9f9; font: 11px/1.4 ui-monospace, monospace; padding: 4px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<div id="harness">
+  <button onclick="T.open()">open</button>
+  <button onclick="T.testSegmentation().then(T.report)">segmentation</button>
+  <button onclick="T.testNormalize().then(T.report)">normalize</button>
+  <button onclick="T.testRanking().then(T.report)">voice ranking</button>
+  <button onclick="T.testWav().then(T.report)">wav encode</button>
+  <button onclick="T.testPrefs().then(T.report)">prefs validate</button>
+  <button onclick="T.testListenButton().then(T.report)">listen button</button>
+  <button onclick="T.testPlayback().then(T.report)">playback</button>
+  <button onclick="T.testFollow().then(T.report)">follow (paged)</button>
+  <button onclick="T.testAutoAdvance().then(T.report)">auto next chapter</button>
+  <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
+  <button onclick="T.testNeuralFallback().then(T.report)">neural fallback</button>
+  <button onclick="T.testClose().then(T.report)">close cleans up</button>
+  <button onclick="T.all().then(T.report)">RUN ALL</button>
+</div>
+<div id="log"></div>
+
+<!-- Real persistence layer, same as the reader harness. -->
+<script src="../js/config.js"></script>
+<script src="../js/store.js"></script>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Shims for the globals novel-reader.js expects from reader.js.
+// ─────────────────────────────────────────────────────────────────────────────
+const screens = new Set();
+window.registerScreen = function (el) { if (el) screens.add(el); return el; };
+window.showScreen = function (id) {
+  screens.forEach(s => { if (s) s.style.display = 'none'; });
+  const t = document.getElementById(id);
+  if (t) { screens.add(t); t.style.display = 'block'; document.body.dataset.screen = id; }
+};
+window.proxyImageUrl = function (u) { return u; };
+window.Catalogue = { goBack: function () {}, goHome: function () {} };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// speechSynthesis stub — installed BEFORE novel-voice.js loads so every
+// utterance in these tests is deterministic and silent. Real voices differ
+// per machine; a test that actually talks is a test that flakes.
+// ─────────────────────────────────────────────────────────────────────────────
+const STUB_VOICES = [
+  { name: 'Robo Compact',                       lang: 'en-US', voiceURI: 'v:robo',    localService: true,  default: true },
+  { name: 'eSpeak English',                     lang: 'en-GB', voiceURI: 'v:espeak',  localService: true,  default: false },
+  { name: 'Microsoft Aria Online (Natural) - English (United States)', lang: 'en-US', voiceURI: 'v:aria', localService: false, default: false },
+  { name: 'Samantha (Enhanced)',                lang: 'en-US', voiceURI: 'v:sam',     localService: true,  default: false },
+  { name: 'Google US English',                  lang: 'en-US', voiceURI: 'v:goog',    localService: false, default: false },
+  { name: 'Daniel',                             lang: 'en-GB', voiceURI: 'v:daniel',  localService: true,  default: false },
+  { name: 'Amélie',                             lang: 'fr-CA', voiceURI: 'v:amelie',  localService: true,  default: false },
+];
+
+const synthStub = {
+  spoken: [],            // { text, rate, pitch, voice } in speak order
+  live: null,            // the utterance currently "speaking"
+  autoEnd: true,         // finish each utterance on a short timer
+  endDelay: 4,
+  getVoices: function () { return STUB_VOICES.slice(); },
+  speak: function (u) {
+    this.live = u;
+    this.spoken.push({ text: u.text, rate: u.rate, pitch: u.pitch, voice: u.voice ? u.voice.voiceURI : null });
+    if (this.autoEnd) {
+      const self = this;
+      setTimeout(function () {
+        if (self.live !== u) return;      // cancelled meanwhile
+        self.live = null;
+        if (u.onend) u.onend({});
+      }, this.endDelay);
+    }
+  },
+  cancel: function () {
+    const u = this.live;
+    this.live = null;
+    // Real engines report a cancelled utterance as an error event with
+    // error='interrupted'; the module must NOT count that as a failure.
+    if (u && u.onerror) u.onerror({ error: 'interrupted' });
+  },
+  pause: function () {}, resume: function () {},
+  addEventListener: function () {},
+  reset: function () { this.spoken = []; this.live = null; this.autoEnd = true; },
+};
+Object.defineProperty(window, 'speechSynthesis', { value: synthStub, configurable: true });
+
+// The real SpeechSynthesisUtterance rejects assigning a plain object to its
+// .voice property; a plain class keeps the stub voices assignable.
+window.SpeechSynthesisUtterance = function (text) {
+  this.text = String(text || '');
+  this.voice = null; this.lang = ''; this.rate = 1; this.pitch = 1;
+  this.onend = null; this.onerror = null;
+};
+</script>
+
+<!-- Same relative order as index.html: voice before reader. -->
+<script src="../js/novel-voice.js"></script>
+<script src="../js/novel-reader.js"></script>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixture — 3 chapters, deliberately small so cursor drills stay fast, with
+// every block type the segmenter must handle.
+// ─────────────────────────────────────────────────────────────────────────────
+function makeChapter(n) {
+  const blocks = [
+    { t: 'h2', c: 'Chapter ' + n + ' — The Quiet Ledger' },
+    { t: 'p',  c: 'The lantern guttered against the wind of chapter ' + n + '. She counted her breaths slowly.' },
+    { t: 'p',  c: 'Dr. Harrow said nothing useful. Somewhere below, the city kept its own accounts in coin and rumour.' },
+    { t: 'img', src: 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40"></svg>'), alt: 'A plate' },
+    { t: 'ul', items: ['First a coin was counted.', 'Then a rumour was spent.'] },
+    { t: 'hr' },
+    { t: 'p',  c: 'Nothing in the ledger explained the north gate.[3] It had stood open all winter.' },
+  ];
+  const words = blocks.reduce((a, b) => a + String(b.c || (b.items || []).join(' ') || '').split(/\s+/).filter(Boolean).length, 0);
+  return { id: 'v-' + String(n).padStart(4, '0'), num: n, title: 'The Quiet Ledger', wordCount: words, blocks };
+}
+const CHAPTERS = [makeChapter(1), makeChapter(2), makeChapter(3)];
+
+// A chapter long enough to be sure of spanning several pages at any sane
+// viewport — the follow test needs real page turns to assert against.
+const LONG_CHAPTER = (function () {
+  const blocks = [{ t: 'h2', c: 'The Long Ledger' }];
+  for (let i = 0; i < 30; i++) {
+    blocks.push({ t: 'p', c: 'Paragraph ' + i + ' walked the terrace while the wind counted coins against the shutters. ' +
+      'Nobody in the lower city asked the ledger why, and the ledger never once volunteered.' });
+  }
+  return { id: 'vl-0001', num: 1, title: 'The Long Ledger', wordCount: 900, blocks };
+})();
+const LONG_SERIES = {
+  id: 'test:novel-voice-long', type: 'lightnovel', title: 'The Long Ledger', cover: null,
+  status: 'ongoing', language: 'en', source: 'user', chapterCount: 1,
+  chapters: [{ id: LONG_CHAPTER.id, num: 1, title: LONG_CHAPTER.title, wordCount: LONG_CHAPTER.wordCount }],
+};
+
+const SERIES = {
+  id: 'test:novel-voice',
+  type: 'lightnovel',
+  title: 'A Test of Quiet Ledgers',
+  cover: null,
+  status: 'ongoing',
+  language: 'en',
+  source: 'user',
+  chapterCount: CHAPTERS.length,
+  chapters: CHAPTERS.map(c => ({ id: c.id, num: c.num, title: c.title, wordCount: c.wordCount })),
+};
+
+window.resolveChapterContent = function (series, chapter) {
+  const src = CHAPTERS.find(c => c.id === chapter.id);
+  if (!src) return Promise.reject(new Error('no such chapter: ' + chapter.id));
+  return new Promise(res => setTimeout(() => res({
+    seriesId: series.id, id: src.id, num: src.num, title: src.title,
+    kind: 'text', blocks: src.blocks, wordCount: src.wordCount,
+  }), 5));
+};
+
+// The reader's blockText contract, replicated for offset assertions. If this
+// ever drifts from novel-reader.js the playback tests fail loudly, which is
+// the point of asserting against it.
+function blockText(b) {
+  if (!b || typeof b !== 'object') return '';
+  if (b.t === 'hr') return '';
+  if (b.t === 'img') return typeof b.alt === 'string' ? b.alt : '';
+  if (Array.isArray(b.items)) return b.items.join('');
+  return b.c != null ? String(b.c) : '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Harness plumbing
+// ─────────────────────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function log(s) { logEl.textContent += s + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+function ok(cond, name, extra) {
+  const line = (cond ? 'PASS  ' : 'FAIL  ') + name + (extra != null ? '  [' + extra + ']' : '');
+  log(line);
+  return !!cond;
+}
+function waitFor(cond, ms, label) {
+  const t0 = Date.now();
+  return new Promise((res, rej) => {
+    (function poll() {
+      let v;
+      try { v = cond(); } catch (e) { v = false; }
+      if (v) return res(v);
+      if (Date.now() - t0 > (ms || 3000)) return rej(new Error('timeout: ' + (label || 'condition')));
+      setTimeout(poll, 15);
+    })();
+  });
+}
+function pause(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+const V = () => window.NovelVoice;
+const VT = () => window.NovelVoice._test;
+
+async function freshOpen(opts) {
+  // Ensure a clean session and default prefs unless a test overrides them.
+  if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
+  synthStub.reset();
+  Store.prefs.set('voice.engine', 'device');
+  Store.prefs.set('voice.deviceVoice', '');
+  Store.prefs.set('voice.rate', 1);
+  Store.prefs.set('voice.follow', (opts && 'follow' in opts) ? opts.follow : true);
+  Store.prefs.set('voice.autoNext', (opts && 'autoNext' in opts) ? opts.autoNext : true);
+  Store.prefs.set('voice.highlight', true);
+  Store.prefs.set('novel.mode', (opts && opts.mode) || 'paged');
+  await Store.deleteProgress(SERIES.id);
+  await window.NovelReader.open({
+    series: SERIES, chapter: SERIES.chapters[0],
+    blocks: CHAPTERS[0].blocks, resume: null,
+  });
+  await pause(30);
+}
+
+function endSession() {
+  if (V().isActive()) V().toggle();          // stop
+  if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────────
+const T = {
+  report(r) { log((r.pass ? '── PASS: ' : '── FAIL: ') + r.name + ' ──'); },
+
+  async open() { await freshOpen(); log('reader open'); },
+
+  async testSegmentation() {
+    let pass = true;
+    const blocks = CHAPTERS[0].blocks;
+    const s = VT().segmentBlocks(blocks, blockText);
+
+    // Every sentence's text must equal the exact slice of its block's text —
+    // offsets ARE anchors, so a one-off here is a progress bug later.
+    pass = ok(s.every(x => x.text === blockText(blocks[x.blockIdx]).slice(x.start, x.end)),
+      'every sentence equals its blockText slice') && pass;
+
+    pass = ok(s.length === 9, 'sentence count for the fixture chapter', 'got ' + s.length) && pass;
+    pass = ok(s[0].kind === 'heading' && s[0].blockIdx === 0, 'heading is its own spoken unit') && pass;
+    pass = ok(!s.some(x => x.blockIdx === 3), 'img block is skipped') && pass;
+    pass = ok(!s.some(x => x.blockIdx === 5), 'hr block is skipped') && pass;
+
+    // "Dr. Harrow said nothing useful." must stay one sentence.
+    const dr = s.filter(x => x.blockIdx === 2);
+    pass = ok(dr.length === 2 && /^Dr\. Harrow said nothing useful\.$/.test(dr[0].text),
+      'abbreviation "Dr." does not split the sentence', JSON.stringify(dr[0] && dr[0].text)) && pass;
+
+    // List items segment on item boundaries with cumulative offsets.
+    const li = s.filter(x => x.blockIdx === 4);
+    pass = ok(li.length === 2 && li[0].text === 'First a coin was counted.' &&
+      li[1].text === 'Then a rumour was spent.' && li[1].start === 'First a coin was counted.'.length,
+      'list items keep their own boundaries and offsets') && pass;
+
+    // A very long sentence is split at clauses, and every piece stays a slice.
+    const long = [{ t: 'p', c: Array(30).fill('the lantern guttered against the wind, and nobody spoke of it').join(', ') + '.' }];
+    const ls = VT().segmentBlocks(long, blockText);
+    pass = ok(ls.length > 1 && ls.every(x => x.end - x.start <= 300),
+      'overlong sentence splits under the utterance cap', 'pieces=' + ls.length) && pass;
+    pass = ok(ls.every(x => x.text === blockText(long[0]).slice(x.start, x.end)),
+      'split pieces still equal their slices') && pass;
+
+    // sentenceIndexAt: the anchor mid-block-1 lands on the sentence containing it.
+    const idx = VT().sentenceIndexAt(s, 1, blockText(blocks[1]).indexOf('She') + 2);
+    pass = ok(s[idx].text === 'She counted her breaths slowly.', 'cursor seeds at the anchored sentence') && pass;
+
+    return { name: 'segmentation', pass };
+  },
+
+  async testNormalize() {
+    let pass = true;
+    const n = VT().normalizeForSpeech;
+    pass = ok(n('the gate.[3] It stood', 'device') === 'the gate. It stood', 'footnote markers stripped') && pass;
+    pass = ok(n('salt — and iron', 'device') === 'salt, and iron', 'device: em-dash becomes a comma pause') && pass;
+    pass = ok(n('salt — and iron', 'neural') === 'salt — and iron', 'neural: em-dash kept for the model') && pass;
+    pass = ok(n('“curly” and ‘single’', 'device') === '"curly" and \'single\'', 'device: curly quotes straightened') && pass;
+    pass = ok(n('a b\n c', 'neural') === 'a b c', 'whitespace collapsed') && pass;
+    return { name: 'normalize', pass };
+  },
+
+  async testRanking() {
+    let pass = true;
+    const ranked = VT().rankVoices(STUB_VOICES, 'en');
+    const names = ranked.map(v => v.name);
+    pass = ok(/Aria Online \(Natural\)/.test(names[0]), 'a Natural voice outranks everything', names[0]) && pass;
+    pass = ok(/Enhanced/.test(names[1]), 'Enhanced beats plain and robotic', names[1]) && pass;
+    pass = ok(names.indexOf('Google US English') < names.indexOf('Daniel'),
+      'Google hosted voice beats an unmarked local one') && pass;
+    pass = ok(names.indexOf('eSpeak English') === names.length - 1 || names.indexOf('eSpeak English') === names.length - 2,
+      'eSpeak sinks to the bottom', names.join(' | ')) && pass;
+    pass = ok(names.indexOf('Amélie') > names.indexOf('Daniel'), 'wrong-language voice ranks below every English one') && pass;
+    const robo = VT().scoreVoice(STUB_VOICES[0], 'en');
+    const aria = VT().scoreVoice(STUB_VOICES[2], 'en');
+    pass = ok(aria > robo, 'scoreVoice orders pairs directly', aria + ' > ' + robo) && pass;
+    return { name: 'voice ranking', pass };
+  },
+
+  async testWav() {
+    let pass = true;
+    const buf = VT().encodeWav(new Float32Array([0, 0.5, -0.5, 1]), 24000);
+    const dv = new DataView(buf);
+    const tag = o => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
+    pass = ok(tag(0) === 'RIFF' && tag(8) === 'WAVE' && tag(36) === 'data', 'RIFF/WAVE/data structure') && pass;
+    pass = ok(dv.getUint32(24, true) === 24000, 'sample rate written') && pass;
+    pass = ok(dv.getUint32(40, true) === 8, 'data length = samples × 2') && pass;
+    pass = ok(dv.getInt16(44, true) === 0 && dv.getInt16(46, true) === 16383, 'PCM values scaled to int16') && pass;
+    pass = ok(dv.getInt16(50, true) === 32767, 'full-scale sample clamps to 0x7fff') && pass;
+    return { name: 'wav encode', pass };
+  },
+
+  async testPrefs() {
+    let pass = true;
+    Store.prefs.set('voice.engine', 'bogus');
+    Store.prefs.set('voice.rate', 99);
+    Store.prefs.set('voice.pitch', -3);
+    Store.prefs.set('voice.neuralVoice', 'af_nonexistent');
+    Store.prefs.set('voice.neuralDevice', 'quantum');
+    const p = VT().readPrefs();
+    pass = ok(p.engine === 'device', 'bad engine falls back') && pass;
+    pass = ok(p.rate === 1.6, 'rate clamps to its ceiling', p.rate) && pass;
+    pass = ok(p.pitch === 0.8, 'pitch clamps to its floor', p.pitch) && pass;
+    pass = ok(p.neuralVoice === 'af_heart', 'unknown narrator falls back') && pass;
+    pass = ok(p.neuralDevice === 'wasm', 'unknown device falls back') && pass;
+    Store.prefs.set('voice.engine', 'device');
+    Store.prefs.set('voice.rate', 1);
+    Store.prefs.set('voice.pitch', 1);
+    return { name: 'prefs validate', pass };
+  },
+
+  async testListenButton() {
+    let pass = true;
+    await freshOpen();
+    const btn = document.querySelector('#novel-screen .nv-header button[aria-label="Listen"]');
+    pass = ok(!!btn, 'Listen button renders in the reader header') && pass;
+    pass = ok(btn && btn.getAttribute('aria-pressed') === 'false', 'starts unpressed') && pass;
+    btn.click();
+    await waitFor(() => V().isActive(), 1500, 'session starts');
+    pass = ok(btn.getAttribute('aria-pressed') === 'true', 'pressed while narrating') && pass;
+    pass = ok(!document.querySelector('#novel-screen .vc-bar[hidden]'), 'listen bar is visible') && pass;
+    btn.click();
+    pass = ok(!V().isActive() && btn.getAttribute('aria-pressed') === 'false', 'second tap stops the session') && pass;
+    endSession();
+    return { name: 'listen button', pass };
+  },
+
+  async testPlayback() {
+    let pass = true;
+    await freshOpen();
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 3, 4000, 'three sentences spoken');
+
+    pass = ok(V().state().active && V().state().playing, 'session active and playing') && pass;
+    pass = ok(synthStub.spoken[0].text.indexOf('Chapter 1') === 0, 'starts at the heading', synthStub.spoken[0].text) && pass;
+    pass = ok(synthStub.spoken[1].text === 'The lantern guttered against the wind of chapter 1.',
+      'sentences arrive one utterance at a time', synthStub.spoken[1].text) && pass;
+    // Auto voice pick: the stub's best voice is Aria (Natural), never the robotic default.
+    pass = ok(synthStub.spoken[0].voice === 'v:aria', 'auto-picked the highest-ranked voice', synthStub.spoken[0].voice) && pass;
+
+    // The highlight tracks the live sentence — range mode or block fallback.
+    const st = V().state();
+    if (st.highlightMode === 'range') {
+      pass = ok(CSS.highlights.has('or-voice-sentence'), 'CSS highlight registered') && pass;
+    } else {
+      pass = ok(!!document.querySelector('#novel-screen .vc-speaking-block'), 'block highlight applied') && pass;
+    }
+
+    // Pause: utterance cancelled, position kept, interrupted ≠ error.
+    const idxAtPause = V().state().index;
+    VT().pause();
+    await pause(30);
+    pass = ok(!V().state().playing && V().state().active, 'pause keeps the session') && pass;
+    pass = ok(V().state().errors === 0, 'our own cancel is not an engine error') && pass;
+
+    // Skip while paused moves the cursor without speaking.
+    const before = synthStub.spoken.length;
+    VT().skip(1);
+    await pause(80);
+    pass = ok(V().state().index === idxAtPause + 1, 'skip advances the cursor while paused') && pass;
+    pass = ok(synthStub.spoken.length === before, 'paused skip stays silent') && pass;
+
+    // Resume picks up from the skipped-to sentence.
+    VT().resume();
+    await waitFor(() => synthStub.spoken.length > before, 2000, 'resume speaks');
+    pass = ok(V().state().playing, 'resumed') && pass;
+
+    // Rate pref reaches the utterance.
+    Store.prefs.set('voice.rate', 1.3);
+    endSession();
+    await freshOpen();
+    Store.prefs.set('voice.rate', 1.3);
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'spoke at new rate');
+    pass = ok(Math.abs(synthStub.spoken[0].rate - 1.3) < 0.001, 'rate pref reaches the engine', synthStub.spoken[0].rate) && pass;
+    Store.prefs.set('voice.rate', 1);
+    endSession();
+    return { name: 'playback', pass };
+  },
+
+  async testFollow() {
+    let pass = true;
+    // The long fixture: paged mode must genuinely paginate it.
+    if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
+    synthStub.reset();
+    Store.prefs.set('voice.engine', 'device');
+    Store.prefs.set('voice.follow', true);
+    Store.prefs.set('voice.autoNext', false);
+    Store.prefs.set('novel.mode', 'paged');
+    await Store.deleteProgress(LONG_SERIES.id);
+    await window.NovelReader.open({
+      series: LONG_SERIES, chapter: LONG_SERIES.chapters[0],
+      blocks: LONG_CHAPTER.blocks, resume: null,
+    });
+    await pause(30);
+    pass = ok(window.NovelReader.state().pageCount > 1, 'fixture spans multiple pages',
+      'pages=' + window.NovelReader.state().pageCount) && pass;
+
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    VT().pause();
+
+    // Walk the cursor forward until following has to turn a page.
+    const total = V().state().sentenceCount;
+    for (let i = V().state().index; i < total - 1 && window.NovelReader.state().page === 0; i++) {
+      VT().skip(1); await pause(20);
+    }
+    const rs = window.NovelReader.state();
+    pass = ok(rs.page > 0, 'follow turned the page to reach the spoken sentence',
+      'page ' + rs.page + '/' + rs.pageCount) && pass;
+    pass = ok(rs.anchor.blockIdx >= 1, 'reader anchor moved with the narration',
+      'blockIdx=' + rs.anchor.blockIdx) && pass;
+
+    // close() flushes progress synchronously through the reader's own path —
+    // listening must have moved the persisted position like reading does.
+    if (V().isActive()) V().toggle();
+    window.NovelReader.close({ navigate: false });
+    // The flush fires inside close() but the IndexedDB merge commits async —
+    // poll rather than race it.
+    let prog = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3000) {
+      prog = await Store.getProgress(LONG_SERIES.id);
+      if (prog && prog.blockIdx >= 1) break;
+      await pause(40);
+    }
+    pass = ok(prog && prog.chapterId === LONG_CHAPTER.id && prog.blockIdx >= 1 && prog.charOffset > 0,
+      'listening persisted reading progress', JSON.stringify(prog && { c: prog.chapterId, b: prog.blockIdx, o: prog.charOffset })) && pass;
+    return { name: 'follow (paged)', pass };
+  },
+
+  async testAutoAdvance() {
+    let pass = true;
+    await freshOpen({ mode: 'paged', autoNext: true });
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+
+    // Let it play through chapter 1 (9 short sentences) and cross into 2.
+    await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 8000, 'crossed into chapter 2');
+    pass = ok(true, 'auto-advanced into the next chapter') && pass;
+    pass = ok(window.NovelReader.state().chapterId === CHAPTERS[1].id, 'reader navigated with the narration') && pass;
+    pass = ok(V().state().playing, 'still playing after the crossing') && pass;
+    await waitFor(() => synthStub.spoken.some(u => u.text.indexOf('Chapter 2.') === 0), 2000, 'announced the chapter');
+    pass = ok(true, 'spoke a chapter announcement') && pass;
+    endSession();
+
+    // autoNext off: reaching the end stops the session instead.
+    await freshOpen({ mode: 'paged', autoNext: false });
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started again');
+    await waitFor(() => !V().isActive(), 8000, 'stopped at end of chapter');
+    pass = ok(window.NovelReader.state().chapterId === CHAPTERS[0].id, 'with auto-next off the reader stays put') && pass;
+    endSession();
+    return { name: 'auto next chapter', pass };
+  },
+
+  async testUserNav() {
+    let pass = true;
+    await freshOpen({ mode: 'paged' });
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+
+    // The user grabs the footer and jumps a chapter mid-narration: the voice
+    // follows them and keeps reading from the new chapter's top.
+    document.querySelector('#novel-screen .nv-footer button[aria-label="Next chapter"]').click();
+    await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 3000, 'voice re-seeded to chapter 2');
+    pass = ok(V().state().active, 'session survived the jump') && pass;
+    pass = ok(V().state().index === 0, 'cursor reset to the new chapter top') && pass;
+    // NB: assertions match the NORMALIZED spoken text — the device engine
+    // turns the heading's em-dash into a comma pause on purpose.
+    await waitFor(() => synthStub.spoken.some(u => u.text.indexOf('Chapter 2, The Quiet Ledger') === 0), 3000, 'reading chapter 2');
+    pass = ok(true, 'narration continued in the new chapter') && pass;
+    endSession();
+    return { name: 'user chapter nav', pass };
+  },
+
+  async testNeuralFallback() {
+    let pass = true;
+    // The engine boundary is stubbed to fail: this suite must never touch the
+    // network (a passing CI run that downloads 92 MB of weights is a bug).
+    const ne = VT().neuralEngine;
+    const orig = ne.ensureReady;
+    ne.ensureReady = function () { return Promise.reject(new Error('no engine in tests')); };
+    try {
+      await freshOpen();
+      Store.prefs.set('voice.engine', 'neural');
+      V().toggle();
+      // The natural voice cannot come up, so the session must fall back to the
+      // device engine and keep narrating rather than going mute.
+      await waitFor(() => synthStub.spoken.length >= 1, 3000, 'fell back to device speech');
+      pass = ok(V().state().active && V().state().playing, 'session survived the engine failure') && pass;
+      pass = ok(V().state().engine === 'device', 'session engine fell back to device') && pass;
+      pass = ok(Store.prefs.get('voice.engine', '') === 'neural',
+        'stored pref untouched — next open tries the natural voice again') && pass;
+    } finally {
+      ne.ensureReady = orig;
+      Store.prefs.set('voice.engine', 'device');
+      endSession();
+    }
+    return { name: 'neural fallback', pass };
+  },
+
+  async testClose() {
+    let pass = true;
+    await freshOpen();
+    V().toggle();
+    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    window.NovelReader.close({ navigate: false });
+    pass = ok(!V().isActive(), 'closing the reader stops the session') && pass;
+    if (V().state().highlightMode === 'range') {
+      pass = ok(!CSS.highlights.has('or-voice-sentence'), 'highlight cleared') && pass;
+    } else {
+      pass = ok(!document.querySelector('#novel-screen .vc-speaking-block'), 'block highlight cleared') && pass;
+    }
+    const bar = document.querySelector('#novel-screen .vc-bar');
+    pass = ok(!bar || bar.hidden, 'listen bar hidden') && pass;
+    pass = ok(!synthStub.live, 'no utterance left speaking') && pass;
+    return { name: 'close cleans up', pass };
+  },
+
+  async all() {
+    const tests = [
+      T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
+      T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
+      T.testUserNav, T.testNeuralFallback, T.testClose,
+    ];
+    let allPass = true;
+    for (const t of tests) {
+      try {
+        const r = await t();
+        T.report(r);
+        allPass = r.pass && allPass;
+      } catch (e) {
+        log('FAIL  ' + t.name + ' threw: ' + (e && e.message));
+        allPass = false;
+      }
+    }
+    log(allPass ? '════ ALL SUITES PASS ════' : '════ FAILURES ABOVE ════');
+    return { name: 'all', pass: allPass };
+  },
+};
+window.T = T;
+</script>
+</body>
+</html>

@@ -440,7 +440,16 @@
     titles.append(title, subtitle);
     const settingsBtn = iconBtn('Reading settings', 'aa');
     settingsBtn.setAttribute('aria-expanded', 'false');
-    header.append(back, homeBtn, titles, settingsBtn);
+    // Listen (§2.14) — rendered only when the voice module is loaded, same
+    // guarded pattern as the Thoughts CTA. With novel-voice.js deleted this
+    // button simply does not exist.
+    let listenBtn = null;
+    if (window.NovelVoice) {
+      listenBtn = iconBtn('Listen', 'listen');
+      listenBtn.setAttribute('aria-pressed', 'false');
+    }
+    if (listenBtn) header.append(back, homeBtn, titles, listenBtn, settingsBtn);
+    else header.append(back, homeBtn, titles, settingsBtn);
     root.appendChild(header);
 
     // ── Footer ────────────────────────────────────────────────────────────
@@ -479,7 +488,7 @@
     Object.assign(dom, {
       root, viewport, stage, measure, doc,
       zones, zPrev, zMid, zNext,
-      header, back, homeBtn, title, subtitle, settingsBtn,
+      header, back, homeBtn, title, subtitle, listenBtn, settingsBtn,
       footer, prevCh, nextCh, statusLine, bar,
       scrim, sheet, toast,
     });
@@ -504,6 +513,8 @@
     close:'M18 6 L6 18 M6 6 L18 18',
     // The app logo's diamond over a baseline — "home" (PLAN7 §2.11-C).
     home: 'M12 3.5 L18.5 10 L12 16.5 L5.5 10 Z M5 20.5 L19 20.5',
+    // Headphones — "Listen" (§2.14). Rendered only when NovelVoice is present.
+    listen: 'M4 13 a8 8 0 0 1 16 0 M4 13 v4 a1.6 1.6 0 0 0 3.2 0 v-4 M20 13 v4 a1.6 1.6 0 0 1 -3.2 0 v-4',
   };
 
   function iconBtn(label, kind) {
@@ -2326,6 +2337,7 @@
       settleLayout(state.anchor);
       if (state.mode === 'infinite') applyWindow();
       prefetchNeighbours();
+      voiceNotify('chapter', { chapterId: entry.chapter.id });
       return true;
     });
   }
@@ -2602,6 +2614,11 @@
       else if (typeof window.showScreen === 'function') window.showScreen('home-screen');
     });
     on(dom.settingsBtn, 'click', function () { sheetOpen ? closeSheet() : openSheet(); });
+    if (dom.listenBtn) {
+      on(dom.listenBtn, 'click', function () {
+        if (window.NovelVoice && typeof window.NovelVoice.toggle === 'function') window.NovelVoice.toggle();
+      });
+    }
     on(dom.scrim, 'click', function () { closeSheet(); });
     on(dom.prevCh, 'click', function () { goChapter(-1, 'start'); });
     on(dom.nextCh, 'click', function () { goChapter(1, 'start'); });
@@ -2805,6 +2822,124 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Voice bridge — docs/ARCHITECTURE.md §2.14
+  //
+  // The one blessed surface novel-voice.js drives the reader through. It is a
+  // set of closures rather than raw state so the voice module can never hold
+  // a stale entry or mutate reader internals; and narration moves the view
+  // through settleLayout — the same path a font change takes — so listening
+  // writes progress exactly the way reading does.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let voiceBridgeObj = null;
+
+  function voiceBridge() {
+    if (voiceBridgeObj) return voiceBridgeObj;
+    voiceBridgeObj = {
+      state: function () { return api.state(); },
+
+      // The canonical text function — shared so the two modules can never
+      // disagree about offsets (§2.14: sentence ranges ARE anchors).
+      blockText: blockText,
+
+      /** Chapter content by id, if the reader has it (stack or LRU cache). */
+      entry: function (chapterId) {
+        const e = entryFor(chapterId);
+        if (e) return { chapter: e.chapter, blocks: e.blocks };
+        const d = state.loaded.get(chapterId);
+        return d ? { chapter: d.chapter, blocks: d.blocks } : null;
+      },
+
+      /** The rendered block elements for a chapter, or null when not in the
+          DOM (not stacked, or an endless-mode collapsed spacer). */
+      entryEls: function (chapterId) {
+        const e = entryFor(chapterId);
+        return e && !e.collapsed && e.blockEls.length ? e.blockEls : null;
+      },
+
+      chapters: function () {
+        return state.chapters.map(function (c) { return { id: c.id, num: c.num, title: c.title }; });
+      },
+
+      chapterIndex: function (chapterId) { return chapterIndexOf(chapterId); },
+
+      chapterLabel: function (chapterId) {
+        const i = chapterIndexOf(chapterId);
+        return chapterLabel(i >= 0 ? state.chapters[i] : null);
+      },
+
+      seriesInfo: function () {
+        if (!state.series) return null;
+        return { id: state.series.id, title: state.series.title || '', cover: state.series.cover || null };
+      },
+
+      /** Is this character on the current page / inside the readable band?
+          Narration only turns the page when this says no — following should
+          feel like the page keeping up, not twitching per sentence. */
+      anchorVisible: function (anchor) {
+        if (!state.open || !anchor) return false;
+        const entry = entryFor(anchor.chapterId);
+        if (!entry || entry.collapsed) return false;
+        const node = entry.blockEls[anchor.blockIdx];
+        if (!node) return false;
+        const rect = rectAtChar(node, anchor.charInBlock) || node.getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) return false;
+        if (state.mode === 'paged') {
+          const docRect = dom.doc.getBoundingClientRect();
+          const x = rect.left - docRect.left;
+          const start = state.page * pageStep();
+          return x >= start - 1 && x < start + state.colW - 1;
+        }
+        const vr = dom.viewport.getBoundingClientRect();
+        const cs = getComputedStyle(dom.stage);
+        const top = vr.top + stagePadTop();
+        const bottom = vr.bottom - (parseFloat(cs.paddingBottom) || 0);
+        return rect.top >= top - 2 && rect.bottom <= bottom + 2;
+      },
+
+      /** Bring an anchor into view. A layout-style move (settleLayout), so it
+          restores rather than re-captures, and persists progress. */
+      reveal: function (anchor) {
+        if (!state.open || !anchor || !entryFor(anchor.chapterId)) return false;
+        settleLayout({
+          chapterId: anchor.chapterId,
+          blockIdx: anchor.blockIdx | 0,
+          charInBlock: anchor.charInBlock | 0,
+        });
+        return true;
+      },
+
+      /** Real chapter navigation — the same goChapter a tap on the footer
+          uses, loading included. → Promise<boolean>. */
+      goChapter: function (delta) { return goChapter(delta > 0 ? 1 : -1, 'start'); },
+
+      /** Voice chrome (bar/sheet/scrim) mounts inside the reader root so the
+          theme tokens cascade to it. */
+      mount: function (node) { if (dom.root && node) dom.root.appendChild(node); },
+
+      toast: toast,
+
+      /** Mirrors the session on the header button. */
+      listenPressed: function (on) {
+        if (dom.listenBtn) {
+          dom.listenBtn.setAttribute('aria-pressed', String(!!on));
+          dom.listenBtn.classList.toggle('nv-listen-on', !!on);
+        }
+      },
+    };
+    return voiceBridgeObj;
+  }
+
+  // Fire-and-forget: a throwing voice module must never break a page turn.
+  function voiceNotify(kind, info) {
+    try {
+      if (window.NovelVoice && typeof window.NovelVoice.readerEvent === 'function') {
+        window.NovelVoice.readerEvent(kind, info || null, voiceBridge());
+      }
+    } catch (e) { /* narration is an accessory, reading is the product */ }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Public API — docs/ARCHITECTURE.md §4
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -2882,6 +3017,7 @@
       // reader with no stored progress sees a finished screen immediately.
       syncPosition();
       prefetchNeighbours();
+      voiceNotify('open');
       try { dom.root.focus({ preventScroll: true }); } catch (e) {}
 
       // Resume is a layout operation, not a reader move: settleLayout, never
@@ -2927,6 +3063,9 @@
         if (navigate) navigateAway();
         return;
       }
+      // Stop narration before anything is torn down — the voice module reads
+      // the reader's state to clean up its highlight.
+      voiceNotify('close');
       progressDirty = true;
       flushProgress();
       state.open = false;

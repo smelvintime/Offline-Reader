@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="./css/thoughts.css">
   <link rel="stylesheet" href="./css/sources.css">
   <link rel="stylesheet" href="./css/settings.css">
+  <link rel="stylesheet" href="./css/voice.css">
 </head>
 <body>
 
@@ -244,7 +245,11 @@
        register their own screen, so they must load after reader.js (which
        defines registerScreen) and before catalogue.js, which boots the app
        and calls into them. settings.js also applies the app theme at parse
-       time so the first paint is already themed. -->
+       time so the first paint is already themed. novel-voice registers no
+       screen but must precede novel-reader so the reader sees
+       window.NovelVoice when it builds its header (§2.14); it is optional —
+       delete the file and the Listen button simply does not render. -->
+  <script src="./js/novel-voice.js"></script>
   <script src="./js/novel-reader.js"></script>
   <script src="./js/importer.js"></script>
   <script src="./js/goals.js"></script>

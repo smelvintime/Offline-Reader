@@ -593,6 +593,10 @@
 .nv-btn.nv-home { position: relative; }
 .nv-btn.nv-home::after { content: ''; position: absolute; inset: -2px; }
 
+/* Listen (§2.14): the header button wears the accent while narration is up,
+   so a hidden bar (chrome toggled away) still shows the session exists. */
+.nv-btn.nv-listen-on { color: var(--nv-accent); }
+
 .nv-status {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column; align-items: center; gap: 0.25rem;

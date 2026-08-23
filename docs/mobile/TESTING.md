@@ -31,11 +31,12 @@ tablet — exactly where breakpoint bugs hide.
 
 Also run once per release, not per device: the plain web build
 (`python3 -m http.server` from repo root) — full manual pass, zero console
-errors, and all five test pages green: `test/platform.test.html`,
+errors, and all six test pages green: `test/platform.test.html`,
 `test/goals.test.html`, `test/novel-reader.test.html`,
-`test/importer.test.html`, `test/thoughts.test.html`. Also boot once with
-each optional module file removed (`goals.js`, `covers.js`, `thoughts.js`,
-`sources.js`, `settings.js`) — zero console errors each time.
+`test/importer.test.html`, `test/thoughts.test.html`,
+`test/novel-voice.test.html`. Also boot once with each optional module file
+removed (`goals.js`, `covers.js`, `thoughts.js`, `sources.js`, `settings.js`,
+`novel-voice.js`) — zero console errors each time.
 
 ## 2. Scenario checklist (every matrix row)
 

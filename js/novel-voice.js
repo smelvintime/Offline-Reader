@@ -1,0 +1,1855 @@
+// Offline Reader — reader voice ("Listen") for the novel reader.
+// See docs/ARCHITECTURE.md §2.14.
+//
+// Owns:  window.NovelVoice, js/novel-voice-worker.js, css/voice.css (vc-*),
+//        vendor/tts/** (the vendored neural engine — see vendor/tts/README.md)
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// Why this file is shaped the way it is
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 1. SENTENCES, NOT CHAPTERS.
+//    Every TTS engine degrades on long input: browser speechSynthesis engines
+//    flatten their prosody (and Chrome's engine simply stops mid-utterance
+//    after ~15 s), and neural models drift. So the unit of narration is the
+//    sentence. The chapter is segmented ONCE into a flat list of
+//    { blockIdx, start, end } ranges over the reader's own block model, and
+//    everything else — playback, pause/resume, skip, the highlight, the
+//    follow-along page turn, progress — is "move a cursor along that list".
+//    A sentence range doubles as a reader anchor ({ chapterId, blockIdx,
+//    charInBlock }), which is what lets narration drive the same position
+//    machinery as a finger.
+//
+// 2. TWO ENGINES, ONE CONTRACT.
+//    The device engine (speechSynthesis) is instant, free, and sounds exactly
+//    as good as the OS voice it picks — which is why picking matters: left to
+//    the default, every platform serves its most robotic voice. The neural
+//    engine (Kokoro-82M via the vendored kokoro.web.js, in a worker) sounds
+//    like a person and costs a one-time ~90 MB download. Both are driven
+//    through the same speak/cancel surface so the controller cannot tell them
+//    apart, and switching engines mid-sentence is just "cancel, speak again".
+//
+// 3. THE READER OWNS THE PAGE; WE ASK, NEVER REACH.
+//    This module holds no DOM inside .nv-doc and does no geometry of its own
+//    beyond reading rects. Moving the view goes through the bridge novel-reader
+//    hands us (reveal → settleLayout), so listening writes progress through the
+//    exact code path a page turn does. If novel-reader.js is absent or predates
+//    the bridge, window.NovelVoice sits inert and costs one function object.
+//
+// 4. NOTHING IS FETCHED UNTIL ASKED.
+//    At boot this file defines one global and returns. The worker, the 2 MB
+//    engine bundle, the wasm runtime and the model weights are all behind the
+//    reader explicitly enabling the Natural voice — the same "nobody pays for
+//    a face they never chose" rule the bundled typefaces follow.
+
+(function () {
+  'use strict';
+
+  // A browser with neither speechSynthesis nor workers cannot narrate at all.
+  // Leaving window.NovelVoice undefined makes novel-reader.js skip the Listen
+  // button entirely (§2.14) — the honest UI for "this cannot work here".
+  if (!window.speechSynthesis && !window.Worker) return;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Constants
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const ENGINES = ['device', 'neural'];
+  const NEURAL_DEVICES = ['wasm', 'webgpu'];
+
+  const RATE_MIN = 0.6, RATE_MAX = 1.6, RATE_STEP = 0.05;
+  const PITCH_MIN = 0.8, PITCH_MAX = 1.2, PITCH_STEP = 0.05;
+
+  // Sentences longer than this are split at a clause boundary before speaking.
+  // Long single utterances are where device engines go flat and where the
+  // neural engine's latency becomes a visible stall; ~300 chars ≈ 20 s spoken.
+  const MAX_SPOKEN_CHARS = 300;
+
+  // How many sentences ahead the neural engine synthesises while one plays.
+  // Two is enough to cover generation slower than real-time on phones without
+  // holding megabytes of PCM.
+  const NEURAL_LOOKAHEAD = 2;
+  const NEURAL_TIMEOUT_MS = 90000;   // one sentence; first one pays session warm-up
+  const WAV_CACHE_MAX = 10;          // generated sentences kept for replay/skip-back
+
+  // After this many consecutive per-sentence engine failures we stop instead
+  // of narrating silence sentence by sentence.
+  const MAX_CONSECUTIVE_ERRORS = 3;
+
+  const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+  // Cache probes for "is the model already on disk". transformers.js keys its
+  // Cache API entries by the resolve URL it fetched; these are the two dtypes
+  // this module can ask for. A miss only means "show the download button".
+  const MODEL_URLS = {
+    q8:   'https://huggingface.co/' + MODEL_ID + '/resolve/main/onnx/model_quantized.onnx',
+    fp32: 'https://huggingface.co/' + MODEL_ID + '/resolve/main/onnx/model.onnx',
+  };
+  const TRANSFORMERS_CACHE = 'transformers-cache';
+  const KOKORO_VOICES_CACHE = 'kokoro-voices';
+
+  // The narrators offered, curated from kokoro-js's graded list: everything
+  // B-or-better plus the best male options (the male half of the pack grades
+  // lower across the board; Michael/Fenrir/Puck are its strongest).
+  const NEURAL_VOICES = [
+    { id: 'af_heart',   label: 'Heart',   note: 'American · warm' },
+    { id: 'af_bella',   label: 'Bella',   note: 'American · bright' },
+    { id: 'af_nicole',  label: 'Nicole',  note: 'American · hushed' },
+    { id: 'bf_emma',    label: 'Emma',    note: 'British' },
+    { id: 'am_michael', label: 'Michael', note: 'American' },
+    { id: 'am_fenrir',  label: 'Fenrir',  note: 'American · deep' },
+    { id: 'am_puck',    label: 'Puck',    note: 'American · light' },
+    { id: 'bm_george',  label: 'George',  note: 'British' },
+  ];
+
+  const PREF = {
+    engine:       'voice.engine',
+    deviceVoice:  'voice.deviceVoice',
+    rate:         'voice.rate',
+    pitch:        'voice.pitch',
+    neuralVoice:  'voice.neuralVoice',
+    neuralDevice: 'voice.neuralDevice',
+    follow:       'voice.follow',
+    autoNext:     'voice.autoNext',
+    highlight:    'voice.highlight',
+  };
+
+  const DEFAULTS = {
+    engine: 'device',
+    deviceVoice: '',          // '' = auto: highest-ranked voice for the page language
+    rate: 1,
+    pitch: 1,
+    neuralVoice: 'af_heart',
+    neuralDevice: 'wasm',     // webgpu is opt-in: fp32 weights are a 330 MB ask
+    follow: true,
+    autoNext: true,
+    highlight: true,
+  };
+
+  const HIGHLIGHT_NAME = 'or-voice-sentence';
+
+  const PREVIEW_TEXT = 'The lantern guttered, and for a moment the whole room listened with her.';
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Small helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function el(tag, className, text) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text != null) n.textContent = String(text);
+    return n;
+  }
+
+  function clamp(n, lo, hi) { return n < lo ? lo : (n > hi ? hi : n); }
+
+  function num(v, fallback) {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function oneOf(v, list, fallback) { return list.indexOf(v) === -1 ? fallback : v; }
+
+  function prefGet(key, fallback) {
+    try {
+      if (!window.Store) return fallback;
+      return window.Store.prefs.get(key, fallback);
+    } catch (e) { return fallback; }
+  }
+  function prefSet(key, value) {
+    try { if (window.Store) window.Store.prefs.set(key, value); }
+    catch (e) { /* prefs are not worth throwing over */ }
+  }
+
+  // Voice settings are global on purpose, unlike the reader's typography: a
+  // narrator is chosen once for the app, not per book, and the per-series
+  // door stays closed until someone actually asks for it.
+  function readPrefs() {
+    return {
+      engine:       oneOf(prefGet(PREF.engine, DEFAULTS.engine), ENGINES, DEFAULTS.engine),
+      deviceVoice:  String(prefGet(PREF.deviceVoice, DEFAULTS.deviceVoice) || ''),
+      rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
+      pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
+      neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
+      neuralDevice: oneOf(prefGet(PREF.neuralDevice, DEFAULTS.neuralDevice), NEURAL_DEVICES, DEFAULTS.neuralDevice),
+      follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
+      autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
+      highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
+    };
+  }
+
+  function validNeuralVoice(id) {
+    for (let i = 0; i < NEURAL_VOICES.length; i++) if (NEURAL_VOICES[i].id === id) return id;
+    return DEFAULTS.neuralVoice;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sentence segmentation
+  //
+  // Input is the reader's block list; output is a flat list of sentences whose
+  // [start, end) offsets index into blockText(block) — the same canonical
+  // string the reader's anchors count, so a sentence start IS an anchor.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const SKIP_BLOCKS = { hr: true, img: true };
+  const HEADING_BLOCKS = { h2: true, h3: true, h4: true };
+
+  let sentenceSegmenter = null;
+  function getSegmenter() {
+    if (sentenceSegmenter !== null) return sentenceSegmenter;
+    try {
+      sentenceSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
+        ? new Intl.Segmenter('en', { granularity: 'sentence' })
+        : false;
+    } catch (e) { sentenceSegmenter = false; }
+    return sentenceSegmenter;
+  }
+
+  // Abbreviations that must not end a sentence. Intl.Segmenter follows ICU's
+  // SentenceBreak rules, which deliberately ignore abbreviations — "Dr. Harrow
+  // spoke." really does come back as two segments — so BOTH paths need this
+  // merge, not just the regex fallback.
+  const ABBREV = /(?:\b(?:mr|mrs|ms|dr|prof|st|mt|vs|etc|jr|sr|no|vol|ch|pp?))[.]["'”’)\]]*\s*$/i;
+
+  // Merge a range into its successor when it ends in an abbreviation (or is a
+  // fragment too short to be a sentence, like an initial). Runs until stable
+  // so "Mr. J. Smith arrived." collapses to one sentence.
+  function mergeAbbrevRanges(text, ranges) {
+    const out = [];
+    for (let i = 0; i < ranges.length; i++) {
+      const r = { start: ranges[i].start, end: ranges[i].end };
+      while (i + 1 < ranges.length) {
+        const seg = text.slice(r.start, r.end);
+        const trimmed = seg.trim();
+        if (!ABBREV.test(seg) && trimmed.length > 3) break;
+        r.end = ranges[i + 1].end;
+        i++;
+      }
+      out.push(r);
+    }
+    return out;
+  }
+
+  function splitIntoSentences(text) {
+    // → [{ start, end }] over `text`, untrimmed. Trimming happens in the caller
+    // so both paths share it.
+    const out = [];
+    const seg = getSegmenter();
+    if (seg) {
+      const it = seg.segment(text);
+      let iter = it[Symbol.iterator](), r;
+      while (!(r = iter.next()).done) {
+        const s = r.value;
+        out.push({ start: s.index, end: s.index + s.segment.length });
+      }
+      return mergeAbbrevRanges(text, out);
+    }
+    // Fallback: split after . ! ? … followed by whitespace + a capital/quote,
+    // unless the tail looks like a known abbreviation.
+    let start = 0;
+    const re = /[.!?…]+["'”’)\]]*\s+/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const end = m.index + m[0].length;
+      const next = text[end];
+      if (next && !/[A-Z0-9"'“‘]/.test(next)) continue;
+      out.push({ start: start, end: end });
+      start = end;
+    }
+    if (start < text.length) out.push({ start: start, end: text.length });
+    return mergeAbbrevRanges(text, out);
+  }
+
+  // A very long sentence is split at its last clause mark before the cap —
+  // falling back to the last space — so no single utterance runs long enough
+  // for an engine to lose its footing.
+  function splitLong(text, start, end, into) {
+    while (end - start > MAX_SPOKEN_CHARS) {
+      const slice = text.slice(start, start + MAX_SPOKEN_CHARS);
+      let cut = -1;
+      const clause = /[,;:—–]\s[^,;:—–]*$/.exec(slice);
+      if (clause) cut = clause.index + 1;
+      if (cut < 40) cut = slice.lastIndexOf(' ');
+      if (cut < 40) cut = MAX_SPOKEN_CHARS;
+      into.push({ start: start, end: start + cut });
+      start += cut;
+      while (start < end && /\s/.test(text[start])) start++;
+    }
+    if (start < end) into.push({ start: start, end: end });
+  }
+
+  function pushTrimmed(text, range, blockIdx, kind, out) {
+    let s = range.start, e = range.end;
+    while (s < e && /\s/.test(text[s])) s++;
+    while (e > s && /\s/.test(text[e - 1])) e--;
+    if (e <= s) return;
+    // Punctuation-only fragments ("…", stray quotes) ride along with their
+    // neighbour instead of becoming a spoken "beat" of silence.
+    if (!/[\p{L}\p{N}]/u.test(text.slice(s, e))) {
+      if (out.length && out[out.length - 1].blockIdx === blockIdx) out[out.length - 1].end = e;
+      return;
+    }
+    const parts = [];
+    splitLong(text, s, e, parts);
+    for (let i = 0; i < parts.length; i++) {
+      out.push({ blockIdx: blockIdx, start: parts[i].start, end: parts[i].end,
+                 text: text.slice(parts[i].start, parts[i].end), kind: kind });
+    }
+  }
+
+  // blockTextFn is novel-reader's own blockText, passed through the bridge so
+  // the two modules can never disagree about what a block "says".
+  function segmentBlocks(blocks, blockTextFn) {
+    const out = [];
+    for (let i = 0; i < (blocks ? blocks.length : 0); i++) {
+      const b = blocks[i];
+      const t = b && typeof b === 'object' ? b.t : 'p';
+      if (SKIP_BLOCKS[t]) continue;
+      const text = blockTextFn(b);
+      if (!text || !text.trim()) continue;
+
+      if (HEADING_BLOCKS[t]) {
+        pushTrimmed(text, { start: 0, end: text.length }, i, 'heading', out);
+        continue;
+      }
+
+      if (Array.isArray(b.items)) {
+        // blockText joins items with no separator, and so does the DOM
+        // (adjacent <li> text nodes), so item offsets are cumulative lengths.
+        let off = 0;
+        for (let k = 0; k < b.items.length; k++) {
+          const item = String(b.items[k]);
+          const ranges = splitIntoSentences(item);
+          for (let r = 0; r < ranges.length; r++) {
+            pushTrimmed(text, { start: off + ranges[r].start, end: off + ranges[r].end }, i, 'text', out);
+          }
+          off += item.length;
+        }
+        continue;
+      }
+
+      const ranges = splitIntoSentences(text);
+      for (let r = 0; r < ranges.length; r++) pushTrimmed(text, ranges[r], i, 'text', out);
+    }
+    return out;
+  }
+
+  // The first sentence at-or-after a reader anchor — where Play starts.
+  function sentenceIndexAt(sentences, blockIdx, charInBlock) {
+    for (let i = 0; i < sentences.length; i++) {
+      const s = sentences[i];
+      if (s.blockIdx > blockIdx) return i;
+      if (s.blockIdx === blockIdx && s.end > charInBlock) return i;
+    }
+    return sentences.length ? sentences.length - 1 : 0;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Speech text normalization
+  //
+  // The HIGHLIGHT always uses the original text via offsets; only the string
+  // handed to an engine is transformed, so nothing here can drift an anchor.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function normalizeForSpeech(text, engine) {
+    let s = String(text);
+    // Footnote markers are typography, not prose. "[3]" read aloud is noise.
+    s = s.replace(/\[\d+\]/g, ' ');
+    s = s.replace(/\s+/g, ' ');
+    if (engine === 'device') {
+      // Device engines mostly ignore dashes and run the clauses together; a
+      // comma buys the pause a narrator would take. The neural engine was
+      // trained on real punctuation and does better with the dash kept.
+      s = s.replace(/\s*[—–]\s*/g, ', ');
+      s = s.replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'");
+    }
+    return s.trim();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Device voice ranking
+  //
+  // Every platform ships several voices and defaults to a poor one. The names
+  // are the only quality signal there is, and they are worth reading: the
+  // genuinely neural voices advertise themselves ("Natural", "Neural",
+  // "Premium", "Enhanced", "Siri"), and the novelty/compact voices are a
+  // known, finite set. This ranking is a heuristic and the picker shows every
+  // voice — auto just has to beat the default, which is a low bar.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const VOICE_GOOD = [
+    [/\bnatural\b/i, 60], [/\bneural\b/i, 55], [/\bpremium\b/i, 45],
+    [/\benhanced\b/i, 40], [/\bsiri\b/i, 35],
+    // Chrome's hosted voices; clearly better than the local eSpeak/Android picos.
+    [/^google\b/i, 25],
+    [/\bonline\b/i, 10],
+  ];
+  const VOICE_BAD = [
+    // eSpeak and its packagings — the "super robotic stuff".
+    [/espeak|e-speak/i, -100],
+    [/\bcompact\b/i, -60],
+    // macOS novelty voices, all of them deliberately cartoonish.
+    [/albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|kathy|ralph|fred/i, -80],
+  ];
+
+  function scoreVoice(v, pageLang) {
+    let score = 0;
+    const name = String(v.name || '');
+    for (let i = 0; i < VOICE_GOOD.length; i++) if (VOICE_GOOD[i][0].test(name)) score += VOICE_GOOD[i][1];
+    for (let i = 0; i < VOICE_BAD.length; i++) if (VOICE_BAD[i][0].test(name)) score += VOICE_BAD[i][1];
+    const lang = String(v.lang || '').toLowerCase();
+    const want = String(pageLang || 'en').toLowerCase();
+    if (lang === want) score += 22;
+    else if (lang.split('-')[0] === want.split('-')[0]) score += 18;
+    else score -= 40;                       // wrong language beats nothing else
+    if (v.default) score += 2;
+    if (v.localService) score += 1;         // tie-break: no network round-trip
+    return score;
+  }
+
+  function rankVoices(voices, pageLang) {
+    const list = (voices || []).slice();
+    const scored = list.map(function (v, i) { return { v: v, i: i, score: scoreVoice(v, pageLang) }; });
+    scored.sort(function (a, b) { return b.score - a.score || a.i - b.i; });
+    return scored.map(function (s) { return s.v; });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // WAV encoding — Float32 PCM from the worker → a Blob an <audio> can play.
+  // 16-bit is half the bytes of the raw floats and indistinguishable here.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function encodeWav(f32, sampleRate) {
+    const n = f32.length;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const dv = new DataView(buf);
+    function str(off, s) { for (let i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); }
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+    str(12, 'fmt '); dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true);              // PCM
+    dv.setUint16(22, 1, true);              // mono
+    dv.setUint32(24, sampleRate, true);
+    dv.setUint32(28, sampleRate * 2, true); // byte rate
+    dv.setUint16(32, 2, true);              // block align
+    dv.setUint16(34, 16, true);             // bits per sample
+    str(36, 'data'); dv.setUint32(40, n * 2, true);
+    let off = 44;
+    for (let i = 0; i < n; i++, off += 2) {
+      const s = clamp(f32[i], -1, 1);
+      dv.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  }
+
+  // Half a second of silence, generated rather than shipped. Played (looped)
+  // while the device engine speaks: speechSynthesis is invisible to the media
+  // session, and an actually-playing <audio> is what puts play/pause on the
+  // lock screen and keeps the audio session alive with the screen off.
+  let silentUrl = null;
+  function silentWavUrl() {
+    if (!silentUrl) {
+      const wav = encodeWav(new Float32Array(11025), 22050);
+      silentUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+    }
+    return silentUrl;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Session state
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const state = {
+    bridge: null,          // handed to us by novel-reader on open
+    prefs: Object.assign({}, DEFAULTS),
+
+    active: false,         // the listen bar is up
+    playing: false,
+    preparing: false,      // engine warm-up / first neural generation
+    chapterId: null,
+    sentences: [],
+    index: 0,
+    errors: 0,             // consecutive engine failures
+    voiceNav: false,       // the chapter change in flight is ours, not the user's
+    emptyHops: 0,          // consecutive auto-advances through speechless chapters
+
+    utterance: null,       // device engine's in-flight utterance
+    speakToken: 0,         // invalidates stale onend/async callbacks
+
+    audition: null,        // { wasPlaying } while a preview plays
+  };
+
+  const dom = {};          // bar + sheet, built once on first open
+  let built = false;
+  let sheetOpen = false;
+  const sheetSync = [];    // fn() → refresh a control from prefs/session
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Audio channel — one <audio> element for everything that actually plays.
+  //
+  // Neural sentences, previews and the device engine's silent keep-alive all
+  // go through the same element. One element means the user's first tap on
+  // Play "blesses" it for autoplay purposes, and every later programmatic
+  // .play() — from an onended chain or a worker callback — inherits that.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const channel = {
+    audio: null,
+    onended: null,
+    url: null,             // blob URL to revoke when replaced
+
+    ensure: function () {
+      if (this.audio) return this.audio;
+      const a = new Audio();
+      a.preload = 'auto';
+      try { a.preservesPitch = true; } catch (e) {}
+      const self = this;
+      a.addEventListener('ended', function () {
+        const fn = self.onended;
+        if (fn) fn();
+      });
+      this.audio = a;
+      return a;
+    },
+
+    // Swap in a source and play. Returns the play() promise (may reject on
+    // autoplay policy; callers decide whether that is fatal).
+    play: function (url, opts) {
+      const a = this.ensure();
+      const o = opts || {};
+      this.onended = o.onended || null;
+      if (this.url && this.url !== url) { try { URL.revokeObjectURL(this.url); } catch (e) {} }
+      this.url = o.revoke ? url : null;
+      a.loop = !!o.loop;
+      a.playbackRate = o.rate || 1;
+      if (a.src !== url) a.src = url;
+      else a.currentTime = 0;
+      let p;
+      try { p = a.play(); } catch (e) { p = Promise.reject(e); }
+      return p && typeof p.catch === 'function' ? p : Promise.resolve();
+    },
+
+    setRate: function (rate) { if (this.audio) this.audio.playbackRate = rate; },
+
+    stop: function () {
+      this.onended = null;
+      if (this.audio) {
+        try { this.audio.pause(); } catch (e) {}
+        try { this.audio.removeAttribute('src'); this.audio.load(); } catch (e) {}
+      }
+      if (this.url) { try { URL.revokeObjectURL(this.url); } catch (e) {} this.url = null; }
+    },
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Media session — lock-screen / hardware-key transport controls.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function mediaSessionUpdate() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      const ms = navigator.mediaSession;
+      if (!state.active) {
+        ms.metadata = null;
+        ms.playbackState = 'none';
+        return;
+      }
+      const b = state.bridge;
+      const series = b && b.seriesInfo ? b.seriesInfo() : null;
+      const chapter = b && b.chapterLabel ? b.chapterLabel(state.chapterId) : '';
+      ms.metadata = new MediaMetadata({
+        title: chapter || 'Listening',
+        artist: series && series.title ? series.title : 'Offline Reader',
+        artwork: series && series.cover ? [{ src: series.cover }] : [],
+      });
+      ms.playbackState = state.playing ? 'playing' : 'paused';
+    } catch (e) { /* media session is a nicety, never a dependency */ }
+  }
+
+  function mediaSessionWire() {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const set = function (action, fn) { try { ms.setActionHandler(action, fn); } catch (e) {} };
+    set('play',  function () { resume(); });
+    set('pause', function () { pause(); });
+    set('stop',  function () { stopSession(); });
+    set('previoustrack', function () { skip(-1); });
+    set('nexttrack',     function () { skip(1); });
+    set('seekbackward',  function () { skip(-1); });
+    set('seekforward',   function () { skip(1); });
+  }
+
+  function mediaSessionClear() {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const actions = ['play', 'pause', 'stop', 'previoustrack', 'nexttrack', 'seekbackward', 'seekforward'];
+    for (let i = 0; i < actions.length; i++) { try { ms.setActionHandler(actions[i], null); } catch (e) {} }
+    try { ms.metadata = null; ms.playbackState = 'none'; } catch (e) {}
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Device engine — speechSynthesis, one sentence per utterance.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const deviceEngine = {
+    voicesCache: null,
+
+    available: function () { return !!window.speechSynthesis; },
+
+    voices: function () {
+      if (!this.available()) return [];
+      let v = [];
+      try { v = window.speechSynthesis.getVoices() || []; } catch (e) {}
+      if (v.length) this.voicesCache = v;
+      return this.voicesCache || v;
+    },
+
+    ranked: function () { return rankVoices(this.voices(), docLang()); },
+
+    pick: function (voiceURI) {
+      const all = this.voices();
+      if (voiceURI) {
+        for (let i = 0; i < all.length; i++) if (all[i].voiceURI === voiceURI) return all[i];
+      }
+      const ranked = this.ranked();
+      return ranked.length ? ranked[0] : null;
+    },
+
+    speak: function (text, opts) {
+      // opts: { voiceURI, rate, pitch, onend, onerror }
+      const synth = window.speechSynthesis;
+      const u = new SpeechSynthesisUtterance(text);
+      const voice = this.pick(opts.voiceURI);
+      // Guarded: a voice object that is not a real SpeechSynthesisVoice (an
+      // odd platform, a test double) throws on assignment, and speaking in
+      // the default voice beats not speaking.
+      if (voice) {
+        try { u.voice = voice; } catch (e) {}
+        u.lang = voice.lang || docLang();
+      }
+      u.rate = opts.rate || 1;
+      u.pitch = opts.pitch || 1;
+      let settled = false;
+      let watchdog = 0;
+      const settle = function (fn, arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
+        if (fn) fn(arg);
+      };
+      u.onend = function () { settle(opts.onend); };
+      u.onerror = function (e) {
+        // 'canceled'/'interrupted' are our own cancel() coming back around,
+        // never a device failure — surfacing them as errors would count our
+        // own pause taps toward the stop-after-3 fuse.
+        if (e && (e.error === 'canceled' || e.error === 'interrupted')) { settle(null); return; }
+        settle(opts.onerror, e);
+      };
+      // A platform with no speech backend (Linux without speech-dispatcher,
+      // kiosk builds) accepts the utterance and then fires NOTHING — no end,
+      // no error. Without a watchdog that hangs the queue forever on a bar
+      // that says "playing". Budget: generous reading time for the text plus
+      // grace, then treat it as the engine failure it is.
+      const seconds = clamp(text.length / 12, 4, 40) / (u.rate || 1) + 8;
+      watchdog = setTimeout(function () {
+        settle(opts.onerror, new Error('speech engine produced no audio'));
+      }, seconds * 1000);
+      state.utterance = u;   // must outlive speak(): GC'd utterances go silent on Chrome
+      try { synth.speak(u); } catch (e) { settle(opts.onerror, e); }
+    },
+
+    cancel: function () {
+      if (!this.available()) return;
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+      state.utterance = null;
+    },
+  };
+
+  function docLang() {
+    const l = document.documentElement.getAttribute('lang');
+    return l || 'en';
+  }
+
+  // Voice lists arrive asynchronously on some platforms; refresh the sheet
+  // when they do. Wired once, globally — the listener is cheap and the event
+  // fires a handful of times per page load at most.
+  if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === 'function') {
+    try {
+      window.speechSynthesis.addEventListener('voiceschanged', function () {
+        deviceEngine.voicesCache = null;
+        deviceEngine.voices();
+        syncSheet();
+      });
+    } catch (e) {}
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Neural engine — the vendored Kokoro bundle in a module worker.
+  //
+  // The worker owns the model; this side owns the queue. Sentences are
+  // requested by id, results are WAV ArrayBuffers, and anything that comes
+  // back for an id we no longer care about is dropped on the floor.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const neuralEngine = {
+    worker: null,
+    device: null,          // device the live worker was initialised with
+    readyPromise: null,
+    nextId: 1,
+    pending: new Map(),    // id → { resolve, reject, timer }
+    wavCache: new Map(),   // cacheKey → blob URL (bounded LRU)
+    onprogress: null,      // sheet download-progress hook
+
+    available: function () { return !!window.Worker; },
+
+    ensureReady: function (device) {
+      if (this.worker && this.device === device && this.readyPromise) return this.readyPromise;
+      this.dispose();
+      const self = this;
+      this.device = device;
+      this.readyPromise = new Promise(function (resolve, reject) {
+        let w;
+        try {
+          w = new Worker('./js/novel-voice-worker.js', { type: 'module' });
+        } catch (e) { reject(e); return; }
+        self.worker = w;
+        w.onerror = function (e) {
+          reject(new Error(e && e.message ? e.message : 'Worker failed to start'));
+          self.disposeIfNotReady(w);
+        };
+        w.onmessage = function (ev) {
+          const m = ev.data || {};
+          if (m.type === 'ready') resolve();
+          else if (m.type === 'init-error') { reject(new Error(m.message || 'Could not load the voice model')); self.disposeIfNotReady(w); }
+          else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
+          else if (m.type === 'audio') self.settle(m.id, null, m);
+          else if (m.type === 'error') self.settle(m.id, new Error(m.message || 'Generation failed'), null);
+        };
+        w.postMessage({
+          type: 'init',
+          model: MODEL_ID,
+          device: device,
+          dtype: device === 'webgpu' ? 'fp32' : 'q8',
+        });
+      });
+      return this.readyPromise;
+    },
+
+    disposeIfNotReady: function (w) {
+      if (this.worker === w) { this.worker = null; this.readyPromise = null; this.device = null; }
+    },
+
+    settle: function (id, err, msg) {
+      const p = this.pending.get(id);
+      if (!p) return;                      // cancelled long ago
+      this.pending.delete(id);
+      clearTimeout(p.timer);
+      if (err) p.reject(err);
+      else p.resolve(msg);
+    },
+
+    // → Promise<blob URL for the sentence's WAV>
+    generate: function (cacheKey, text, voice) {
+      const cached = this.wavCache.get(cacheKey);
+      if (cached) {
+        // Refresh LRU position.
+        this.wavCache.delete(cacheKey); this.wavCache.set(cacheKey, cached);
+        return Promise.resolve(cached);
+      }
+      const self = this;
+      const id = this.nextId++;
+      return new Promise(function (resolve, reject) {
+        const timer = setTimeout(function () {
+          self.pending.delete(id);
+          reject(new Error('Timed out generating audio'));
+        }, NEURAL_TIMEOUT_MS);
+        self.pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+        self.worker.postMessage({ type: 'generate', id: id, text: text, voice: voice });
+      }).then(function (msg) {
+        const url = URL.createObjectURL(new Blob([msg.wav], { type: 'audio/wav' }));
+        self.wavCache.set(cacheKey, url);
+        while (self.wavCache.size > WAV_CACHE_MAX) {
+          const oldest = self.wavCache.keys().next().value;
+          const u = self.wavCache.get(oldest);
+          self.wavCache.delete(oldest);
+          try { URL.revokeObjectURL(u); } catch (e) {}
+        }
+        return url;
+      });
+    },
+
+    cancelPending: function () {
+      const self = this;
+      this.pending.forEach(function (p) { clearTimeout(p.timer); p.reject(new Error('cancelled')); });
+      this.pending.clear();
+      if (this.worker) { try { this.worker.postMessage({ type: 'cancel' }); } catch (e) {} }
+    },
+
+    dispose: function () {
+      this.cancelPending();
+      if (this.worker) { try { this.worker.terminate(); } catch (e) {} }
+      this.worker = null;
+      this.readyPromise = null;
+      this.device = null;
+      const self = this;
+      this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+      this.wavCache.clear();
+    },
+
+    // "Is the model already on disk?" — a Cache API probe, so the sheet can
+    // say "Downloaded" vs "~90 MB download" without spawning the worker.
+    downloaded: function () {
+      if (typeof caches === 'undefined') return Promise.resolve(false);
+      return caches.open(TRANSFORMERS_CACHE).then(function (c) {
+        return Promise.all([c.match(MODEL_URLS.q8), c.match(MODEL_URLS.fp32)]);
+      }).then(function (r) { return !!(r[0] || r[1]); }).catch(function () { return false; });
+    },
+
+    removeDownload: function () {
+      this.dispose();
+      if (typeof caches === 'undefined') return Promise.resolve();
+      return caches.open(TRANSFORMERS_CACHE).then(function (c) {
+        return c.keys().then(function (keys) {
+          return Promise.all(keys.map(function (req) {
+            return req.url.indexOf(MODEL_ID) !== -1 ? c.delete(req) : null;
+          }));
+        });
+      }).then(function () { return caches.delete(KOKORO_VOICES_CACHE); })
+        // The engine itself (vendor/tts/**, kept by the service worker) goes
+        // too — "Remove download" should mean all of it, not just the model.
+        .then(function () { return caches.delete('or-voice-engine-v1'); })
+        .catch(function () {});
+    },
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Highlight — CSS Custom Highlight API when the browser has it (no DOM
+  // mutation at all), a block-level class when it does not.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const highlighter = {
+    supported: typeof CSS !== 'undefined' && !!CSS.highlights && typeof Highlight === 'function',
+    markedEl: null,
+
+    apply: function (sentence) {
+      this.clear();
+      if (!state.prefs.highlight || !sentence || !state.bridge) return;
+      const els = state.bridge.entryEls(state.chapterId);
+      const node = els && els[sentence.blockIdx];
+      if (!node || !node.isConnected) return;
+
+      if (this.supported) {
+        const range = rangeForOffsets(node, sentence.start, sentence.end);
+        if (range) {
+          try { CSS.highlights.set(HIGHLIGHT_NAME, new Highlight(range)); return; } catch (e) {}
+        }
+      }
+      node.classList.add('vc-speaking-block');
+      this.markedEl = node;
+    },
+
+    clear: function () {
+      if (this.supported) { try { CSS.highlights.delete(HIGHLIGHT_NAME); } catch (e) {} }
+      if (this.markedEl) { try { this.markedEl.classList.remove('vc-speaking-block'); } catch (e) {} this.markedEl = null; }
+    },
+  };
+
+  // A Range over [start, end) character offsets inside an element's text
+  // nodes — the same coordinates the reader's anchors use.
+  function rangeForOffsets(root, start, end) {
+    const range = document.createRange();
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let seen = 0, node, haveStart = false;
+    while ((node = w.nextNode())) {
+      const len = node.nodeValue.length;
+      if (!haveStart && seen + len > start) {
+        try { range.setStart(node, start - seen); } catch (e) { return null; }
+        haveStart = true;
+      }
+      if (haveStart && seen + len >= end) {
+        try { range.setEnd(node, clamp(end - seen, 0, len)); } catch (e) { return null; }
+        return range;
+      }
+      seen += len;
+    }
+    if (haveStart) { try { range.setEnd(root, root.childNodes.length); return range; } catch (e) {} }
+    return null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Controller — the sentence cursor and everything that reacts to it moving.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function currentSentence() { return state.sentences[state.index] || null; }
+
+  function sentenceAnchor(s) {
+    return { chapterId: state.chapterId, blockIdx: s.blockIdx, charInBlock: s.start };
+  }
+
+  // Re-segment for the reader's current chapter and aim the cursor at the
+  // reader's own anchor, so Play always starts "from here".
+  function seedFromReader() {
+    const b = state.bridge;
+    const rs = b.state();
+    state.chapterId = rs.chapterId;
+    const entry = b.entry(state.chapterId);
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText) : [];
+    const a = rs.anchor && rs.anchor.chapterId === state.chapterId ? rs.anchor : { blockIdx: 0, charInBlock: 0 };
+    state.index = sentenceIndexAt(state.sentences, a.blockIdx | 0, a.charInBlock | 0);
+  }
+
+  function onSentenceStart(s) {
+    highlighter.apply(s);
+    if (state.prefs.follow && s) {
+      const b = state.bridge;
+      const anchor = sentenceAnchor(s);
+      // Only move the page when the sentence is not already on it — following
+      // should feel like the page keeping up, not the page twitching per line.
+      if (b.anchorVisible && !b.anchorVisible(anchor)) b.reveal(anchor);
+    }
+    updateBar();
+  }
+
+  function speakCurrent() {
+    const s = currentSentence();
+    if (!s) { onChapterExhausted(); return; }
+    const token = ++state.speakToken;
+    onSentenceStart(s);
+
+    const done = function () {
+      if (token !== state.speakToken || !state.playing) return;
+      state.errors = 0;
+      state.emptyHops = 0;
+      advance(1);
+    };
+    const fail = function () {
+      if (token !== state.speakToken || !state.playing) return;
+      state.errors++;
+      if (state.errors >= MAX_CONSECUTIVE_ERRORS) {
+        toast('The voice keeps failing — stopped.');
+        stopSession();
+        return;
+      }
+      advance(1);
+    };
+
+    if (state.prefs.engine === 'neural') speakNeural(s, token, done, fail);
+    else speakDevice(s, token, done, fail);
+  }
+
+  function speakDevice(s, token, done, fail) {
+    // A beat between cancel() and speak(): several engines (Android, older
+    // Chrome) drop an utterance queued in the same tick as a cancel.
+    setTimeout(function () {
+      if (token !== state.speakToken || !state.playing) return;
+      deviceEngine.speak(normalizeForSpeech(s.text, 'device'), {
+        voiceURI: state.prefs.deviceVoice,
+        rate: state.prefs.rate,
+        pitch: state.prefs.pitch,
+        onend: done,
+        onerror: fail,
+      });
+    }, 40);
+    // Keep the media session honest while an inaudible <audio> loop carries it.
+    channel.play(silentWavUrl(), { loop: true }).catch(function () {});
+    mediaSessionUpdate();
+  }
+
+  function neuralKey(chapterId, s) {
+    return chapterId + ':' + s.blockIdx + ':' + s.start + ':' + state.prefs.neuralVoice;
+  }
+
+  function speakNeural(s, token, done, fail) {
+    setPreparing(true);
+    const chapterId = state.chapterId;
+    neuralEngine.generate(neuralKey(chapterId, s), normalizeForSpeech(s.text, 'neural'), state.prefs.neuralVoice)
+      .then(function (url) {
+        if (token !== state.speakToken || !state.playing) return;
+        setPreparing(false);
+        prefetchNeural();
+        return channel.play(url, { rate: state.prefs.rate, onended: done }).catch(function () {
+          // Autoplay refusal — the chain lost its blessing (e.g. after a long
+          // background stall). Pausing is honest; a tap resumes it.
+          pause();
+        });
+      })
+      .catch(function (e) {
+        if (token !== state.speakToken || !state.playing) return;
+        if (String(e && e.message) === 'cancelled') return;
+        setPreparing(false);
+        fail();
+      });
+    mediaSessionUpdate();
+  }
+
+  // Warm the next sentences while this one plays, so slower-than-realtime
+  // devices spend the current sentence's runtime catching up, not stalling.
+  function prefetchNeural() {
+    if (state.prefs.engine !== 'neural' || !neuralEngine.worker) return;
+    for (let k = 1; k <= NEURAL_LOOKAHEAD; k++) {
+      const s = state.sentences[state.index + k];
+      if (!s) break;
+      const key = neuralKey(state.chapterId, s);
+      if (neuralEngine.wavCache.has(key)) continue;
+      neuralEngine.generate(key, normalizeForSpeech(s.text, 'neural'), state.prefs.neuralVoice)
+        .catch(function () { /* the real attempt will retry and report */ });
+    }
+  }
+
+  function advance(delta) {
+    const next = state.index + delta;
+    if (next < 0) { state.index = 0; }
+    else if (next >= state.sentences.length) { onChapterExhausted(); return; }
+    else state.index = next;
+    if (state.playing) speakCurrent();
+    else {
+      const s = currentSentence();
+      if (s) onSentenceStart(s);
+    }
+  }
+
+  function skip(delta) {
+    if (!state.active) return;
+    cancelSpeech();
+    advance(delta);
+  }
+
+  function onChapterExhausted() {
+    const b = state.bridge;
+    if (!state.prefs.autoNext || !b) { finishSession('End of chapter.'); return; }
+    const rs = b.state();
+    const chapters = b.chapters();
+    const idx = b.chapterIndex(state.chapterId);
+    if (idx < 0 || idx + 1 >= chapters.length) { finishSession('End of book.'); return; }
+
+    if (state.emptyHops >= 3) { finishSession('Nothing more to read aloud.'); return; }
+
+    const next = chapters[idx + 1];
+    const stacked = b.entryEls(next.id);   // already rendered → endless mode, keep the flow
+    if (stacked || rs.mode !== 'infinite') {
+      if (!stacked) {
+        // Paged/scroll: turning the chapter is a real navigation, through the
+        // same goChapter a tap uses. `voiceNav` tells our own chapter-change
+        // callback apart from the user grabbing the controls.
+        state.voiceNav = true;
+        b.goChapter(1).then(function (ok) {
+          state.voiceNav = false;
+          if (!ok) { finishSession(null); return; }
+          continueIntoChapter(next);
+        });
+        return;
+      }
+      continueIntoChapter(next);
+      return;
+    }
+    // Endless mode but the next section is not in the DOM yet (reader far
+    // behind, entry evicted): fall back to real navigation.
+    state.voiceNav = true;
+    b.goChapter(1).then(function (ok) {
+      state.voiceNav = false;
+      if (!ok) { finishSession(null); return; }
+      continueIntoChapter(next);
+    });
+  }
+
+  function continueIntoChapter(chapter) {
+    const b = state.bridge;
+    state.chapterId = chapter.id;
+    const entry = b.entry(chapter.id);
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText) : [];
+    state.index = 0;
+    mediaSessionUpdate();
+    if (!state.sentences.length) { state.emptyHops++; onChapterExhausted(); return; }
+    if (!state.playing) { updateBar(); return; }
+    // A spoken chapter heading, so the ear gets the same cue the eye does.
+    // Headings in the text are announced by the text itself; this is only for
+    // the transition moment.
+    const label = chapterAnnouncement(chapter);
+    if (label && state.prefs.engine === 'device') {
+      const token = ++state.speakToken;
+      deviceEngine.speak(label, {
+        voiceURI: state.prefs.deviceVoice, rate: state.prefs.rate, pitch: state.prefs.pitch,
+        onend: function () { if (token === state.speakToken && state.playing) speakCurrent(); },
+        onerror: function () { if (token === state.speakToken && state.playing) speakCurrent(); },
+      });
+      highlighter.clear();
+      updateBar();
+      return;
+    }
+    speakCurrent();
+  }
+
+  function chapterAnnouncement(ch) {
+    if (!ch) return '';
+    const bits = [];
+    if (ch.num != null) bits.push('Chapter ' + ch.num + '.');
+    if (ch.title) bits.push(String(ch.title) + '.');
+    return bits.join(' ');
+  }
+
+  function cancelSpeech() {
+    state.speakToken++;
+    deviceEngine.cancel();
+    neuralEngine.cancelPending();
+    channel.stop();
+    setPreparing(false);
+  }
+
+  // ── Play / pause / stop ───────────────────────────────────────────────────
+
+  function play() {
+    if (!state.bridge) return;
+    if (state.playing) return;
+    state.playing = true;
+    state.errors = 0;
+
+    if (!state.sentences.length || state.chapterId !== state.bridge.state().chapterId) seedFromReader();
+    if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
+
+    // First user gesture: bless the audio element while we still have it.
+    channel.play(silentWavUrl(), { loop: state.prefs.engine === 'device' }).catch(function () {});
+
+    if (state.prefs.engine === 'neural') {
+      ensureNeuralThenSpeak();
+    } else {
+      speakCurrent();
+    }
+    mediaSessionWire();
+    mediaSessionUpdate();
+    updateBar();
+  }
+
+  function ensureNeuralThenSpeak() {
+    setPreparing(true);
+    const token = state.speakToken;
+    neuralEngine.ensureReady(state.prefs.neuralDevice)
+      .then(function () {
+        syncSheet();
+        if (!state.playing || token !== state.speakToken) return;
+        speakCurrent();
+      })
+      .catch(function (e) {
+        setPreparing(false);
+        if (!state.active) return;
+        // The engine could not come up (download refused, wasm blocked, GPU
+        // lost). Fall back for this session rather than going mute; the pref
+        // is untouched so the sheet still shows what was chosen and why.
+        neuralFallbackNote(e);
+        if (deviceEngine.available()) {
+          // Session-only: state.prefs.engine flips but the stored pref stays
+          // 'neural', so the next open tries the natural voice again.
+          state.prefs.engine = 'device';
+          if (state.playing) speakCurrent();
+        } else {
+          stopSession();
+        }
+      });
+  }
+
+  function neuralFallbackNote(e) {
+    toast('Natural voice unavailable — using the device voice. (' + shortErr(e) + ')');
+    state.neuralError = shortErr(e);
+    syncSheet();
+  }
+
+  function shortErr(e) {
+    const m = e && e.message ? String(e.message) : 'unknown error';
+    return m.length > 120 ? m.slice(0, 117) + '…' : m;
+  }
+
+  function pause() {
+    if (!state.playing) return;
+    state.playing = false;
+    cancelSpeech();
+    const s = currentSentence();
+    if (s) highlighter.apply(s);   // keep the place visible while paused
+    mediaSessionUpdate();
+    updateBar();
+  }
+
+  function resume() { if (state.active && !state.playing) play(); }
+
+  function togglePlay() { state.playing ? pause() : play(); }
+
+  function startSession() {
+    if (state.active) { openSheet(); return; }
+    state.active = true;
+    state.prefs = readPrefs();
+    ensureDom();
+    seedFromReader();
+    dom.bar.hidden = false;
+    updateBar();
+    updateListenBtn();
+    // Autoplay on open: the tap on Listen IS the gesture, and a player that
+    // appears silent makes everyone hunt for a second button.
+    play();
+  }
+
+  function finishSession(message) {
+    if (message) toast(message);
+    stopSession();
+  }
+
+  function stopSession() {
+    if (!state.active) return;
+    state.playing = false;
+    state.active = false;
+    cancelSpeech();
+    highlighter.clear();
+    closeSheet();
+    if (dom.bar) dom.bar.hidden = true;
+    state.sentences = [];
+    state.index = 0;
+    state.chapterId = null;
+    mediaSessionClear();
+    // Free the model's working memory; the weights stay in the browser cache,
+    // so the next session warms up from disk, not the network.
+    neuralEngine.dispose();
+    updateListenBtn();
+  }
+
+  function setPreparing(v) {
+    if (state.preparing === !!v) return;
+    state.preparing = !!v;
+    updateBar();
+  }
+
+  function toast(msg) {
+    if (state.bridge && state.bridge.toast) state.bridge.toast(msg);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reader events — the whole coupling to novel-reader.js.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function readerEvent(kind, info, bridge) {
+    if (kind === 'open') {
+      // open() also fires when a NEW book replaces the current one without a
+      // close in between; narration must never carry across that seam.
+      if (state.active) stopSession();
+      state.bridge = bridge || state.bridge;
+      state.prefs = readPrefs();
+      return;
+    }
+    if (!state.bridge) return;
+
+    if (kind === 'close') {
+      stopSession();
+      state.bridge = null;
+      return;
+    }
+
+    if (kind === 'chapter') {
+      // Our own auto-advance also lands here; that one is already handled.
+      if (state.voiceNav || !state.active) return;
+      // The user moved to another chapter under us. Following them beats
+      // stopping: re-seed at their new position, keep playing if playing.
+      const wasPlaying = state.playing;
+      cancelSpeech();
+      seedFromReader();
+      if (wasPlaying) speakCurrent();
+      else { const s = currentSentence(); if (s) highlighter.apply(s); updateBar(); }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // UI — the listen bar and the voice sheet. All chrome, all ours, mounted
+  // inside #novel-screen so the reader's theme tokens cascade for free.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const ICON = {
+    play:  'M8 5.5 L18 12 L8 18.5 Z',
+    pause: 'M8.5 5.5 V18.5 M15.5 5.5 V18.5',
+    prev:  'M11 6 L5.5 12 L11 18 M18 6 L12.5 12 L18 18',
+    next:  'M13 6 L18.5 12 L13 18 M6 6 L11.5 12 L6 18',
+    close: 'M18 6 L6 18 M6 6 L18 18',
+    voice: 'M4 10 v4 M8.5 7 v10 M13 4.5 v15 M17.5 8 v8 M22 11 v2',
+  };
+
+  function iconBtn(label, kind, big) {
+    const b = el('button', 'vc-btn' + (big ? ' vc-btn-big' : ''));
+    b.type = 'button';
+    b.setAttribute('aria-label', label);
+    b.title = label;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const size = big ? '26' : '20';
+    svg.setAttribute('width', size); svg.setAttribute('height', size);
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.2');
+    svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', ICON[kind] || ICON.play);
+    svg.appendChild(path);
+    b.appendChild(svg);
+    return b;
+  }
+
+  function setIcon(btn, kind) {
+    const path = btn.querySelector('path');
+    if (path) path.setAttribute('d', ICON[kind] || ICON.play);
+  }
+
+  function ensureDom() {
+    if (built) return;
+    built = true;
+
+    // ── Listen bar ────────────────────────────────────────────────────────
+    const bar = el('div', 'vc-bar');
+    bar.hidden = true;
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'Listening controls');
+
+    const voiceBtn = iconBtn('Voice settings', 'voice');
+    const prevBtn = iconBtn('Previous sentence', 'prev');
+    const playBtn = iconBtn('Pause', 'pause', true);
+    playBtn.classList.add('vc-play');
+    const spinner = el('span', 'vc-spinner');
+    spinner.setAttribute('aria-hidden', 'true');
+    playBtn.appendChild(spinner);
+    const nextBtn = iconBtn('Next sentence', 'next');
+    const closeBtn = iconBtn('Stop listening', 'close');
+
+    const status = el('div', 'vc-status');
+    const statusLine = el('span', 'vc-status-line');
+    statusLine.setAttribute('aria-live', 'polite');
+    status.appendChild(statusLine);
+
+    bar.append(voiceBtn, prevBtn, playBtn, nextBtn, closeBtn, status);
+
+    voiceBtn.addEventListener('click', function () { sheetOpen ? closeSheet() : openSheet(); });
+    prevBtn.addEventListener('click', function () { skip(-1); });
+    nextBtn.addEventListener('click', function () { skip(1); });
+    playBtn.addEventListener('click', function () { togglePlay(); });
+    closeBtn.addEventListener('click', function () { stopSession(); });
+
+    // ── Voice sheet ───────────────────────────────────────────────────────
+    const scrim = el('div', 'vc-scrim');
+    scrim.hidden = true;
+    scrim.addEventListener('click', function () { closeSheet(); });
+
+    const sheet = buildSheet();
+
+    Object.assign(dom, { bar, playBtn, statusLine, scrim, sheet });
+    state.bridge.mount(bar);
+    state.bridge.mount(scrim);
+    state.bridge.mount(sheet);
+  }
+
+  function updateBar() {
+    if (!dom.bar || dom.bar.hidden) return;
+    const playing = state.playing;
+    setIcon(dom.playBtn, playing ? 'pause' : 'play');
+    dom.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    dom.playBtn.title = playing ? 'Pause' : 'Play';
+    dom.playBtn.classList.toggle('vc-preparing', state.preparing);
+    const n = state.sentences.length;
+    const at = n ? state.index + 1 : 0;
+    dom.statusLine.textContent = state.preparing
+      ? 'Preparing voice…'
+      : (n ? at + ' / ' + n : 'Nothing to read');
+  }
+
+  // The Listen button in the reader header mirrors whether a session is up.
+  function updateListenBtn() {
+    if (state.bridge && state.bridge.listenPressed) state.bridge.listenPressed(state.active);
+  }
+
+  // ── Voice sheet ─────────────────────────────────────────────────────────
+
+  function buildSheet() {
+    const sheet = el('aside', 'vc-sheet');
+    sheet.hidden = true;
+    sheet.inert = true;
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-label', 'Voice settings');
+
+    const head = el('div', 'vc-sheet-head');
+    head.appendChild(el('h2', null, 'Voice'));
+    const closeBtn = iconBtn('Close voice settings', 'close');
+    closeBtn.addEventListener('click', function () { closeSheet(); });
+    head.appendChild(closeBtn);
+    sheet.appendChild(head);
+
+    const body = el('div', 'vc-sheet-body');
+    sheet.appendChild(body);
+
+    // ── Narrator: device vs natural ───────────────────────────────────────
+    const engRow = el('div', 'vc-row');
+    engRow.appendChild(el('span', 'vc-row-label', 'Narrator'));
+    const seg = el('div', 'vc-seg');
+    seg.setAttribute('role', 'radiogroup');
+    const segDevice = segBtn('Device voice', 'Instant · uses this device’s voices');
+    const segNeural = segBtn('Natural voice', 'Human-sounding · one-time download');
+    seg.append(segDevice.btn, segNeural.btn);
+    engRow.appendChild(seg);
+    body.appendChild(engRow);
+
+    segDevice.btn.addEventListener('click', function () { setEngine('device'); });
+    segNeural.btn.addEventListener('click', function () { setEngine('neural'); });
+
+    // ── Device voice picker ───────────────────────────────────────────────
+    const devRow = el('div', 'vc-row vc-device-row');
+    devRow.appendChild(el('span', 'vc-row-label', 'Device voice'));
+    const devWrap = el('div', 'vc-select-wrap');
+    const select = el('select', 'vc-select');
+    select.setAttribute('aria-label', 'Device voice');
+    devWrap.appendChild(select);
+    const preview1 = previewBtn();
+    devWrap.appendChild(preview1);
+    devRow.appendChild(devWrap);
+    const devHint = el('div', 'vc-hint');
+    devRow.appendChild(devHint);
+    body.appendChild(devRow);
+
+    select.addEventListener('change', function () {
+      state.prefs.deviceVoice = select.value;
+      prefSet(PREF.deviceVoice, select.value);
+      restartCurrentIfPlaying();
+    });
+    preview1.addEventListener('click', function () { previewVoice(); });
+
+    // ── Natural voice panel ───────────────────────────────────────────────
+    const natRow = el('div', 'vc-row vc-neural-row');
+    natRow.appendChild(el('span', 'vc-row-label', 'Natural voice'));
+
+    const natStatus = el('div', 'vc-nat-status');
+    const natText = el('div', 'vc-hint');
+    const natBar = el('div', 'vc-progress');
+    natBar.appendChild(el('i'));
+    natBar.hidden = true;
+    const natAction = el('button', 'vc-action');
+    natAction.type = 'button';
+    natAction.textContent = 'Download voice (~90 MB)';
+    natStatus.append(natText, natBar, natAction);
+    natRow.appendChild(natStatus);
+
+    const natVoices = el('div', 'vc-chip-rail');
+    natVoices.setAttribute('role', 'radiogroup');
+    natVoices.setAttribute('aria-label', 'Narrator');
+    for (let i = 0; i < NEURAL_VOICES.length; i++) {
+      (function (v) {
+        const chip = el('button', 'vc-chip');
+        chip.type = 'button';
+        chip.dataset.voice = v.id;
+        chip.append(el('span', 'vc-chip-name', v.label), el('span', 'vc-chip-note', v.note));
+        chip.addEventListener('click', function () {
+          state.prefs.neuralVoice = v.id;
+          prefSet(PREF.neuralVoice, v.id);
+          syncSheet();
+          restartCurrentIfPlaying();
+        });
+        natVoices.appendChild(chip);
+      })(NEURAL_VOICES[i]);
+    }
+    natRow.appendChild(natVoices);
+
+    const natTools = el('div', 'vc-nat-tools');
+    const preview2 = previewBtn();
+    preview2.addEventListener('click', function () { previewVoice(); });
+    const gpuToggle = el('button', 'vc-toggle');
+    gpuToggle.type = 'button';
+    gpuToggle.append(el('span', null, 'Use GPU (fp32, ~330 MB)'), el('span', 'vc-pill', 'Off'));
+    gpuToggle.addEventListener('click', function () {
+      const next = state.prefs.neuralDevice === 'webgpu' ? 'wasm' : 'webgpu';
+      state.prefs.neuralDevice = next;
+      prefSet(PREF.neuralDevice, next);
+      neuralEngine.dispose();     // next play re-inits on the chosen device
+      syncSheet();
+    });
+    const removeBtn = el('button', 'vc-action vc-action-quiet');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove download';
+    removeBtn.addEventListener('click', function () {
+      removeBtn.disabled = true;
+      neuralEngine.removeDownload().then(function () {
+        removeBtn.disabled = false;
+        state.neuralError = null;
+        syncSheet();
+        toast('Natural voice removed from this device.');
+      });
+    });
+    natTools.append(preview2, gpuToggle, removeBtn);
+    natRow.appendChild(natTools);
+    body.appendChild(natRow);
+
+    natAction.addEventListener('click', function () { downloadNeural(); });
+
+    // WebGPU is only offered where the API exists at all.
+    if (!('gpu' in navigator)) gpuToggle.hidden = true;
+
+    // ── Speed / pitch ─────────────────────────────────────────────────────
+    body.appendChild(stepRow('Speed', {
+      get: function () { return state.prefs.rate; },
+      fmt: function (v) { return v.toFixed(2).replace(/0$/, '') + '×'; },
+      dec: function () { setRate(state.prefs.rate - RATE_STEP); },
+      inc: function () { setRate(state.prefs.rate + RATE_STEP); },
+    }));
+
+    const pitchRow = stepRow('Pitch', {
+      get: function () { return state.prefs.pitch; },
+      fmt: function (v) { return v.toFixed(2).replace(/0$/, ''); },
+      dec: function () { setPitch(state.prefs.pitch - PITCH_STEP); },
+      inc: function () { setPitch(state.prefs.pitch + PITCH_STEP); },
+    });
+    pitchRow.classList.add('vc-pitch-row');
+    body.appendChild(pitchRow);
+
+    // ── Behaviour toggles ─────────────────────────────────────────────────
+    body.appendChild(toggleRow('Follow along', 'Turns pages and scrolls with the narration', 'follow', PREF.follow));
+    body.appendChild(toggleRow('Auto next chapter', 'Keeps reading into the next chapter', 'autoNext', PREF.autoNext));
+    body.appendChild(toggleRow('Highlight sentence', 'Marks the sentence being read', 'highlight', PREF.highlight, function () {
+      const s = currentSentence();
+      if (state.active && s && state.prefs.highlight) highlighter.apply(s);
+      else highlighter.clear();
+    }));
+
+    // Focus stays inside while open, same trap the reader's sheet uses.
+    sheet.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = sheet.querySelectorAll('button:not([disabled]):not([hidden]), select, [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+
+    // Everything the sheet shows that can change from outside it.
+    sheetSync.push(function () {
+      const engine = state.prefs.engine;
+      segDevice.btn.setAttribute('aria-checked', String(engine === 'device'));
+      segNeural.btn.setAttribute('aria-checked', String(engine === 'neural'));
+      segDevice.btn.classList.toggle('vc-on', engine === 'device');
+      segNeural.btn.classList.toggle('vc-on', engine === 'neural');
+      devRow.hidden = engine !== 'device';
+      natRow.hidden = engine !== 'neural';
+      pitchRow.hidden = engine !== 'device';
+
+      if (engine === 'device') {
+        fillVoiceSelect(select);
+        devHint.textContent = deviceVoiceHint();
+      } else {
+        const chips = natVoices.querySelectorAll('.vc-chip');
+        for (let i = 0; i < chips.length; i++) {
+          const onV = chips[i].dataset.voice === state.prefs.neuralVoice;
+          chips[i].classList.toggle('vc-on', onV);
+          chips[i].setAttribute('aria-checked', String(onV));
+        }
+        const gpu = state.prefs.neuralDevice === 'webgpu';
+        gpuToggle.setAttribute('aria-pressed', String(gpu));
+        gpuToggle.lastChild.textContent = gpu ? 'On' : 'Off';
+        syncNeuralStatus(natText, natBar, natAction, removeBtn);
+      }
+    });
+
+    return sheet;
+  }
+
+  function segBtn(label, note) {
+    const btn = el('button', 'vc-seg-btn');
+    btn.type = 'button';
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-checked', 'false');
+    btn.append(el('span', 'vc-seg-label', label), el('span', 'vc-seg-note', note));
+    return { btn: btn };
+  }
+
+  function previewBtn() {
+    const b = el('button', 'vc-action');
+    b.type = 'button';
+    b.textContent = 'Preview';
+    return b;
+  }
+
+  function stepRow(label, cfg) {
+    const row = el('div', 'vc-row');
+    row.appendChild(el('span', 'vc-row-label', label));
+    const wrap = el('div', 'vc-step');
+    const dec = el('button', 'vc-step-btn', '−');
+    dec.type = 'button'; dec.setAttribute('aria-label', label + ' down');
+    const val = el('span', 'vc-step-val');
+    const inc = el('button', 'vc-step-btn', '+');
+    inc.type = 'button'; inc.setAttribute('aria-label', label + ' up');
+    wrap.append(dec, val, inc);
+    row.appendChild(wrap);
+    dec.addEventListener('click', cfg.dec);
+    inc.addEventListener('click', cfg.inc);
+    sheetSync.push(function () { val.textContent = cfg.fmt(cfg.get()); });
+    return row;
+  }
+
+  function toggleRow(label, note, prefKey, storeKey, after) {
+    const row = el('div', 'vc-row');
+    const toggle = el('button', 'vc-toggle');
+    toggle.type = 'button';
+    const labels = el('span', 'vc-toggle-labels');
+    labels.append(el('span', null, label), el('span', 'vc-toggle-note', note));
+    toggle.append(labels, el('span', 'vc-pill', 'On'));
+    toggle.addEventListener('click', function () {
+      state.prefs[prefKey] = !state.prefs[prefKey];
+      prefSet(storeKey, state.prefs[prefKey]);
+      syncSheet();
+      if (after) after();
+    });
+    row.appendChild(toggle);
+    sheetSync.push(function () {
+      const on = !!state.prefs[prefKey];
+      toggle.setAttribute('aria-pressed', String(on));
+      toggle.lastChild.textContent = on ? 'On' : 'Off';
+    });
+    return row;
+  }
+
+  function fillVoiceSelect(select) {
+    const ranked = deviceEngine.ranked();
+    // Rebuild only when the set changed; option churn resets the open picker.
+    const sig = ranked.map(function (v) { return v.voiceURI; }).join('|');
+    if (select.dataset.sig === sig) {
+      select.value = state.prefs.deviceVoice || '';
+      if (select.selectedIndex === -1) select.selectedIndex = 0;
+      return;
+    }
+    select.dataset.sig = sig;
+    select.textContent = '';
+    const auto = el('option', null, ranked.length ? 'Auto — ' + ranked[0].name : 'Auto');
+    auto.value = '';
+    select.appendChild(auto);
+    if (ranked.length) {
+      const top = el('optgroup');
+      top.label = 'Recommended';
+      const rest = el('optgroup');
+      rest.label = 'All voices';
+      for (let i = 0; i < ranked.length; i++) {
+        const v = ranked[i];
+        const o = el('option', null, v.name + ' (' + v.lang + ')');
+        o.value = v.voiceURI;
+        (i < 5 ? top : rest).appendChild(o);
+      }
+      select.appendChild(top);
+      if (rest.childNodes.length) select.appendChild(rest);
+    }
+    select.value = state.prefs.deviceVoice || '';
+    if (select.selectedIndex === -1) select.selectedIndex = 0;
+  }
+
+  function deviceVoiceHint() {
+    const n = deviceEngine.voices().length;
+    if (!n) return 'This browser reports no voices. The Natural voice works regardless.';
+    const best = deviceEngine.ranked()[0];
+    const great = best && scoreVoice(best, docLang()) >= 50;
+    return great
+      ? 'This device has high-quality voices — "' + best.name + '" is the best of them.'
+      : 'These are this device’s built-in voices. For a more human narrator, try the Natural voice.';
+  }
+
+  function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
+    if (state.neuralDownloading) {
+      natText.textContent = state.neuralProgressText || 'Downloading…';
+      natBar.hidden = false;
+      natBar.firstChild.style.width = Math.round((state.neuralProgress || 0) * 100) + '%';
+      natAction.hidden = true;
+      removeBtn.hidden = true;
+      return;
+    }
+    natBar.hidden = true;
+    if (state.neuralError) {
+      natText.textContent = 'Could not load: ' + state.neuralError;
+      natAction.hidden = false;
+      natAction.textContent = 'Try again';
+      removeBtn.hidden = true;
+      return;
+    }
+    if (neuralEngine.worker && neuralEngine.readyPromise) {
+      natText.textContent = 'Ready — running on this device (' + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + '), offline once downloaded.';
+      natAction.hidden = true;
+      removeBtn.hidden = false;
+      return;
+    }
+    natAction.hidden = true;
+    removeBtn.hidden = true;
+    natText.textContent = 'Checking…';
+    neuralEngine.downloaded().then(function (have) {
+      if (state.prefs.engine !== 'neural' || state.neuralDownloading) return;
+      if (have) {
+        natText.textContent = 'Downloaded — loads when you press play. Works offline.';
+        removeBtn.hidden = false;
+      } else {
+        natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
+        natAction.hidden = false;
+        natAction.textContent = state.prefs.neuralDevice === 'webgpu' ? 'Download voice (~330 MB)' : 'Download voice (~90 MB)';
+      }
+    });
+  }
+
+  function downloadNeural() {
+    state.neuralDownloading = true;
+    state.neuralError = null;
+    state.neuralProgress = 0;
+    state.neuralProgressText = 'Starting download…';
+    syncSheet();
+    neuralEngine.onprogress = function (m) {
+      // Track the biggest file (the model) for the bar; the small json/voice
+      // files flash by too fast to matter.
+      if (m.file && /\.onnx/.test(m.file) && m.total) {
+        state.neuralProgress = m.loaded / m.total;
+        state.neuralProgressText = 'Downloading narrator — ' +
+          Math.round(m.loaded / 1048576) + ' / ' + Math.round(m.total / 1048576) + ' MB';
+        syncSheet();
+      }
+    };
+    neuralEngine.ensureReady(state.prefs.neuralDevice)
+      .then(function () {
+        state.neuralDownloading = false;
+        syncSheet();
+        toast('Natural voice ready.');
+      })
+      .catch(function (e) {
+        state.neuralDownloading = false;
+        state.neuralError = shortErr(e);
+        syncSheet();
+      });
+  }
+
+  function setEngine(engine) {
+    if (state.prefs.engine === engine) return;
+    state.prefs.engine = engine;
+    prefSet(PREF.engine, engine);
+    syncSheet();
+    restartCurrentIfPlaying();
+  }
+
+  function setRate(v) {
+    state.prefs.rate = clamp(Math.round(v * 100) / 100, RATE_MIN, RATE_MAX);
+    prefSet(PREF.rate, state.prefs.rate);
+    syncSheet();
+    // The neural channel can change speed mid-sentence; the device engine
+    // picks the new rate up on the next utterance.
+    channel.setRate(state.prefs.rate);
+  }
+
+  function setPitch(v) {
+    state.prefs.pitch = clamp(Math.round(v * 100) / 100, PITCH_MIN, PITCH_MAX);
+    prefSet(PREF.pitch, state.prefs.pitch);
+    syncSheet();
+  }
+
+  // Engine/voice switches take effect immediately when narration is running —
+  // the current sentence restarts in the new voice, which doubles as the
+  // audition for it.
+  function restartCurrentIfPlaying() {
+    if (!state.active) return;
+    if (state.playing) { cancelSpeech(); state.playing = true; speakCurrent(); }
+  }
+
+  function previewVoice() {
+    const wasPlaying = state.playing;
+    if (wasPlaying) pause();
+    const done = function () { if (wasPlaying) resume(); };
+    if (state.prefs.engine === 'neural') {
+      setPreparing(true);
+      neuralEngine.ensureReady(state.prefs.neuralDevice)
+        .then(function () {
+          return neuralEngine.generate('preview:' + state.prefs.neuralVoice, PREVIEW_TEXT, state.prefs.neuralVoice);
+        })
+        .then(function (url) {
+          setPreparing(false);
+          syncSheet();
+          return channel.play(url, { rate: state.prefs.rate, onended: done });
+        })
+        .catch(function (e) { setPreparing(false); state.neuralError = shortErr(e); syncSheet(); done(); });
+    } else {
+      deviceEngine.cancel();
+      deviceEngine.speak(PREVIEW_TEXT, {
+        voiceURI: state.prefs.deviceVoice,
+        rate: state.prefs.rate,
+        pitch: state.prefs.pitch,
+        onend: done,
+        onerror: done,
+      });
+    }
+  }
+
+  // Same animation contract as the reader's own sheet: [hidden] keeps the
+  // element displayed but translated off-screen, so toggling `hidden` IS the
+  // slide, and `inert` is what actually removes it from the tab order.
+  function openSheet() {
+    if (!dom.sheet) return;
+    sheetOpen = true;
+    syncSheet();
+    dom.sheet.hidden = false;
+    dom.sheet.inert = false;
+    dom.scrim.hidden = false;
+    const first = dom.sheet.querySelector('button');
+    if (first) { try { first.focus({ preventScroll: true }); } catch (e) {} }
+  }
+
+  function closeSheet() {
+    if (!sheetOpen || !dom.sheet) return;
+    sheetOpen = false;
+    dom.sheet.hidden = true;
+    dom.sheet.inert = true;
+    dom.scrim.hidden = true;
+  }
+
+  function syncSheet() {
+    if (!built) return;
+    for (let i = 0; i < sheetSync.length; i++) {
+      try { sheetSync[i](); } catch (e) { /* one stale control must not break the rest */ }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API — docs/ARCHITECTURE.md §2.14
+  // ─────────────────────────────────────────────────────────────────────────
+
+  window.NovelVoice = {
+    /** novel-reader.js calls this on open/close/chapter — see §2.14. */
+    readerEvent: readerEvent,
+
+    /** The header Listen button lands here. Toggles the session. */
+    toggle: function () {
+      if (state.active) stopSession();
+      else startSession();
+    },
+
+    isActive: function () { return !!state.active; },
+
+    /** Read-only diagnostics. Used by test/novel-voice.test.html. */
+    state: function () {
+      return {
+        active: state.active,
+        playing: state.playing,
+        preparing: state.preparing,
+        engine: state.prefs.engine,
+        chapterId: state.chapterId,
+        index: state.index,
+        sentenceCount: state.sentences.length,
+        follow: state.prefs.follow,
+        autoNext: state.prefs.autoNext,
+        highlight: state.prefs.highlight,
+        rate: state.prefs.rate,
+        errors: state.errors,
+        sheetOpen: sheetOpen,
+        highlightMode: highlighter.supported ? 'range' : 'block',
+      };
+    },
+
+    /** Pure pieces exposed for the test page; not API for other modules. */
+    _test: {
+      segmentBlocks: segmentBlocks,
+      sentenceIndexAt: sentenceIndexAt,
+      normalizeForSpeech: normalizeForSpeech,
+      rankVoices: rankVoices,
+      scoreVoice: scoreVoice,
+      encodeWav: encodeWav,
+      readPrefs: readPrefs,
+      deviceEngine: deviceEngine,
+      neuralEngine: neuralEngine,
+      channel: channel,
+      skip: skip,
+      pause: pause,
+      resume: resume,
+    },
+  };
+})();

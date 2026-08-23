@@ -607,11 +607,34 @@
 
   const deviceEngine = {
     voicesCache: null,
+    nativeVoicesCache: null,
 
-    available: function () { return !!window.speechSynthesis; },
+    // The native app's WebView may have no speechSynthesis at all (Android's
+    // never wired it). When platform.js offers its TTS facade (§2.3), every
+    // call below routes through it instead; ranking, the queue and the
+    // watchdog neither know nor care which backend spoke.
+    native: function () {
+      try { return !!(window.Platform && window.Platform.tts && window.Platform.tts.available()); }
+      catch (e) { return false; }
+    },
+
+    available: function () { return this.native() || !!window.speechSynthesis; },
 
     voices: function () {
-      if (!this.available()) return [];
+      if (this.native()) {
+        if (this.nativeVoicesCache) return this.nativeVoicesCache;
+        const self = this;
+        // Kick the async fetch; the sheet re-syncs when the list lands. Until
+        // then speak() runs with the engine's default voice, which is right.
+        window.Platform.tts.voices().then(function (list) {
+          if (list && list.length && !self.nativeVoicesCache) {
+            self.nativeVoicesCache = list;
+            syncSheet();
+          }
+        });
+        return this.nativeVoicesCache || [];
+      }
+      if (!window.speechSynthesis) return [];
       let v = [];
       try { v = window.speechSynthesis.getVoices() || []; } catch (e) {}
       if (v.length) this.voicesCache = v;
@@ -631,6 +654,7 @@
 
     speak: function (text, opts) {
       // opts: { voiceURI, rate, pitch, onend, onerror }
+      if (this.native()) { this.speakNative(text, opts); return; }
       const synth = window.speechSynthesis;
       const u = new SpeechSynthesisUtterance(text);
       const voice = this.pick(opts.voiceURI);
@@ -672,8 +696,43 @@
       try { synth.speak(u); } catch (e) { settle(opts.onerror, e); }
     },
 
+    // Same utterance contract over Platform.tts: the facade's speak() promise
+    // resolves at utterance END, rejects on failure. Our own stop() may make
+    // an in-flight promise settle late or oddly — the speakToken guard in the
+    // caller already ignores stale settlements, so no special-casing here.
+    speakNative: function (text, opts) {
+      let settled = false;
+      let watchdog = 0;
+      const settle = function (fn, arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
+        if (fn) fn(arg);
+      };
+      const seconds = clamp(text.length / 12, 4, 40) / (opts.rate || 1) + 8;
+      watchdog = setTimeout(function () {
+        settle(opts.onerror, new Error('speech engine produced no audio'));
+      }, seconds * 1000);
+      try {
+        window.Platform.tts.speak(text, { voiceURI: opts.voiceURI, rate: opts.rate, pitch: opts.pitch })
+          .then(function (spoke) {
+            // false = the facade's expected-condition fallback (plugin gone
+            // between available() and here) — nothing was said, so it is a
+            // failure to the queue, not a completed sentence.
+            if (spoke === false) settle(opts.onerror, new Error('native speech unavailable'));
+            else settle(opts.onend);
+          })
+          .catch(function (e) { settle(opts.onerror, e); });
+      } catch (e) { settle(opts.onerror, e); }
+    },
+
     cancel: function () {
-      if (!this.available()) return;
+      if (this.native()) {
+        try { window.Platform.tts.stop(); } catch (e) {}
+        state.utterance = null;
+        return;
+      }
+      if (!window.speechSynthesis) return;
       try { window.speechSynthesis.cancel(); } catch (e) {}
       state.utterance = null;
     },
@@ -988,8 +1047,10 @@
         onerror: fail,
       });
     }, 40);
-    // Keep the media session honest while an inaudible <audio> loop carries it.
-    channel.play(silentWavUrl(), { loop: true }).catch(function () {});
+    // Keep the media session honest while an inaudible <audio> loop carries
+    // it — web only: the native TTS plugin holds a real audio session of its
+    // own (`category: playback`), and a competing loop would just duck it.
+    if (!deviceEngine.native()) channel.play(silentWavUrl(), { loop: true }).catch(function () {});
     mediaSessionUpdate();
   }
 
@@ -1324,6 +1385,9 @@
       state.bridge = bridge || state.bridge;
       state.prefs = readPrefs();
       prewarmNeural();
+      // On native, warm the voice list too — it is an async plugin call, and
+      // fetching it now means the picker is populated by the first sheet open.
+      if (deviceEngine.native()) deviceEngine.voices();
       return;
     }
     if (!state.bridge) return;

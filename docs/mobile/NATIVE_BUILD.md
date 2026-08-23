@@ -239,6 +239,47 @@ or-zip on Android builds with zero extra dependencies: `cap sync` adds the
 module (`include ':or-zip'` pointing at `node_modules/or-zip/android`) and it
 compiles against `java.util.zip` from the platform.
 
+## 9. The reader voice on native (ARCHITECTURE §2.14)
+
+Nothing extra to generate — the pieces arrive mechanically — but three things
+are worth knowing, and one is a manual iOS step:
+
+- **The device voice speaks through a plugin, not the WebView.** Android's
+  System WebView has no `window.speechSynthesis` (the Chrome browser does;
+  the WebView never wired it), so `@capacitor-community/text-to-speech` is in
+  `package.json` and `Platform.tts` (§2.3) routes the device engine through
+  the OS speech services on both platforms. `npm install` + `npm run sync`
+  wires it like any plugin; there is no per-platform config. Voice quality on
+  Android follows the device's installed TTS voices (Settings → General
+  management → Text-to-speech output — Google Speech Services voices are the
+  good ones); on iOS it follows Settings → Accessibility → Spoken Content →
+  Voices.
+
+- **Manual iOS step — background narration.** For the voice (device or
+  Natural) to keep reading with the screen locked, the app needs the audio
+  background mode. In `ios/App/App/Info.plist`, inside the top-level
+  `<dict>`:
+
+  ```xml
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>audio</string>
+  </array>
+  ```
+
+  (Equivalently in Xcode: App target → Signing & Capabilities → **+
+  Capability** → Background Modes → check **Audio, AirPlay, and Picture in
+  Picture**.) This is on the re-apply list below. Without it, narration
+  simply pauses on lock — nothing breaks.
+
+- **App size.** `vendor/tts/` (the self-hosted Natural-voice engine, ~24 MB)
+  ships inside `www/`, so the installed app grows by that much. The model
+  weights do NOT ship — the ~90 MB download happens on the device the first
+  time someone enables the Natural voice, exactly as on the web, and is
+  stored by the WebView's Cache API. On-device generation speed is the WASM
+  path unless the WebView has WebGPU (recent Android System WebView has it;
+  iOS from the first WebKit with WebGPU enabled in WKWebView).
+
 ## Re-apply after every regeneration
 
 Deleting/regenerating `ios/` or `android/` (or `cap add` on a fresh clone)
@@ -247,7 +288,9 @@ loses exactly these, in order:
 1. **Icons + splash** — §4 (`@capacitor/assets generate`).
 2. **iOS URL scheme** — §5 (`CFBundleURLTypes` in `ios/App/App/Info.plist`).
 3. **Android intent-filter** — §8.3 (`AndroidManifest.xml`).
-4. Any bundle-id change made in Xcode/Gradle instead of in
+4. **iOS background audio** — §9 (`UIBackgroundModes` in
+   `ios/App/App/Info.plist`; without it the reader voice pauses on lock).
+5. Any bundle-id change made in Xcode/Gradle instead of in
    `capacitor.config.json` (avoid that; see §2).
 
 Everything else — plugins, or-zip, the web bundle, plugin config — is

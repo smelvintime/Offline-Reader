@@ -81,8 +81,22 @@
   // The engine's working set is hundreds of MB, so it should not be held
   // while someone browses their shelf — but tearing it down on every chapter
   // close makes each Listen pay a full model re-init ("takes forever to
-  // load"). Keep it warm this long after the last use, then let it go.
-  const NEURAL_IDLE_DISPOSE_MS = 120000;
+  // load"). How long it stays warm after the last use is a memory-class
+  // decision (§2.3 Platform.tuning philosophy): a desktop can afford minutes,
+  // a mid phone seconds, and a low-memory phone none at all — holding half a
+  // gigabyte of idle model on a 3 GB phone is how "the reader crashed" bug
+  // reports happen.
+  const NEURAL_IDLE_BY_CLASS = { high: 120000, mid: 30000, low: 0 };
+
+  // A crash-loop breaker for narration. Some platforms can take the whole
+  // page down when speech starts (WebKit has a history of hard-crashing
+  // home-screen web apps on speechSynthesis.speak; low-memory phones OOM on
+  // the neural engine). A raw localStorage flag (§3.3, key or.voiceGuard) is
+  // written just before a session's first utterance and cleared after two
+  // utterances complete — so if the app died in between, the NEXT session
+  // knows, and declines to auto-play into the same wall.
+  const CRASH_GUARD_KEY = 'or.voiceGuard';
+  const CRASH_GUARD_FRESH_MS = 10 * 60 * 1000;
 
   // "Preparing voice…" only appears when the wait is real. Cache hits and
   // fast generations stay visually seamless instead of strobing the bar.
@@ -196,6 +210,33 @@
   function validNeuralVoice(id) {
     for (let i = 0; i < NEURAL_VOICES.length; i++) if (NEURAL_VOICES[i].id === id) return id;
     return DEFAULTS.neuralVoice;
+  }
+
+  // 'low' | 'mid' | 'high' — Platform's synchronous read when the bridge is
+  // present (it is, in index.html's load order), a safe middle otherwise.
+  function memoryClass() {
+    try {
+      if (window.Platform && typeof window.Platform.memoryClass === 'function') {
+        const c = window.Platform.memoryClass();
+        if (c === 'low' || c === 'mid' || c === 'high') return c;
+      }
+    } catch (e) { /* the default is the answer */ }
+    return 'mid';
+  }
+
+  // ── Crash-loop breaker plumbing ───────────────────────────────────────────
+
+  function guardRead() {
+    try {
+      const t = parseInt(localStorage.getItem(CRASH_GUARD_KEY) || '', 10);
+      return Number.isFinite(t) && (Date.now() - t) < CRASH_GUARD_FRESH_MS;
+    } catch (e) { return false; }
+  }
+  function guardArm() {
+    try { localStorage.setItem(CRASH_GUARD_KEY, String(Date.now())); } catch (e) {}
+  }
+  function guardClear() {
+    try { localStorage.removeItem(CRASH_GUARD_KEY); } catch (e) {}
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -486,6 +527,7 @@
     errors: 0,             // consecutive engine failures
     voiceNav: false,       // the chapter change in flight is ours, not the user's
     emptyHops: 0,          // consecutive auto-advances through speechless chapters
+    spokeOk: 0,            // utterances completed this session (crash-loop breaker)
 
     utterance: null,       // device engine's in-flight utterance
     speakToken: 0,         // invalidates stale onend/async callbacks
@@ -743,6 +785,14 @@
     return l || 'en';
   }
 
+  // A NORMAL departure (navigation, tab close) mid-first-utterance must not
+  // trip the crash-loop breaker: pagehide fires on those and clears the
+  // guard. A real crash never reaches pagehide — that asymmetry is the whole
+  // detector.
+  try {
+    window.addEventListener('pagehide', function () { guardClear(); });
+  } catch (e) {}
+
   // Voice lists arrive asynchronously on some platforms; refresh the sheet
   // when they do. Wired once, globally — the listener is cheap and the event
   // fires a handful of times per page load at most.
@@ -821,10 +871,12 @@
       const self = this;
       clearTimeout(this.idleTimer);
       if (!this.worker) return;
+      const idle = NEURAL_IDLE_BY_CLASS[memoryClass()] || 0;
+      if (idle <= 0) { this.dispose(); return; }   // low memory: free it NOW
       this.idleTimer = setTimeout(function () {
         self.idleTimer = 0;
         self.dispose();
-      }, NEURAL_IDLE_DISPOSE_MS);
+      }, idle);
     },
 
     disposeIfNotReady: function (w) {
@@ -1017,6 +1069,10 @@
       if (token !== state.speakToken || !state.playing) return;
       state.errors = 0;
       state.emptyHops = 0;
+      // Two utterances survived → this platform does not crash on speech;
+      // stand the crash-loop breaker down.
+      state.spokeOk = (state.spokeOk | 0) + 1;
+      if (state.spokeOk === 2) guardClear();
       advance(1);
     };
     const fail = function () {
@@ -1239,6 +1295,10 @@
     if (state.playing) return;
     state.playing = true;
     state.errors = 0;
+    // Armed until two utterances complete: if speech takes the page down
+    // (WebKit home-screen apps have form here; low-memory phones OOM), the
+    // flag survives the crash and the next session refuses to auto-play.
+    if ((state.spokeOk | 0) < 2) guardArm();
 
     if (!state.sentences.length || state.chapterId !== state.bridge.state().chapterId) seedFromReader();
     if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
@@ -1297,6 +1357,7 @@
   function pause() {
     if (!state.playing) return;
     state.playing = false;
+    guardClear();    // we are demonstrably alive — no crash to guard against
     cancelSpeech();
     const s = currentSentence();
     if (s) highlighter.apply(s);   // keep the place visible while paused
@@ -1311,12 +1372,21 @@
   function startSession() {
     if (state.active) { openSheet(); return; }
     state.active = true;
+    state.spokeOk = 0;
     state.prefs = readPrefs();
     ensureDom();
     seedFromReader();
     dom.bar.hidden = false;
     updateBar();
     updateListenBtn();
+    // Crash-loop breaker: a fresh guard flag means the last narration attempt
+    // never got two sentences out — on some platforms because it took the
+    // whole page down. Starting paused turns a crash loop into a choice.
+    if (guardRead()) {
+      toast('Narration may have crashed the app last time — not starting by itself. Press play to retry, or pick another voice first.');
+      updateBar();
+      return;
+    }
     // Autoplay on open: the tap on Listen IS the gesture, and a player that
     // appears silent makes everyone hunt for a second button.
     play();
@@ -1331,6 +1401,7 @@
     if (!state.active) return;
     state.playing = false;
     state.active = false;
+    guardClear();    // a clean stop is proof of life, same as pause
     cancelSpeech();
     highlighter.clear();
     // Deliberately NOT closeSheet(): if the stop came from an engine failure
@@ -1956,6 +2027,11 @@
   // download nobody asked for.
   function prewarmNeural() {
     if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
+    // Prewarming is a HIGH-memory-class luxury. Loading half a gigabyte of
+    // model in the background of every book open is exactly the kind of
+    // pressure that gets a phone's tab OOM-killed — there, the engine loads
+    // when (and only when) play is pressed.
+    if (memoryClass() !== 'high') return;
     refreshNeuralHave(function (have) {
       if (!have) return;
       neuralEngine.ensureReady(state.prefs.neuralDevice)

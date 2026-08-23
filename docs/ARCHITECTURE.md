@@ -206,7 +206,7 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.11`** and `SHELL_ASSETS`
+The service-worker cache is **`cbz-reader-v5.12`** and `SHELL_ASSETS`
 precaches the full module list above plus all eight CSS files — the six
 optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`,
 `novel-voice`) and their stylesheets are in the shell. NOT in the shell:
@@ -985,7 +985,16 @@ Two engines behind one controller:
   (`transformers-cache`, `kokoro-voices`), and work offline thereafter.
   Nothing — worker, bundle, wasm, weights — is fetched until a reader enables
   the Natural voice. Init failure falls back to the device engine for the
-  session and leaves the stored pref alone.
+  session and leaves the stored pref alone. Generation is by GROUP —
+  adjacent same-block sentences merged to ~160–300 chars — not per sentence:
+  the model gets whole-clause context (continuous prosody instead of choppy
+  per-sentence delivery) and per-call overhead is paid once per group, which
+  is what keeps slower-than-realtime devices ahead of playback, with two
+  groups always generating ahead. The worker is NOT torn down on reader
+  close: it idles out after ~2 minutes unused (a warm session skips the full
+  model re-init), and opening a book with the Natural voice selected
+  pre-warms it in the background — but only when the weights are already on
+  disk; prewarm never starts a download.
 
 **Coupling to the reader is one call each way.** novel-reader.js calls
 `NovelVoice.readerEvent(kind, info, bridge)` with `'open'`, `'close'` and

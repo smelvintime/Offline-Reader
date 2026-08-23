@@ -47,8 +47,12 @@ async function init(msg) {
       dtype: msg.dtype,
       device: msg.device,
       progress_callback: function (p) {
-        if (p && p.status === 'progress') {
-          post({ type: 'progress', file: p.file || '', loaded: p.loaded || 0, total: p.total || 0 });
+        // Forward per-file 'progress' AND 'done': the main thread uses the
+        // model file's 'done' to switch the UI from the byte bar to the
+        // "preparing on this device" phase (the session compile), which
+        // otherwise looks like a silent hang.
+        if (p && (p.status === 'progress' || p.status === 'done')) {
+          post({ type: 'progress', status: p.status, file: p.file || '', loaded: p.loaded || 0, total: p.total || 0 });
         }
       },
     });

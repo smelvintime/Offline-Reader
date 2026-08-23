@@ -1155,6 +1155,10 @@
 
   function openSheet() {
     if (sheetOpen) return;
+    // The voice sheet (§2.14) docks in the same place; never stack the two.
+    try {
+      if (window.NovelVoice && typeof window.NovelVoice.closeSheet === 'function') window.NovelVoice.closeSheet();
+    } catch (e) { /* an accessory must not block the settings sheet */ }
     sheetOpen = true;
     lastFocus = document.activeElement;
     dom.scrim.hidden = false;
@@ -2926,6 +2930,10 @@
           dom.listenBtn.classList.toggle('nv-listen-on', !!on);
         }
       },
+
+      /** One sheet at a time: the voice sheet closes this reader's settings
+          sheet when it opens, and openSheet() below returns the favour. */
+      closeSettingsSheet: function () { closeSheet(); },
     };
     return voiceBridgeObj;
   }

@@ -65,12 +65,28 @@
   // neural engine's latency becomes a visible stall; ~300 chars ≈ 20 s spoken.
   const MAX_SPOKEN_CHARS = 300;
 
-  // How many sentences ahead the neural engine synthesises while one plays.
-  // Two is enough to cover generation slower than real-time on phones without
-  // holding megabytes of PCM.
-  const NEURAL_LOOKAHEAD = 2;
-  const NEURAL_TIMEOUT_MS = 90000;   // one sentence; first one pays session warm-up
-  const WAV_CACHE_MAX = 10;          // generated sentences kept for replay/skip-back
+  // The neural engine speaks GROUPS of adjacent sentences (same paragraph,
+  // merged up to ~target chars), not single sentences. Grouping is what makes
+  // slower-than-realtime devices keep up: per-call overhead is paid once per
+  // group, the model gets whole-clause context (better prosody), and the
+  // playback runway per generation is 2-4× longer. The device engine keeps
+  // per-sentence utterances — it has no latency problem and finer pause
+  // control there is a feature.
+  const NEURAL_GROUP_TARGET = 160;   // stop growing a group past this
+  const NEURAL_GROUP_MAX = 300;      // never exceed (long groups delay first audio)
+  const NEURAL_LOOKAHEAD = 2;        // groups generated ahead of playback
+  const NEURAL_TIMEOUT_MS = 120000;  // one group; the first pays session warm-up
+  const WAV_CACHE_MAX = 10;          // generated groups kept for replay/skip-back
+
+  // The engine's working set is hundreds of MB, so it should not be held
+  // while someone browses their shelf — but tearing it down on every chapter
+  // close makes each Listen pay a full model re-init ("takes forever to
+  // load"). Keep it warm this long after the last use, then let it go.
+  const NEURAL_IDLE_DISPOSE_MS = 120000;
+
+  // "Preparing voice…" only appears when the wait is real. Cache hits and
+  // fast generations stay visually seamless instead of strobing the bar.
+  const PREPARING_DELAY_MS = 350;
 
   // After this many consecutive per-sentence engine failures we stop instead
   // of narrating silence sentence by sentence.
@@ -693,14 +709,19 @@
     worker: null,
     device: null,          // device the live worker was initialised with
     readyPromise: null,
+    ready: false,          // resolved at least once (drives the sheet status)
     nextId: 1,
     pending: new Map(),    // id → { resolve, reject, timer }
     wavCache: new Map(),   // cacheKey → blob URL (bounded LRU)
-    onprogress: null,      // sheet download-progress hook
+    onprogress: null,      // sheet download/init-progress hook
+    idleTimer: 0,          // scheduled teardown after release()
 
     available: function () { return !!window.Worker; },
 
     ensureReady: function (device) {
+      // Any acquisition cancels a scheduled idle teardown — the engine is
+      // wanted again.
+      clearTimeout(this.idleTimer); this.idleTimer = 0;
       if (this.worker && this.device === device && this.readyPromise) return this.readyPromise;
       this.dispose();
       const self = this;
@@ -717,7 +738,7 @@
         };
         w.onmessage = function (ev) {
           const m = ev.data || {};
-          if (m.type === 'ready') resolve();
+          if (m.type === 'ready') { self.ready = true; resolve(); if (self.onprogress) self.onprogress({ type: 'ready' }); }
           else if (m.type === 'init-error') { reject(new Error(m.message || 'Could not load the voice model')); self.disposeIfNotReady(w); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'audio') self.settle(m.id, null, m);
@@ -731,6 +752,20 @@
         });
       });
       return this.readyPromise;
+    },
+
+    // Let go without tearing down: the model stays warm for a couple of
+    // minutes so "close chapter, open next, press Listen" does not pay a
+    // full re-init — that is the "takes forever to load" complaint. The
+    // timer, not the session, is what finally frees the memory.
+    release: function () {
+      const self = this;
+      clearTimeout(this.idleTimer);
+      if (!this.worker) return;
+      this.idleTimer = setTimeout(function () {
+        self.idleTimer = 0;
+        self.dispose();
+      }, NEURAL_IDLE_DISPOSE_MS);
     },
 
     disposeIfNotReady: function (w) {
@@ -784,10 +819,12 @@
     },
 
     dispose: function () {
+      clearTimeout(this.idleTimer); this.idleTimer = 0;
       this.cancelPending();
       if (this.worker) { try { this.worker.terminate(); } catch (e) {} }
       this.worker = null;
       this.readyPromise = null;
+      this.ready = false;
       this.device = null;
       const self = this;
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
@@ -796,11 +833,14 @@
 
     // "Is the model already on disk?" — a Cache API probe, so the sheet can
     // say "Downloaded" vs "~90 MB download" without spawning the worker.
-    downloaded: function () {
+    // Per-device: the CPU path uses the q8 weights and the GPU path fp32, so
+    // having one says nothing about the other.
+    downloaded: function (device) {
       if (typeof caches === 'undefined') return Promise.resolve(false);
+      const url = device === 'webgpu' ? MODEL_URLS.fp32 : MODEL_URLS.q8;
       return caches.open(TRANSFORMERS_CACHE).then(function (c) {
-        return Promise.all([c.match(MODEL_URLS.q8), c.match(MODEL_URLS.fp32)]);
-      }).then(function (r) { return !!(r[0] || r[1]); }).catch(function () { return false; });
+        return c.match(url);
+      }).then(function (r) { return !!r; }).catch(function () { return false; });
     },
 
     removeDownload: function () {
@@ -953,19 +993,53 @@
     mediaSessionUpdate();
   }
 
-  function neuralKey(chapterId, s) {
-    return chapterId + ':' + s.blockIdx + ':' + s.start + ':' + state.prefs.neuralVoice;
+  // A neural group: sentences[from..to] of ONE block, merged for one
+  // generation call. Same-block only, so the highlight stays a single range
+  // and a group never straddles a paragraph pause. Pure over its inputs —
+  // the test page drives it directly.
+  function groupSentences(list, from) {
+    const first = list[from];
+    if (!first) return null;
+    let to = from;
+    let chars = first.text.length;
+    while (to + 1 < list.length) {
+      const next = list[to + 1];
+      if (next.blockIdx !== first.blockIdx) break;
+      if (next.kind !== first.kind) break;
+      if (chars >= NEURAL_GROUP_TARGET) break;
+      if (chars + next.text.length > NEURAL_GROUP_MAX) break;
+      chars += next.text.length;
+      to++;
+    }
+    const last = list[to];
+    const text = list.slice(from, to + 1).map(function (s) { return s.text; }).join(' ');
+    return { from: from, to: to, blockIdx: first.blockIdx, start: first.start, end: last.end, text: text };
+  }
+
+  function neuralGroupAt(from) { return groupSentences(state.sentences, from); }
+
+  function neuralKey(chapterId, g) {
+    return chapterId + ':' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + state.prefs.neuralVoice;
   }
 
   function speakNeural(s, token, done, fail) {
-    setPreparing(true);
+    const group = neuralGroupAt(state.index) || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
+    // The highlight covers the whole spoken group, so the mark and the audio
+    // always agree on what is being read.
+    highlighter.apply(group);
+    setPreparingSoon();
     const chapterId = state.chapterId;
-    neuralEngine.generate(neuralKey(chapterId, s), normalizeForSpeech(s.text, 'neural'), state.prefs.neuralVoice)
+    const groupDone = function () {
+      if (token !== state.speakToken || !state.playing) return;
+      state.index = group.to;      // land on the group's last sentence…
+      done();                      // …then done() advances past it as usual
+    };
+    neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text, 'neural'), state.prefs.neuralVoice)
       .then(function (url) {
         if (token !== state.speakToken || !state.playing) return;
         setPreparing(false);
-        prefetchNeural();
-        return channel.play(url, { rate: state.prefs.rate, onended: done }).catch(function () {
+        prefetchNeural(group);
+        return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
           // Autoplay refusal — the chain lost its blessing (e.g. after a long
           // background stall). Pausing is honest; a tap resumes it.
           pause();
@@ -980,17 +1054,20 @@
     mediaSessionUpdate();
   }
 
-  // Warm the next sentences while this one plays, so slower-than-realtime
-  // devices spend the current sentence's runtime catching up, not stalling.
-  function prefetchNeural() {
+  // Keep the next groups in flight while this one plays. The worker is a
+  // serial queue, so this is "top the queue up to depth 2", not a stampede.
+  function prefetchNeural(currentGroup) {
     if (state.prefs.engine !== 'neural' || !neuralEngine.worker) return;
-    for (let k = 1; k <= NEURAL_LOOKAHEAD; k++) {
-      const s = state.sentences[state.index + k];
-      if (!s) break;
-      const key = neuralKey(state.chapterId, s);
-      if (neuralEngine.wavCache.has(key)) continue;
-      neuralEngine.generate(key, normalizeForSpeech(s.text, 'neural'), state.prefs.neuralVoice)
-        .catch(function () { /* the real attempt will retry and report */ });
+    let from = currentGroup.to + 1;
+    for (let k = 0; k < NEURAL_LOOKAHEAD; k++) {
+      const g = neuralGroupAt(from);
+      if (!g) break;
+      const key = neuralKey(state.chapterId, g);
+      if (!neuralEngine.wavCache.has(key)) {
+        neuralEngine.generate(key, normalizeForSpeech(g.text, 'neural'), state.prefs.neuralVoice)
+          .catch(function () { /* the on-cursor attempt will retry and report */ });
+      }
+      from = g.to + 1;
     }
   }
 
@@ -1087,6 +1164,7 @@
 
   function cancelSpeech() {
     state.speakToken++;
+    clearTimeout(preparingTimer); preparingTimer = 0;
     deviceEngine.cancel();
     neuralEngine.cancelPending();
     channel.stop();
@@ -1118,7 +1196,7 @@
   }
 
   function ensureNeuralThenSpeak() {
-    setPreparing(true);
+    setPreparingSoon();
     const token = state.speakToken;
     neuralEngine.ensureReady(state.prefs.neuralDevice)
       .then(function () {
@@ -1194,22 +1272,39 @@
     state.active = false;
     cancelSpeech();
     highlighter.clear();
-    closeSheet();
+    // Deliberately NOT closeSheet(): if the stop came from an engine failure
+    // while the settings sheet was up, yanking the sheet away also yanks the
+    // error message the reader needs. The sheet has its own X and scrim; the
+    // reader-close and new-book paths close it explicitly.
     if (dom.bar) dom.bar.hidden = true;
     state.sentences = [];
     state.index = 0;
     state.chapterId = null;
     mediaSessionClear();
-    // Free the model's working memory; the weights stay in the browser cache,
-    // so the next session warms up from disk, not the network.
-    neuralEngine.dispose();
+    // Let the model idle-out rather than die: the weights stay in the browser
+    // cache either way, but a warm session skips the whole re-init.
+    neuralEngine.release();
     updateListenBtn();
   }
 
+  let preparingTimer = 0;
+
   function setPreparing(v) {
+    if (!v) { clearTimeout(preparingTimer); preparingTimer = 0; }
     if (state.preparing === !!v) return;
     state.preparing = !!v;
     updateBar();
+  }
+
+  // Arm the "Preparing voice…" state only if the wait turns out to be real —
+  // cache hits and fast generations must not strobe the bar every sentence.
+  function setPreparingSoon() {
+    clearTimeout(preparingTimer);
+    preparingTimer = setTimeout(function () {
+      preparingTimer = 0;
+      state.preparing = true;
+      updateBar();
+    }, PREPARING_DELAY_MS);
   }
 
   function toast(msg) {
@@ -1225,14 +1320,17 @@
       // open() also fires when a NEW book replaces the current one without a
       // close in between; narration must never carry across that seam.
       if (state.active) stopSession();
+      closeSheet();
       state.bridge = bridge || state.bridge;
       state.prefs = readPrefs();
+      prewarmNeural();
       return;
     }
     if (!state.bridge) return;
 
     if (kind === 'close') {
       stopSession();
+      closeSheet();
       state.bridge = null;
       return;
     }
@@ -1455,6 +1553,9 @@
       state.prefs.neuralDevice = next;
       prefSet(PREF.neuralDevice, next);
       neuralEngine.dispose();     // next play re-inits on the chosen device
+      state.neuralPhase = null;
+      state.neuralError = null;
+      state.neuralHave = null;    // q8 and fp32 are separate downloads — re-probe
       syncSheet();
     });
     const removeBtn = el('button', 'vc-action vc-action-quiet');
@@ -1465,11 +1566,19 @@
       neuralEngine.removeDownload().then(function () {
         removeBtn.disabled = false;
         state.neuralError = null;
+        state.neuralPhase = null;
+        state.neuralHave = false;
         syncSheet();
         toast('Natural voice removed from this device.');
       });
     });
     natTools.append(preview2, gpuToggle, removeBtn);
+    // Machines with WebGPU get told it exists — a slow CPU generation with a
+    // fast GPU sitting idle is the wrong default experience to leave silent.
+    const gpuHint = el('div', 'vc-hint');
+    gpuHint.textContent = 'This device looks GPU-capable — turning GPU on makes generation several times faster (one-time ~330 MB download).';
+    gpuHint.hidden = true;
+    natTools.appendChild(gpuHint);
     natRow.appendChild(natTools);
     body.appendChild(natRow);
 
@@ -1505,7 +1614,11 @@
     }));
 
     // Focus stays inside while open, same trap the reader's sheet uses.
+    // Every key is stopped here: without this, Space/arrows on a focused
+    // control ALSO reach the reader's document-level handler and turn the
+    // page underneath the open sheet.
     sheet.addEventListener('keydown', function (e) {
+      e.stopPropagation();
       if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
       if (e.key !== 'Tab') return;
       const focusable = sheet.querySelectorAll('button:not([disabled]):not([hidden]), select, [tabindex]:not([tabindex="-1"])');
@@ -1539,6 +1652,7 @@
         const gpu = state.prefs.neuralDevice === 'webgpu';
         gpuToggle.setAttribute('aria-pressed', String(gpu));
         gpuToggle.lastChild.textContent = gpu ? 'On' : 'Off';
+        gpuHint.hidden = !('gpu' in navigator) || gpu;
         syncNeuralStatus(natText, natBar, natAction, removeBtn);
       }
     });
@@ -1644,10 +1758,17 @@
   }
 
   function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
-    if (state.neuralDownloading) {
-      natText.textContent = state.neuralProgressText || 'Downloading…';
-      natBar.hidden = false;
-      natBar.firstChild.style.width = Math.round((state.neuralProgress || 0) * 100) + '%';
+    const initInFlight = !!(neuralEngine.readyPromise && !neuralEngine.ready);
+    if (state.neuralDownloading || initInFlight) {
+      if (state.neuralPhase === 'init') {
+        natText.textContent = 'Preparing the narrator on this device — the first time can take up to a minute…';
+        natBar.hidden = false;
+        natBar.firstChild.style.width = '100%';
+      } else {
+        natText.textContent = state.neuralProgressText || 'Loading narrator…';
+        natBar.hidden = false;
+        natBar.firstChild.style.width = Math.round((state.neuralProgress || 0) * 100) + '%';
+      }
       natAction.hidden = true;
       removeBtn.hidden = true;
       return;
@@ -1660,55 +1781,123 @@
       removeBtn.hidden = true;
       return;
     }
-    if (neuralEngine.worker && neuralEngine.readyPromise) {
-      natText.textContent = 'Ready — running on this device (' + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + '), offline once downloaded.';
+    if (neuralEngine.ready) {
+      natText.textContent = 'Ready — running on this device (' + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + '). Works offline.';
       natAction.hidden = true;
       removeBtn.hidden = false;
       return;
     }
-    natAction.hidden = true;
-    removeBtn.hidden = true;
-    natText.textContent = 'Checking…';
-    neuralEngine.downloaded().then(function (have) {
-      if (state.prefs.engine !== 'neural' || state.neuralDownloading) return;
-      if (have) {
-        natText.textContent = 'Downloaded — loads when you press play. Works offline.';
-        removeBtn.hidden = false;
-      } else {
-        natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
-        natAction.hidden = false;
-        natAction.textContent = state.prefs.neuralDevice === 'webgpu' ? 'Download voice (~330 MB)' : 'Download voice (~90 MB)';
-      }
-    });
+    // Not loaded, nothing in flight: answer from the cached probe. The probe
+    // refreshes itself once when unknown — no per-sync cache reads, no
+    // "Checking…" flicker on every control tap.
+    if (state.neuralHave == null) {
+      natText.textContent = '…';
+      natAction.hidden = true;
+      removeBtn.hidden = true;
+      refreshNeuralHave();
+      return;
+    }
+    if (state.neuralHave) {
+      natText.textContent = 'Downloaded — loads when you press play. Works offline.';
+      natAction.hidden = true;
+      removeBtn.hidden = false;
+    } else {
+      natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
+      natAction.hidden = false;
+      natAction.textContent = state.prefs.neuralDevice === 'webgpu' ? 'Download voice (~330 MB)' : 'Download voice (~90 MB)';
+      removeBtn.hidden = true;
+    }
   }
 
   function downloadNeural() {
     state.neuralDownloading = true;
     state.neuralError = null;
+    state.neuralPhase = 'download';
     state.neuralProgress = 0;
     state.neuralProgressText = 'Starting download…';
     syncSheet();
-    neuralEngine.onprogress = function (m) {
-      // Track the biggest file (the model) for the bar; the small json/voice
-      // files flash by too fast to matter.
-      if (m.file && /\.onnx/.test(m.file) && m.total) {
-        state.neuralProgress = m.loaded / m.total;
-        state.neuralProgressText = 'Downloading narrator — ' +
-          Math.round(m.loaded / 1048576) + ' / ' + Math.round(m.total / 1048576) + ' MB';
-        syncSheet();
-      }
-    };
     neuralEngine.ensureReady(state.prefs.neuralDevice)
       .then(function () {
         state.neuralDownloading = false;
+        state.neuralHave = true;
         syncSheet();
         toast('Natural voice ready.');
       })
       .catch(function (e) {
         state.neuralDownloading = false;
+        state.neuralPhase = null;
         state.neuralError = shortErr(e);
         syncSheet();
       });
+  }
+
+  // ── Engine progress → UI state, one handler for every init path ─────────
+  //
+  // Whether the engine came up via the Download button, the play button, or
+  // the open-book prewarm, the sheet shows the same three phases: loading
+  // files (with a byte bar), preparing on-device (the ONNX session compile —
+  // previously a silent half-minute that read as a hang), ready. Progress
+  // events arrive per network chunk, so sheet syncs are trailing-throttled.
+
+  let sheetSyncTimer = 0;
+  function syncSheetSoon() {
+    if (sheetSyncTimer) return;
+    sheetSyncTimer = setTimeout(function () { sheetSyncTimer = 0; syncSheet(); }, 120);
+  }
+
+  function handleNeuralProgress(m) {
+    if (m.type === 'ready') {
+      state.neuralDownloading = false;
+      state.neuralPhase = 'ready';
+      state.neuralHave = true;
+      syncSheetSoon();
+      return;
+    }
+    if (!m.file || !/\.onnx/.test(m.file)) return;   // the model file is the story
+    if (m.status === 'done') {
+      state.neuralPhase = 'init';
+      state.neuralProgress = 1;
+      syncSheetSoon();
+      return;
+    }
+    if (m.total) {
+      // "Loading", not "Downloading": warm starts stream the same events out
+      // of the browser cache, just faster.
+      state.neuralPhase = 'download';
+      state.neuralProgress = m.loaded / m.total;
+      state.neuralProgressText = 'Loading narrator — ' +
+        Math.round(m.loaded / 1048576) + ' / ' + Math.round(m.total / 1048576) + ' MB';
+      if (m.loaded >= m.total) state.neuralPhase = 'init';
+      syncSheetSoon();
+    }
+  }
+  neuralEngine.onprogress = handleNeuralProgress;
+
+  let neuralProbeInFlight = false;
+  function refreshNeuralHave(cb) {
+    if (neuralProbeInFlight) return;
+    neuralProbeInFlight = true;
+    neuralEngine.downloaded(state.prefs.neuralDevice).then(function (have) {
+      neuralProbeInFlight = false;
+      state.neuralHave = have;
+      syncSheetSoon();
+      if (cb) cb(have);
+    });
+  }
+
+  // Opening a book with the Natural voice selected warms the engine in the
+  // background, so by the time a reader taps Listen the model is loaded or
+  // well on its way — this is where "takes forever" actually went. Only when
+  // the weights are ALREADY on disk: prewarming must never start a 90 MB
+  // download nobody asked for.
+  function prewarmNeural() {
+    if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
+    refreshNeuralHave(function (have) {
+      if (!have) return;
+      neuralEngine.ensureReady(state.prefs.neuralDevice)
+        .then(function () { syncSheetSoon(); })
+        .catch(function (e) { state.neuralError = shortErr(e); syncSheetSoon(); });
+    });
   }
 
   function setEngine(engine) {
@@ -1775,6 +1964,11 @@
   // slide, and `inert` is what actually removes it from the tab order.
   function openSheet() {
     if (!dom.sheet) return;
+    // One sheet at a time: ours replaces the reader's Aa sheet rather than
+    // stacking on it (both dock right on wide viewports).
+    if (state.bridge && state.bridge.closeSettingsSheet) {
+      try { state.bridge.closeSettingsSheet(); } catch (e) {}
+    }
     sheetOpen = true;
     syncSheet();
     dom.sheet.hidden = false;
@@ -1815,6 +2009,10 @@
 
     isActive: function () { return !!state.active; },
 
+    /** novel-reader closes our sheet when its own settings sheet opens —
+        the mirror of the closeSettingsSheet call we make through the bridge. */
+    closeSheet: function () { closeSheet(); },
+
     /** Read-only diagnostics. Used by test/novel-voice.test.html. */
     state: function () {
       return {
@@ -1839,6 +2037,7 @@
     _test: {
       segmentBlocks: segmentBlocks,
       sentenceIndexAt: sentenceIndexAt,
+      groupSentences: groupSentences,
       normalizeForSpeech: normalizeForSpeech,
       rankVoices: rankVoices,
       scoreVoice: scoreVoice,

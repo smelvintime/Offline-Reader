@@ -35,6 +35,8 @@
   <button onclick="T.testFollow().then(T.report)">follow (paged)</button>
   <button onclick="T.testAutoAdvance().then(T.report)">auto next chapter</button>
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
+  <button onclick="T.testGrouping().then(T.report)">grouping</button>
+  <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralFallback().then(T.report)">neural fallback</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
@@ -511,6 +513,84 @@ const T = {
     return { name: 'user chapter nav', pass };
   },
 
+  async testGrouping() {
+    let pass = true;
+    const s = VT().segmentBlocks(CHAPTERS[0].blocks, blockText);
+    // Block 1 holds two short sentences — one generation group, so the model
+    // speaks them as a single continuous passage (the "choppy one sentence
+    // at a time" fix).
+    const b1 = s.findIndex(x => x.blockIdx === 1);
+    const g = VT().groupSentences(s, b1);
+    pass = ok(g.from === b1 && g.to === b1 + 1, 'two short same-block sentences merge into one group',
+      g.from + '..' + g.to) && pass;
+    pass = ok(g.text === s[b1].text + ' ' + s[b1 + 1].text, 'group text is the sentences joined') && pass;
+    pass = ok(g.start === s[b1].start && g.end === s[b1 + 1].end && g.blockIdx === 1,
+      'group range spans first to last sentence for the highlight') && pass;
+
+    // Groups never cross a block (paragraph) boundary.
+    const lastOfB1 = VT().groupSentences(s, b1 + 1);
+    pass = ok(lastOfB1.to === b1 + 1 || s[lastOfB1.to].blockIdx === 1, 'groups stop at the paragraph edge') && pass;
+
+    // Chaining groups covers every sentence exactly once.
+    let i = 0, covered = 0, guard = 0;
+    while (i < s.length && guard++ < 50) {
+      const gg = VT().groupSentences(s, i);
+      covered += gg.to - gg.from + 1;
+      i = gg.to + 1;
+    }
+    pass = ok(covered === s.length, 'group chain covers the chapter exactly', covered + '/' + s.length) && pass;
+
+    // A very long single sentence is its own group (cap respected upstream).
+    const long = VT().segmentBlocks([{ t: 'p', c: Array(30).fill('the wind counted coins against the shutters and nobody spoke').join(', ') + '.' }], blockText);
+    const gl = VT().groupSentences(long, 0);
+    pass = ok(gl.text.length <= 320, 'long-sentence groups stay near the utterance cap', gl.text.length) && pass;
+    return { name: 'grouping', pass };
+  },
+
+  async testNeuralPipeline() {
+    let pass = true;
+    // Fake ENGINE, real pipeline: generation resolves tiny silent WAVs, and
+    // playback runs through the actual <audio> chain — group advance,
+    // lookahead and the preparing debounce all execute for real.
+    const ne = VT().neuralEngine;
+    const orig = { ensureReady: ne.ensureReady, generate: ne.generate };
+    let generated = 0;
+    ne.ensureReady = function () {
+      ne.worker = { postMessage: function () {}, terminate: function () {} };
+      ne.readyPromise = Promise.resolve();
+      ne.ready = true;
+      return ne.readyPromise;
+    };
+    const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 0.1 s of silence
+    ne.generate = function () {
+      generated++;
+      return new Promise(r => setTimeout(() =>
+        r(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))), 25));
+    };
+    try {
+      await freshOpen();
+      Store.prefs.set('voice.engine', 'neural');
+      V().toggle();
+      await waitFor(() => V().state().index >= 3, 8000, 'cursor advanced across groups');
+      pass = ok(V().state().playing, 'still playing after group hand-offs') && pass;
+      pass = ok(generated >= 2, 'lookahead generated ahead of playback', 'calls=' + generated) && pass;
+      pass = ok(!V().state().preparing, 'fast generations never showed "Preparing"') && pass;
+      pass = ok(synthStub.spoken.length === 0, 'neural path never touched speechSynthesis') && pass;
+      // Pausing a neural session keeps the place.
+      VT().pause();
+      const at = V().state().index;
+      await pause(150);
+      pass = ok(!V().state().playing && V().state().index === at, 'pause holds the group cursor') && pass;
+    } finally {
+      ne.ensureReady = orig.ensureReady;
+      ne.generate = orig.generate;
+      ne.ready = false; ne.readyPromise = null; ne.worker = null;
+      Store.prefs.set('voice.engine', 'device');
+      endSession();
+    }
+    return { name: 'neural pipeline', pass };
+  },
+
   async testNeuralFallback() {
     let pass = true;
     // The engine boundary is stubbed to fail: this suite must never touch the
@@ -559,7 +639,7 @@ const T = {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
-      T.testUserNav, T.testNeuralFallback, T.testClose,
+      T.testUserNav, T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

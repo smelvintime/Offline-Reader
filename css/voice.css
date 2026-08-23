@@ -1,0 +1,259 @@
+/* Offline Reader — reader voice ("Listen"). See docs/ARCHITECTURE.md §2.14.
+   Owned by js/novel-voice.js; class prefix vc-.
+
+   Everything mounts inside #novel-screen, so the reader's theme tokens
+   (--nv-bg, --nv-fg, --nv-accent, …) cascade here for free and every theme —
+   including the reader's two-colour custom one — themes the voice UI without
+   this file knowing a single colour. */
+
+/* ── The spoken sentence ──────────────────────────────────────────────────
+   The primary path is the CSS Custom Highlight API: no DOM mutation, so
+   pagination, anchors and selection stay untouched. The colour mixes the
+   theme accent over the page rather than inverting it — a wash, not a
+   selection. */
+
+::highlight(or-voice-sentence) {
+  background-color: color-mix(in srgb, var(--nv-accent) 24%, transparent);
+  color: inherit;
+}
+
+/* Fallback for engines without the Highlight API: the whole block, faintly. */
+#novel-screen .vc-speaking-block {
+  background: color-mix(in srgb, var(--nv-accent) 12%, transparent);
+  border-radius: 4px;
+}
+
+/* ── Listen bar ────────────────────────────────────────────────────────────
+   A floating transport dock, centred above the reader's footer. It does NOT
+   ride the chrome away: pause must stay reachable while the prose has the
+   screen — it only drops to the footer's vacated slot. z-index sits above
+   header/footer (30) and below the scrim (40), so sheets cover it. */
+
+#novel-screen .vc-bar {
+  position: absolute;
+  z-index: 35;
+  left: 50%;
+  bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 0.15rem;
+  padding: 0.3rem 0.45rem;
+  background: var(--nv-chrome);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid var(--nv-border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  transition: bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+#novel-screen.nv-chrome-hidden .vc-bar {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+#novel-screen .vc-bar[hidden] { display: none; }
+
+#novel-screen .vc-btn {
+  min-width: 40px; min-height: 40px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 999px;
+  color: var(--nv-fg); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#novel-screen .vc-btn:hover { background: var(--nv-surf); }
+#novel-screen .vc-btn:active { background: var(--nv-surf-2); }
+
+#novel-screen .vc-btn-big {
+  min-width: 48px; min-height: 48px;
+  background: var(--nv-accent); color: #fff;
+  position: relative;
+}
+#novel-screen .vc-btn-big:hover { background: var(--nv-accent); filter: brightness(1.08); }
+#novel-screen .vc-btn-big:active { filter: brightness(0.92); }
+
+/* Engine warm-up / generation: a ring around the play button, not a modal —
+   listening should feel buffered, never blocked. */
+#novel-screen .vc-spinner {
+  display: none;
+  position: absolute; inset: -3px;
+  border: 2px solid transparent;
+  border-top-color: var(--nv-accent);
+  border-radius: 999px;
+  animation: vc-spin 0.9s linear infinite;
+}
+#novel-screen .vc-preparing .vc-spinner { display: block; }
+@keyframes vc-spin { to { transform: rotate(360deg); } }
+
+#novel-screen .vc-status {
+  padding: 0 0.55rem 0 0.35rem;
+  font-size: 0.72rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--nv-muted);
+  white-space: nowrap;
+}
+
+/* ── Voice sheet ──────────────────────────────────────────────────────────
+   Same construction as the reader's settings sheet, including the [hidden]
+   slide and the ≥720px right dock. */
+
+#novel-screen .vc-scrim {
+  position: absolute; inset: 0; z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.28s ease;
+}
+#novel-screen .vc-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
+
+#novel-screen .vc-sheet {
+  position: absolute; z-index: 50;
+  left: 0; right: 0; bottom: 0;
+  max-height: 86%;
+  display: flex; flex-direction: column;
+  background: var(--nv-bg);
+  border-top: 1px solid var(--nv-border);
+  border-radius: 24px 24px 0 0;
+  box-shadow: var(--nv-shadow);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+#novel-screen .vc-sheet[hidden] { display: flex !important; transform: translateY(101%); pointer-events: none; }
+
+#novel-screen .vc-sheet-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  border-bottom: 1px solid var(--nv-border);
+}
+#novel-screen .vc-sheet-head h2 { font-size: 1rem; font-weight: 800; flex: 1; margin: 0; }
+#novel-screen .vc-sheet-body { overflow-y: auto; padding: 0.5rem 1rem 1rem; -webkit-overflow-scrolling: touch; }
+
+#novel-screen .vc-row { padding: 0.7rem 0; border-bottom: 1px solid var(--nv-border); }
+#novel-screen .vc-row:last-child { border-bottom: none; }
+#novel-screen .vc-row[hidden] { display: none; }
+#novel-screen .vc-row-label {
+  display: block;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--nv-muted);
+  margin-bottom: 0.5rem;
+}
+
+/* Engine choice — two stacked radio cards. */
+#novel-screen .vc-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+#novel-screen .vc-seg-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  background: var(--nv-surf); border: 1px solid transparent; border-radius: 10px;
+  color: var(--nv-fg); text-align: left; cursor: pointer;
+}
+#novel-screen .vc-seg-btn.vc-on { border-color: var(--nv-accent); color: var(--nv-accent); }
+#novel-screen .vc-seg-label { font-size: 0.85rem; font-weight: 700; }
+#novel-screen .vc-seg-note { font-size: 0.7rem; color: var(--nv-muted); }
+
+#novel-screen .vc-select-wrap { display: flex; gap: 0.5rem; align-items: center; }
+#novel-screen .vc-select {
+  flex: 1; min-height: 44px; min-width: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--nv-surf); color: var(--nv-fg);
+  border: 1px solid var(--nv-border); border-radius: 10px;
+  font-size: 0.85rem; font-weight: 600;
+}
+
+#novel-screen .vc-hint {
+  margin-top: 0.5rem;
+  font-size: 0.76rem; line-height: 1.45;
+  color: var(--nv-muted);
+}
+
+#novel-screen .vc-action {
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  background: var(--nv-accent); color: #fff;
+  border: none; border-radius: 10px;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+}
+#novel-screen .vc-action:disabled { opacity: 0.4; pointer-events: none; }
+#novel-screen .vc-action[hidden] { display: none; }
+#novel-screen .vc-action-quiet {
+  background: var(--nv-surf); color: var(--nv-fg);
+  border: 1px solid var(--nv-border);
+}
+
+#novel-screen .vc-nat-status .vc-action { margin-top: 0.6rem; }
+#novel-screen .vc-nat-status .vc-hint { margin-top: 0; }
+
+#novel-screen .vc-progress {
+  height: 6px; margin-top: 0.6rem;
+  background: var(--nv-surf); border-radius: 999px; overflow: hidden;
+}
+#novel-screen .vc-progress[hidden] { display: none; }
+#novel-screen .vc-progress i {
+  display: block; height: 100%; width: 0;
+  background: var(--nv-accent); border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+/* Narrator chips. */
+#novel-screen .vc-chip-rail {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+#novel-screen .vc-chip {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem;
+  min-height: 44px;
+  padding: 0.45rem 0.65rem;
+  background: var(--nv-surf); border: 1px solid transparent; border-radius: 10px;
+  color: var(--nv-fg); text-align: left; cursor: pointer;
+}
+#novel-screen .vc-chip.vc-on { border-color: var(--nv-accent); color: var(--nv-accent); }
+#novel-screen .vc-chip-name { font-size: 0.85rem; font-weight: 700; }
+#novel-screen .vc-chip-note { font-size: 0.68rem; color: var(--nv-muted); }
+
+#novel-screen .vc-nat-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
+#novel-screen .vc-nat-tools .vc-toggle { flex: 1 1 100%; }
+
+/* Steppers and toggles — the reader's own control shapes. */
+#novel-screen .vc-step { display: flex; align-items: center; gap: 0.5rem; }
+#novel-screen .vc-step-btn {
+  min-width: 52px; min-height: 44px;
+  background: var(--nv-surf); border: 1px solid var(--nv-border); border-radius: 10px;
+  color: var(--nv-fg); font-size: 1.1rem; font-weight: 700; cursor: pointer;
+}
+#novel-screen .vc-step-btn:active { background: var(--nv-surf-2); }
+#novel-screen .vc-step-val {
+  flex: 1; text-align: center;
+  font-size: 0.9rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#novel-screen .vc-toggle {
+  width: 100%; min-height: 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--nv-surf); border: 1px solid transparent; border-radius: 10px;
+  color: var(--nv-fg);
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  text-align: left;
+}
+#novel-screen .vc-toggle-labels { display: flex; flex-direction: column; gap: 0.15rem; }
+#novel-screen .vc-toggle-note { font-size: 0.7rem; font-weight: 500; color: var(--nv-muted); }
+#novel-screen .vc-toggle span.vc-pill {
+  flex-shrink: 0;
+  padding: 0.2rem 0.6rem; border-radius: 8px;
+  background: var(--nv-surf-2); font-size: 0.72rem; font-weight: 700;
+}
+#novel-screen .vc-toggle[aria-pressed='true'] { border-color: var(--nv-accent); color: var(--nv-accent); }
+#novel-screen .vc-toggle[aria-pressed='true'] span.vc-pill { background: var(--nv-accent); color: #fff; }
+
+/* ── Wide viewports: dock right, same as the reading-settings sheet. ────── */
+@media (min-width: 720px) {
+  #novel-screen .vc-sheet {
+    left: auto; top: 0; bottom: 0;
+    width: 24rem;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--nv-border);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
+    max-height: none;
+  }
+  #novel-screen .vc-sheet[hidden] { transform: translateX(101%); }
+}

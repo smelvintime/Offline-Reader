@@ -24,7 +24,14 @@ repository at any time.
 **Code and assets.** The application code is ours, under AGPL-3.0-or-later (see
 `LICENSE`). Third-party components keep their own licences: JSZip (MIT/GPLv3
 dual, `jszip.min.js`), the three bundled typefaces (SIL Open Font License 1.1,
-see `fonts/LICENSE.md`), and the Capacitor packages listed in `package.json`.
+see `fonts/LICENSE.md`), the Capacitor packages listed in `package.json`, and
+the vendored text-to-speech engine in `vendor/tts/` — kokoro-js 1.2.1
+(Apache-2.0, bundling @huggingface/transformers and phonemizer, both
+Apache-2.0) and the ONNX Runtime Web binaries it drives (MIT, © Microsoft);
+see `vendor/tts/README.md`. The Kokoro-82M model weights (Apache-2.0) are not
+in this repository — the app downloads them from Hugging Face only when a
+reader enables the Natural voice, and synthesis then runs entirely on the
+reader's device.
 
 ## What the application does
 

@@ -169,6 +169,7 @@ js/store.js         window.Store                              — owned by integ
 js/covers.js        window.Covers    (pure SVG cover generator, no screen) — agent: catalogue
 jszip.min.js
 js/reader.js        image reader (CBZ + online image chapters) — pre-existing
+js/novel-voice.js   window.NovelVoice (optional — reader voice, §2.14) — agent: novel-voice
 js/novel-reader.js  window.NovelReader                        — agent: novel-reader
 js/importer.js      window.Importer                           — agent: importer
 js/goals.js         window.Goals  (optional — app must run without it) — agent: goals
@@ -187,12 +188,15 @@ applies the app theme **at parse time** (documentElement attribute + custom
 properties read synchronously from prefs) so the first paint is already
 themed (§2.10).
 
-**Deletability rule.** `goals.js`, `covers.js`, `thoughts.js`, `sources.js`
-and `settings.js` are each individually **deletable**: with any one file
-absent the app boots and runs exactly as without that feature — every
-cross-module reference is guarded
+**Deletability rule.** `goals.js`, `covers.js`, `thoughts.js`, `sources.js`,
+`settings.js` and `novel-voice.js` are each individually **deletable**: with
+any one file absent the app boots and runs exactly as without that feature —
+every cross-module reference is guarded
 (`window.X && typeof window.X.y === 'function'`), every slot stays empty,
 every button is simply not rendered, every event goes unheard.
+`novel-voice.js` loads *before* novel-reader.js (it registers no screen and
+touches nothing at parse time) purely so the guarantee "the reader sees
+`window.NovelVoice` iff the file shipped" holds by construction.
 
 Each feature module **creates its own DOM at init time** (`document.body.append`)
 rather than relying on markup in `index.html`. This keeps `index.html` free of
@@ -202,10 +206,18 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.10`** and `SHELL_ASSETS`
-precaches the full module list above plus all seven CSS files — the five
-optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`)
-and three new stylesheets are in the shell.
+The service-worker cache is **`cbz-reader-v5.12`** and `SHELL_ASSETS`
+precaches the full module list above plus all eight CSS files — the six
+optional JS modules (`covers`, `thoughts`, `sources`, `settings`, `identity`,
+`novel-voice`) and their stylesheets are in the shell. NOT in the shell:
+`js/novel-voice-worker.js` and `vendor/tts/**` (~24 MB), which follow the
+typeface rule — cached on first use, into their own **`or-voice-engine-v1`**
+cache so a shell bump does not re-bill the download. `activate` therefore
+reaps only caches named `cbz-reader-*`: this origin also holds
+`or-voice-engine-v1` and the voice runtime's model caches
+(`transformers-cache`, `kokoro-voices`, ~90 MB of downloaded weights), and
+deleting those on a shell bump would silently re-charge the narrator download
+every release.
 
 **Changing a precached asset means bumping `CACHE_NAME` (binding).** The shell
 is served cache-first and `activate` deletes only caches whose name differs, so
@@ -947,6 +959,74 @@ and the README/COPYRIGHT claims stand as written. A future provider that syncs
 anything **must** revise both — that is a product decision with a paper trail,
 not a config change.
 
+### 2.14 `window.NovelVoice` — reader voice / "Listen" (optional module)
+
+`js/novel-voice.js` + `css/voice.css` (prefix `vc-`) + `js/novel-voice-worker.js`
++ `vendor/tts/**`. Narrates the open book, sentence by sentence, with a
+highlight on the spoken sentence, follow-along page turns, chapter
+auto-advance, and Media Session transport controls. **Deletable**: with the
+file absent (or a browser with neither `speechSynthesis` nor `Worker`,
+in which case the module leaves `window.NovelVoice` undefined), the reader
+renders no Listen button and behaves exactly as before.
+
+Two engines behind one controller:
+
+- **Device** — `speechSynthesis`, zero download. Voices are *ranked*: name
+  markers (`Natural`, `Neural`, `Premium`, `Enhanced`, `Siri`, `Google`) rise,
+  the eSpeak/compact/novelty set sinks, wrong-language voices go last. `''`
+  (auto) means "highest-ranked for the page language"; the picker still lists
+  everything. One utterance per sentence — long utterances are where engines
+  flatten and where Chrome's stops entirely.
+- **Neural** — Kokoro-82M through the vendored `vendor/tts/kokoro.web.js`
+  (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a module worker, WASM by
+  default with WebGPU opt-in. Engine code is self-hosted (ONNX Runtime's
+  `wasmPaths` points at `vendor/tts/`, never a CDN); the ~90 MB weights come
+  from huggingface.co once, live in the runtime's own Cache API buckets
+  (`transformers-cache`, `kokoro-voices`), and work offline thereafter.
+  Nothing — worker, bundle, wasm, weights — is fetched until a reader enables
+  the Natural voice. Init failure falls back to the device engine for the
+  session and leaves the stored pref alone. Generation is by GROUP —
+  adjacent same-block sentences merged to ~160–300 chars — not per sentence:
+  the model gets whole-clause context (continuous prosody instead of choppy
+  per-sentence delivery) and per-call overhead is paid once per group, which
+  is what keeps slower-than-realtime devices ahead of playback, with two
+  groups always generating ahead. The worker is NOT torn down on reader
+  close: it idles out after ~2 minutes unused (a warm session skips the full
+  model re-init), and opening a book with the Natural voice selected
+  pre-warms it in the background — but only when the weights are already on
+  disk; prewarm never starts a download.
+
+**Coupling to the reader is one call each way.** novel-reader.js calls
+`NovelVoice.readerEvent(kind, info, bridge)` with `'open'`, `'close'` and
+`'chapter'` (via its `voiceNotify`, try/caught — narration must never break a
+page turn), and renders the header Listen button only when `window.NovelVoice`
+exists. Everything the voice module does to the reader goes through the
+`bridge` (novel-reader's `voiceBridge()`): `state()`, `blockText` (the shared
+canonical text function — offsets must agree or anchors drift), `entry` /
+`entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`,
+`anchorVisible(anchor)`, `reveal(anchor)` (→ `settleLayout`, so listening
+persists progress through the exact path a page turn uses), `goChapter(delta)`,
+`mount(node)`, `toast`, `listenPressed(on)`.
+
+Sentence ranges come from segmenting `blockText` per block (`Intl.Segmenter`
+with an abbreviation-merge pass — ICU splits after "Dr." — plus a regex
+fallback, clause-splitting anything over ~300 chars), so a sentence start IS a
+`{ chapterId, blockIdx, charInBlock }` anchor. The spoken string is normalized
+separately (footnote markers dropped; dashes become comma-pauses for device
+engines only); the highlight always uses original-text offsets. Highlighting
+prefers the CSS Custom Highlight API (`::highlight(or-voice-sentence)`, zero
+DOM mutation) with a block-level class fallback (`vc-speaking-block`).
+
+Public surface: `readerEvent`, `toggle()`, `isActive()`, `state()`
+(diagnostics for `test/novel-voice.test.html`), `_test` (pure internals for
+that page, not API). Prefs are §3.1 `voice.*` — global on purpose: a narrator
+is chosen for the app, not per book.
+
+User chapter navigation mid-narration re-seeds and keeps reading from the new
+position; opening a different book stops the session; closing the reader stops
+it and terminates the worker (the model's working set is not a thing to hold
+while someone browses their shelf — the weights stay cached on disk).
+
 ---
 
 ## 3. `window.Store` — persistence API
@@ -1156,6 +1236,15 @@ renders after the series is gone. A deliberate non-cascade.
 | `home.sections` | JSON array of `{id, on}` over ids `continue`, `goals`, `sources`, `latest`, `series` (order = render order; unknown/duplicate ids dropped on read, missing ids inserted at their default position, missing `on` leans visible (`e.on !== false`); **`series` is reorderable but never hideable — its `on` is coerced `true` on read**). Unset → **focus-derived** default (§2.11); once written, the stored array wins and focus never touches it again | settings writes; catalogue reads |
 | `novel.presets` | JSON array ≤ 6 of `{ name: string ≤ 40, prefs: object of novel.* values }` (each value re-validated through the `readPrefs` validators at apply time; invalid entries dropped on read; **cap 6 refuses, never evicts**) | novel-reader |
 | `thoughts.chapterPrompt` | boolean (default `false`) | thoughts writes; novel-reader reads (guarded) |
+| `voice.engine` | `device` \| `neural` (default `device`) | novel-voice |
+| `voice.deviceVoice` | `speechSynthesis` voiceURI string; `''` (default) = auto — the top-ranked voice for the page language | novel-voice |
+| `voice.rate` | number `0.6..1.6` (default `1`) — utterance rate / audio playbackRate | novel-voice |
+| `voice.pitch` | number `0.8..1.2` (default `1`; device engine only) | novel-voice |
+| `voice.neuralVoice` | one of the curated Kokoro narrator ids (default `af_heart`; unknown → default) | novel-voice |
+| `voice.neuralDevice` | `wasm` \| `webgpu` (default `wasm` — webgpu is opt-in, its fp32 weights are a ~330 MB download) | novel-voice |
+| `voice.follow` | boolean (default `true`) — narration turns pages / scrolls, persisting progress | novel-voice |
+| `voice.autoNext` | boolean (default `true`) — keep reading into the next chapter | novel-voice |
+| `voice.highlight` | boolean (default `true`) — mark the spoken sentence | novel-voice |
 | `goals.lifetime` | JSON `{ seconds, words, pages, chapters, books: finite Numbers ≥ 0, since: "YYYY-MM-DD" }`. **Fractions are valid** — `words` accumulates and persists as a float; rounding happens only at display; a pref that parses with non-integer numbers is VALID and must never re-seed. Malformed = missing key, non-finite/negative number, wrong type, or bad `since` — only then re-seed from dayLogs (unknown extra keys ignored, never malformed) | goals only (single writer, §2.4) |
 | `sources.saved` | JSON array ≤ 24 of `{ url: http(s), title ≤ 80, host, addedAt: ISO }`; invalid entries dropped on read. **Cap 24 refuses, never evicts** — the 25th save gets the "Shelf is full" toast | sources |
 
@@ -1273,6 +1362,13 @@ DOM ceilings, enforced here: chapter lists render 250 rows before an inline
 "Show more (N remaining)" row; card grids chunk at 200 cards the same way
 (covers stay `loading="lazy"`); range selects populate lazily on first open
 of the range panel.
+
+**Reader voice (§2.14).** The reader renders a header Listen button iff
+`window.NovelVoice` exists, notifies the voice module through `voiceNotify`
+(`'open'` / `'close'` / `'chapter'`, try/caught), and hands it `voiceBridge()`
+— the only surface the voice module may drive the reader through. The bridge
+reuses this module's own machinery (`blockText`, `settleLayout`, `goChapter`),
+so narration and a finger produce identical anchors and progress rows.
 
 ---
 

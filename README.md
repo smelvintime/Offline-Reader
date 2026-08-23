@@ -85,6 +85,20 @@ aids, and useful to anyone at small sizes). Every setting is remembered **per
 series**, because the way you want to read a dense translated novel is not the
 way you want to read a breezy web serial.
 
+**A reader voice that doesn't sound like a robot.** Tap Listen and the book is
+narrated sentence by sentence — the spoken sentence highlighted, pages turning
+along with the voice, progress saved as if you had read it, chapters flowing
+into each other, play/pause on the lock screen. Two narrators to choose from:
+
+- **Device voice** — instant and free. The app *ranks* your device's voices
+  and picks the best one automatically (platforms hide their good voices
+  behind terrible defaults), and it speaks one sentence at a time, which is
+  the difference between prosody and monotone.
+- **Natural voice** — an 82-million-parameter neural narrator ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M))
+  that runs **entirely on your device**. One ~90 MB download, then it works
+  offline, forever, with eight narrators to pick from. No account, no API key,
+  no audio ever leaving the device — same as everything else here.
+
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.
 

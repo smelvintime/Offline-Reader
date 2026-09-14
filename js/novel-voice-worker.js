@@ -14,6 +14,7 @@
 //   in:  { type:'generate', id, text, voice }
 //   in:  { type:'cancel' }                  — drop everything not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
+//   out: { type:'stage', stage:string }     — where init has got to
 //   out: { type:'progress', file, loaded, total }   — model download
 //   out: { type:'ready', heapPages } | { type:'init-error', message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds }  (wav transferred)
@@ -84,6 +85,34 @@ function post(msg, transfer) {
   try { self.postMessage(msg, transfer || []); } catch (e) { /* worker torn down */ }
 }
 
+// ── Where did it get to? ─────────────────────────────────────────────────────
+//
+// Two rounds of this bug were spent inferring a mechanism from a screenshot of
+// a progress label, and both inferences were wrong. A hang that cannot say
+// where it hung costs a rebuild per guess.
+//
+// So every step of init announces itself. If the engine stops, the last stage
+// posted is the step it stopped ON, and that is a location rather than a
+// theory. The main thread shows it verbatim.
+let stage = 'spawned';
+function mark(name) {
+  stage = name;
+  post({ type: 'stage', stage: name });
+}
+
+// An exception that escapes init's try/catch — thrown from a wasm callback, an
+// unawaited promise, an emscripten abort handler — used to leave the UI on
+// "Preparing the narrator" with nothing said. These two make it speak.
+self.addEventListener('error', function (e) {
+  post({ type: 'init-error', message: 'at ' + stage + ': '
+    + ((e && (e.message || (e.error && e.error.message))) || 'worker error') });
+});
+self.addEventListener('unhandledrejection', function (e) {
+  const r = e && e.reason;
+  post({ type: 'init-error', message: 'at ' + stage + ': '
+    + ((r && (r.message || r)) || 'unhandled rejection') });
+});
+
 // Where bundled weights live, if the build has them (scripts/fetch-voice-model.mjs).
 // transformers.js resolves a local file as localModelPath + model_id + filename,
 // so the tree under here mirrors the Hugging Face repo layout exactly.
@@ -138,6 +167,7 @@ async function init(msg) {
       Array.isArray(msg.heapPages) && msg.heapPages.length
         ? msg.heapPages : [65536, 16384, 8192, 4096],
     );
+    mark('loading engine');
     const mod = await loadEngine();
     // ONNX Runtime would otherwise fetch its wasm from a CDN; everything this
     // app runs is self-hosted, so point it at vendor/tts/ next to the bundle.
@@ -149,10 +179,13 @@ async function init(msg) {
     mod.env.localModelPath = localModelsBase();
     mod.env.allowLocalModels = true;
 
+    mark('looking for bundled weights');
     const local = await haveLocalWeights(msg.model);
     post({ type: 'source', local: local });
+    mark('seeding voices');
     await seedVoices(msg.model, msg.voices);
 
+    mark(local ? 'reading weights from the app' : 'downloading weights');
     tts = await mod.KokoroTTS.from_pretrained(msg.model, {
       dtype: msg.dtype,
       device: msg.device,
@@ -163,6 +196,12 @@ async function init(msg) {
         // otherwise looks like a silent hang.
         if (p && (p.status === 'progress' || p.status === 'done')) {
           post({ type: 'progress', status: p.status, file: p.file || '', loaded: p.loaded || 0, total: p.total || 0 });
+          // The weights are in hand; everything after this is ONNX Runtime
+          // building the session, which is the step that has no progress of
+          // its own and so looks identical to a hang.
+          if (p.status === 'done' && /\.onnx$/.test(String(p.file || ''))) {
+            mark('building the inference session');
+          }
         }
       },
     });
@@ -171,7 +210,11 @@ async function init(msg) {
     post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0 });
     pump();
   } catch (e) {
-    post({ type: 'init-error', message: e && e.message ? String(e.message) : 'init failed' });
+    // Name the step. "init failed" sends someone back to the logs; "at
+    // building the inference session: ..." sends them to the line that did it.
+    post({ type: 'init-error',
+           message: 'at ' + stage + ': '
+             + ((e && (e.message || e.name)) ? String(e.message || e.name) : 'init failed') });
   }
 }
 

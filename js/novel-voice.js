@@ -227,15 +227,28 @@
     c.heapPages = pages;
   }
 
-  /** One line, safe to show a reader, describing what was found. */
+  /**
+   * One line, safe to show a reader, describing what was found.
+   *
+   * Every field here was added because its absence cost a rebuild. `native`
+   * and `weights` in particular: a screenshot once showed "Download voice
+   * (~90 MB)" on a native build, which syncNeuralStatus only renders on the
+   * WEB branch, while the line reported no weights failure at all. Those two
+   * facts cannot both be true, and neither one alone said which was lying.
+   */
   function neuralCapabilityLine() {
     const c = neuralCapability();
+    const weights = neuralEngine.bundledWhy ? neuralEngine.bundledWhy
+      : neuralEngine.bundledCache === true ? 'weights: in app'
+      : neuralEngine.bundledCache === false ? 'weights: absent'
+      : 'weights: not probed yet';
     return 'engine check — shared wasm heap: '
       + (c.sharedMemory ? Math.round(c.heapPages / 16) + ' MB' : 'NONE')
-      + ' · cross-origin isolated: ' + (c.isolated ? 'yes' : 'no')
       + ' · SharedArrayBuffer: ' + (c.sab ? 'yes' : 'no')
-      + (c.memoryError ? ' · ' + c.memoryError : '')
-      + (neuralEngine.bundledWhy ? ' · ' + neuralEngine.bundledWhy : '');
+      + ' · native: ' + (isNativeApp() ? 'yes' : 'NO')
+      + ' · ' + weights
+      + (neuralEngine.stage ? ' · stage: ' + neuralEngine.stage : '')
+      + (c.memoryError ? ' · ' + c.memoryError : '');
   }
 
   function neuralSpeaks(lang) {
@@ -853,6 +866,7 @@
   const neuralEngine = {
     worker: null,
     local: null,           // true once a load proved the weights are bundled
+    stage: '',             // the worker's last announced init step
     device: null,          // device the live worker was initialised with
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
@@ -907,7 +921,8 @@
         const bump = function () {
           clearTimeout(stall);
           stall = setTimeout(function () {
-            finish(new Error('The voice engine stopped responding while loading. '
+            finish(new Error('The voice engine stopped responding at "'
+              + (self.stage || 'startup') + '". '
               + 'On a phone this is usually the model running out of memory.'));
           }, NEURAL_INIT_STALL_MS);
         };
@@ -924,6 +939,7 @@
           const m = ev.data || {};
           if (!settled) bump();
           if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
+          else if (m.type === 'stage') { self.stage = m.stage; if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'ready') {
             // The worker's realm is the one that had to succeed, so its number
             // supersedes the main thread's guess in the line a reader reads.
@@ -1044,6 +1060,7 @@
       this.readyPromise = null;
       this.ready = false;
       this.device = null;
+      this.stage = '';       // no worker, no step it is on
       const self = this;
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();

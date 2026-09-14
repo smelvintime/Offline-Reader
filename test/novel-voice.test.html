@@ -645,6 +645,28 @@ const T = {
         'the stall budget is finite and sane', VT().NEURAL_INIT_STALL_MS + 'ms') && pass;
       ne.dispose();
       await pause(50);
+
+      // A hang has to say WHERE. Two rounds of this bug were spent guessing a
+      // mechanism from a progress label that named no step, and both guesses
+      // were wrong. The worker announces each step; a stall quotes the last one.
+      const talker = [];
+      window.Worker = function () {
+        const w = this;
+        this.postMessage = function () {
+          // Announce a step, then go silent exactly as the real one did.
+          setTimeout(() => w.onmessage && w.onmessage({
+            data: { type: 'stage', stage: 'building the inference session' } }), 0);
+        };
+        this.terminate = function () { talker.push('terminated'); };
+      };
+      ne.dispose();
+      const hang = ne.ensureReady('wasm');
+      hang.catch(() => {});
+      await pause(200);
+      pass = ok(ne.stage === 'building the inference session',
+        'the engine keeps the step the worker last reached', ne.stage) && pass;
+      ne.dispose();
+      await pause(50);
     } finally {
       neuralStub.resume();       // hand the engine back to the shared stub
       window.Worker = origWorker;
@@ -670,9 +692,25 @@ const T = {
     pass = ok(cap.heapPages >= 4096, 'the granted heap is recorded in pages', 'heapPages=' + cap.heapPages) && pass;
     // The line a reader sees names all three facts, so a screenshot is a bug report.
     const line = T.neuralCapabilityLine();
-    for (const bit of ['shared wasm heap', 'cross-origin isolated', 'SharedArrayBuffer']) {
+    for (const bit of ['shared wasm heap', 'SharedArrayBuffer', 'native:', 'weights']) {
       pass = ok(line.indexOf(bit) !== -1, 'the readable line names ' + bit, line) && pass;
     }
+    // The screenshot that cost a rebuild showed a web-only download button on a
+    // native build, with nothing in the line to say which of the two was wrong.
+    pass = ok(line.indexOf('native: NO') !== -1,
+      'the line says whether the app thinks it is native', line) && pass;
+    // Stated, not inherited: this asserts the state-to-text mapping, and an
+    // earlier suite's leftovers are not the state under test.
+    const ne0 = T.neuralEngine;
+    const heldCache = ne0.bundledCache, heldWhy = ne0.bundledWhy, heldStage = ne0.stage;
+    ne0.bundledCache = null; ne0.bundledWhy = ''; ne0.stage = '';
+    pass = ok(T.neuralCapabilityLine().indexOf('weights: not probed yet') !== -1,
+      'and distinguishes an unprobed build from one missing its weights',
+      T.neuralCapabilityLine()) && pass;
+    ne0.bundledCache = false;
+    pass = ok(T.neuralCapabilityLine().indexOf('weights: absent') !== -1,
+      'from one whose weights really are missing', T.neuralCapabilityLine()) && pass;
+    ne0.bundledCache = heldCache; ne0.bundledWhy = heldWhy; ne0.stage = heldStage;
     pass = ok(/shared wasm heap: \d+ MB/.test(line), 'and reports the heap in megabytes', line) && pass;
     // Memoised — WebAssembly.Memory allocation is not free to repeat.
     pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
@@ -779,6 +817,8 @@ const T = {
       // different fix from a throw (the scheme handler refused it). Saying
       // which is the difference between one rebuild and three.
       pass = ok(ne.bundledWhy === 'weights HTTP 404', 'a miss records the status', ne.bundledWhy) && pass;
+      pass = ok(VT().neuralCapabilityLine().indexOf('weights: absent') === -1,
+        'the specific status replaces the generic "absent"', VT().neuralCapabilityLine()) && pass;
       pass = ok(VT().neuralCapabilityLine().indexOf('weights HTTP 404') !== -1,
         'and it reaches the line the reader can screenshot', VT().neuralCapabilityLine()) && pass;
 
@@ -795,7 +835,10 @@ const T = {
       ne.bundledWhy = '';
       stubFetch(() => Promise.resolve({ ok: true }));
       await ne.bundled();
-      pass = ok(ne.bundledWhy === '', 'a found build adds nothing to the line', ne.bundledWhy) && pass;
+      pass = ok(ne.bundledWhy === '', 'a found build records no failure', ne.bundledWhy) && pass;
+      pass = ok(VT().neuralCapabilityLine().indexOf('weights: in app') !== -1,
+        'and the line says so positively rather than staying silent',
+        VT().neuralCapabilityLine()) && pass;
     } finally {
       window.fetch = realFetch;
       ne.bundledCache = null;

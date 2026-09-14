@@ -55,6 +55,46 @@ function loadEngine() {
 // vendored code is not ours to edit and this is our decision to make. Only
 // the engine's own oversized shared request is touched; everything else is
 // passed straight through untouched.
+// ── Async-iterate a ReadableStream, where the engine assumes it can ──────────
+//
+// kokoro-js unpacks the eSpeak phonemiser's dictionary like this:
+//
+//   A = new Blob([e]).stream().pipeThrough(new DecompressionStream("gzip"));
+//   for await (const e of A) t.push(e);
+//
+// `for await … of` needs Symbol.asyncIterator on ReadableStream. Where WebKit
+// does not define it, the loop calls an undefined iterator method, which
+// JavaScriptCore reports as "undefined is not a function (near '...e of A...')"
+// — a message a reader of this app sent in from an iPhone.
+//
+// The cost is not one failed decompression. That loop sits inside an async IIFE
+// whose only job is to resolve the promise every generate() waits on for its
+// phonemes, so a throw there leaves that promise pending for the life of the
+// worker: no error, no rejection, just a voice that never says anything.
+//
+// Installed only when missing, and only ever additive: a reader-and-adapter
+// over the stream's own reader, which is what the specified behaviour is.
+function polyfillStreamAsyncIterator() {
+  if (typeof ReadableStream === 'undefined') return false;
+  if (ReadableStream.prototype[Symbol.asyncIterator]) return false;
+  ReadableStream.prototype[Symbol.asyncIterator] = function () {
+    const reader = this.getReader();
+    return {
+      next: function () { return reader.read(); },
+      return: function (value) {
+        reader.releaseLock();
+        return Promise.resolve({ value: value, done: true });
+      },
+      throw: function (e) {
+        reader.releaseLock();
+        return Promise.reject(e);
+      },
+      [Symbol.asyncIterator]: function () { return this; },
+    };
+  };
+  return true;
+}
+
 function capWasmMemory(pages) {
   const Native = WebAssembly.Memory;
   if (Native.__orCapped) return;              // a second init must not re-wrap
@@ -188,6 +228,7 @@ async function init(msg) {
       Array.isArray(msg.heapPages) && msg.heapPages.length
         ? msg.heapPages : [65536, 16384, 8192, 4096],
     );
+    if (polyfillStreamAsyncIterator()) note('polyfilled ReadableStream async iteration');
     mark('loading engine');
     const mod = await loadEngine();
     // ONNX Runtime would otherwise fetch its wasm from a CDN; everything this

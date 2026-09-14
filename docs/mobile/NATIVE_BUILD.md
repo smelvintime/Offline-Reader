@@ -252,12 +252,20 @@ compiles against `java.util.zip` from the platform.
 Nothing extra to generate — the pieces arrive mechanically — but three things
 are worth knowing, and one is a manual iOS step:
 
-- **There is no device voice, and no speech plugin.** Narration is Kokoro or
-  nothing (ARCHITECTURE §2.14), so `@capacitor-community/text-to-speech` is
-  not a dependency and nothing routes through the OS speech services. If it
-  reappears in `package.json`, Xcode will warn about `AVSpeechSynthesizer`
-  being non-`Sendable` in a `Sendable` class — a real warning, from a plugin
-  this app does not use.
+- **The iPhone voice is `native/or-speech`.** A local Capacitor plugin over
+  `AVSpeechSynthesizer`, wired like any other (`npm install` + `npm run sync`,
+  no per-platform config) and carrying no third-party code. It is the default
+  narrator on iOS because it starts instantly. Voice quality follows what the
+  reader has installed: Settings → Accessibility → Spoken Content → Voices →
+  English, then an **Enhanced** or **Premium** voice. With only the compact
+  voice installed the app says so in the Voice sheet rather than sounding bad
+  silently.
+
+- **There is no `@capacitor-community/text-to-speech`.** Narration is Kokoro or
+  The app's own `or-speech` replaced it. If the community plugin reappears in
+  `package.json`, Xcode will warn about `AVSpeechSynthesizer` being
+  non-`Sendable` in a `Sendable` class — a real warning, from a plugin this app
+  does not use.
 
 - **Background narration (applied for you).** For the voice (device or
   Natural) to keep reading with the screen locked, the app needs the audio

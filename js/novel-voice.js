@@ -275,20 +275,24 @@
   ];
 
   const PREF = {
-    engine:       'voice.engine',
+    narrator:     'voice.narrator',
     rate:         'voice.rate',
     pitch:        'voice.pitch',
     neuralVoice:  'voice.neuralVoice',
+    systemVoice:  'voice.systemVoice',
     follow:       'voice.follow',
     autoNext:     'voice.autoNext',
     highlight:    'voice.highlight',
   };
 
+  // 'natural' is Kokoro in a worker; 'iphone' is the OS through Platform.speech.
+  const NARRATORS = ['natural', 'iphone'];
+
   const DEFAULTS = {
-    engine: 'device',
     rate: 1,
     pitch: 1,
     neuralVoice: 'af_heart',
+    systemVoice: '',        // '' = whatever iOS picks for the language
     follow: true,
     autoNext: true,
     highlight: true,
@@ -336,13 +340,105 @@
     return {
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
       pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
+      narrator:     defaultNarrator(),
       neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
+      systemVoice:  String(prefGet(PREF.systemVoice, DEFAULTS.systemVoice) || ''),
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
     };
   }
 
+
+  /**
+   * Which narrator to start on.
+   *
+   * On a device with the OS narrator available, that one — because it works.
+   * The natural voice is better and the reader can have it in one tap, but it
+   * generates slower than it speaks on real hardware, and an app whose default
+   * setting is "silence for ten minutes" is not offering a choice, it is
+   * broken with an escape hatch. A stored preference always wins; this only
+   * decides what happens before anyone has expressed one.
+   */
+  function defaultNarrator() {
+    const stored = prefGet(PREF.narrator, null);
+    if (NARRATORS.indexOf(stored) !== -1) return stored;
+    return systemSpeech().available() ? 'iphone' : 'natural';
+  }
+
+  /** Platform.speech, or a web-shaped stand-in so callers need no guards. */
+  function systemSpeech() {
+    try {
+      if (window.Platform && window.Platform.speech) return window.Platform.speech;
+    } catch (e) { /* fall through */ }
+    return {
+      available: function () { return false; },
+      voices: function () { return Promise.resolve([]); },
+      speak: function () { return Promise.resolve(false); },
+      stop: function () { return Promise.resolve(); },
+      pause: function () { return Promise.resolve(); },
+      resume: function () { return Promise.resolve(); },
+    };
+  }
+
+  // Best first. iOS's own tier is the sort key, so a reader opening the picker
+  // sees the voices worth using at the top rather than hunting for them among
+  // a dozen compact ones.
+  const SYSTEM_QUALITY_RANK = { premium: 0, enhanced: 1, default: 2 };
+
+  function rankSystemVoices(list) {
+    return (list || []).slice().sort(function (a, b) {
+      const qa = SYSTEM_QUALITY_RANK[a.quality];
+      const qb = SYSTEM_QUALITY_RANK[b.quality];
+      if (qa !== qb) return (qa == null ? 3 : qa) - (qb == null ? 3 : qb);
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  }
+
+  function systemVoiceNote(v) {
+    if (v.personal) return 'Personal Voice';
+    if (v.quality === 'premium') return 'Premium';
+    if (v.quality === 'enhanced') return 'Enhanced';
+    return 'Compact';
+  }
+
+  /**
+   * What to say above the voice list.
+   *
+   * When every installed voice is the compact one, that is the whole story and
+   * the reader can fix it in a minute. Saying "this is the robot voice, here is
+   * where the good ones live" is worth more than any amount of tuning on our
+   * side, and it is the thing nobody told them the first time round.
+   */
+  function systemVoiceHint() {
+    const list = state.systemVoices || [];
+    if (!list.length) return 'No voices installed for this language.';
+    const good = list.filter(function (v) {
+      return v.quality === 'premium' || v.quality === 'enhanced' || v.personal;
+    });
+    if (!good.length) {
+      return 'Only the compact voice is installed — that is the robotic one. '
+        + 'Settings → Accessibility → Spoken Content → Voices → English, then '
+        + 'download an Enhanced or Premium voice and it will appear here.';
+    }
+    return good.length + (good.length === 1 ? ' higher-quality voice' : ' higher-quality voices')
+      + ' installed. More under Settings → Accessibility → Spoken Content → Voices.';
+  }
+
+  let systemVoicesInFlight = false;
+  function refreshSystemVoices() {
+    if (systemVoicesInFlight) return;
+    systemVoicesInFlight = true;
+    systemSpeech().voices(docLang()).then(function (list) {
+      systemVoicesInFlight = false;
+      state.systemVoices = rankSystemVoices(list);
+      syncSheetSoon();
+    }).catch(function () {
+      systemVoicesInFlight = false;
+      state.systemVoices = [];
+      syncSheetSoon();
+    });
+  }
 
   function validNeuralVoice(id) {
     for (let i = 0; i < NEURAL_VOICES.length; i++) if (NEURAL_VOICES[i].id === id) return id;
@@ -701,6 +797,7 @@
     active: false,         // the listen bar is up
     playing: false,
     preparing: false,      // engine warm-up / first neural generation
+    systemVoices: null,    // null = not asked yet; [] = asked, none installed
     chapterId: null,
     sentences: [],
     index: 0,
@@ -1280,7 +1377,41 @@
       advance(1);
     };
 
+    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
+      speakSystem(s, token, done, fail);
+      return;
+    }
     speakNeural(s, token, done, fail);
+  }
+
+  /**
+   * One sentence through the OS narrator.
+   *
+   * Sentence at a time, not the neural engine's merged groups: grouping exists
+   * to amortise a per-generation cost this path does not pay, and finer units
+   * mean a finer highlight and a faster response to a tap. There is nothing to
+   * prepare and nothing to cache, so the whole of speakNeural's machinery —
+   * lookahead, wav cache, stall watchdog — is simply absent here.
+   */
+  function speakSystem(s, token, done, fail) {
+    highlighter.apply(s);
+    setPreparing(false);
+    systemSpeech().speak(normalizeForSpeech(s.text, 'device'), {
+      voiceId: state.prefs.systemVoice,
+      lang: docLang(),
+      rate: state.prefs.rate,
+      pitch: state.prefs.pitch,
+    }).then(function (spoken) {
+      // A stop or a chapter change bumps the token and clears `playing`; the
+      // utterance resolving false afterwards is that cancellation arriving, not
+      // a failure, and must not be counted as one.
+      if (token !== state.speakToken || !state.playing) return;
+      if (spoken) done(); else fail();
+    }).catch(function () {
+      if (token !== state.speakToken || !state.playing) return;
+      fail();
+    });
+    mediaSessionUpdate();
   }
 
   // A neural group: sentences[from..to] of ONE block, merged for one
@@ -1478,6 +1609,7 @@
     state.speakToken++;
     clearTimeout(preparingTimer); preparingTimer = 0;
     neuralEngine.cancelPending();
+    systemSpeech().stop();
     channel.stop();
     setPreparing(false);
   }
@@ -1817,6 +1949,125 @@
 
     const body = el('div', 'vc-sheet-body');
     sheet.appendChild(body);
+
+    // ── Narrator ──────────────────────────────────────────────────────────
+    //
+    // Two genuinely different trades, so the choice is named rather than
+    // hidden behind a quality slider. The iPhone voice starts instantly and
+    // costs nothing to run; the natural voice sounds better and has to build
+    // every sentence before it can say it. Only shown when the device
+    // actually has an OS narrator, which on the web it never does.
+    const narRow = el('div', 'vc-row vc-narrator-row');
+    narRow.appendChild(el('span', 'vc-row-label', 'Narrator'));
+    const narPick = el('div', 'vc-chip-rail');
+    narPick.setAttribute('role', 'radiogroup');
+    narPick.setAttribute('aria-label', 'Narrator');
+    const NARRATOR_CHIPS = [
+      { id: 'iphone',  label: 'iPhone voice',  note: 'Starts instantly' },
+      { id: 'natural', label: 'Natural voice', note: 'Better, but slower to start' },
+    ];
+    for (let i = 0; i < NARRATOR_CHIPS.length; i++) {
+      (function (n) {
+        const chip = el('button', 'vc-chip');
+        chip.type = 'button';
+        chip.dataset.narrator = n.id;
+        chip.append(el('span', 'vc-chip-name', n.label), el('span', 'vc-chip-note', n.note));
+        chip.addEventListener('click', function () {
+          if (state.prefs.narrator === n.id) return;
+          state.prefs.narrator = n.id;
+          prefSet(PREF.narrator, n.id);
+          syncSheet();
+          restartCurrentIfPlaying();
+        });
+        narPick.appendChild(chip);
+      })(NARRATOR_CHIPS[i]);
+    }
+    narRow.appendChild(narPick);
+    body.appendChild(narRow);
+
+    // ── iPhone voice panel ────────────────────────────────────────────────
+    //
+    // The whole reason the old device narrator was written off. iOS speaks
+    // through a small "compact" voice unless told otherwise, and that is what
+    // a reader hears if nobody asks for better. The Enhanced and Premium
+    // voices are downloads, sitting one screen away in Settings, and this
+    // panel's job is to make that visible: lead with the good ones, label the
+    // tier, and say plainly when the only thing installed is the compact one.
+    const sysRow = el('div', 'vc-row vc-system-row');
+    sysRow.appendChild(el('span', 'vc-row-label', 'iPhone voice'));
+    const sysHint = el('div', 'vc-hint');
+    sysRow.appendChild(sysHint);
+    const sysVoices = el('div', 'vc-chip-rail');
+    sysVoices.setAttribute('role', 'radiogroup');
+    sysVoices.setAttribute('aria-label', 'iPhone voice');
+    sysRow.appendChild(sysVoices);
+    const sysTools = el('div', 'vc-nat-tools');
+    const sysPreview = previewBtn();
+    sysPreview.addEventListener('click', function () { previewVoice(); });
+    sysTools.append(sysPreview);
+    sysRow.appendChild(sysTools);
+    body.appendChild(sysRow);
+
+    let sysBuiltFor = null;
+    function buildSystemChips() {
+      const list = state.systemVoices || [];
+      const key = list.map(function (v) { return v.id; }).join('|');
+      if (sysBuiltFor === key) return;
+      sysBuiltFor = key;
+      sysVoices.textContent = '';
+      for (let i = 0; i < list.length; i++) {
+        (function (v) {
+          const chip = el('button', 'vc-chip');
+          chip.type = 'button';
+          chip.dataset.systemVoice = v.id;
+          chip.append(el('span', 'vc-chip-name', v.name),
+                      el('span', 'vc-chip-note', systemVoiceNote(v)));
+          chip.addEventListener('click', function () {
+            state.prefs.systemVoice = v.id;
+            prefSet(PREF.systemVoice, v.id);
+            syncSheet();
+            restartCurrentIfPlaying();
+          });
+          sysVoices.appendChild(chip);
+        })(list[i]);
+      }
+    }
+
+    sheetSync.push(function () {
+      const hasSystem = systemSpeech().available();
+      narRow.hidden = !hasSystem;
+      const onSystem = hasSystem && state.prefs.narrator === 'iphone';
+      sysRow.hidden = !onSystem;
+      natRow.hidden = hasSystem && onSystem;
+
+      const chips = narPick.querySelectorAll('.vc-chip');
+      for (let i = 0; i < chips.length; i++) {
+        const on = chips[i].dataset.narrator === state.prefs.narrator;
+        chips[i].classList.toggle('vc-on', on);
+        chips[i].setAttribute('role', 'radio');
+        chips[i].setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+      if (!onSystem) return;
+
+      if (state.systemVoices == null) {
+        sysHint.textContent = 'Looking for installed voices…';
+        refreshSystemVoices();
+        return;
+      }
+      buildSystemChips();
+      sysHint.textContent = systemVoiceHint();
+      const vchips = sysVoices.querySelectorAll('.vc-chip');
+      // No stored choice means iOS picks, which is the compact voice. Show
+      // that as the first chip being selected rather than as nothing selected.
+      const chosen = state.prefs.systemVoice
+        || (state.systemVoices[0] && state.systemVoices[0].id) || '';
+      for (let i = 0; i < vchips.length; i++) {
+        const on = vchips[i].dataset.systemVoice === chosen;
+        vchips[i].classList.toggle('vc-on', on);
+        vchips[i].setAttribute('role', 'radio');
+        vchips[i].setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+    });
 
     // ── Natural voice panel ───────────────────────────────────────────────
     const natRow = el('div', 'vc-row vc-neural-row');
@@ -2221,6 +2472,20 @@
     const wasPlaying = state.playing;
     if (wasPlaying) pause();
     const done = function () { if (wasPlaying) resume(); };
+
+    // Preview the narrator that is actually selected. Previewing Kokoro while
+    // the reader is set to the iPhone voice would demo a voice they are not
+    // about to hear, which is worse than no preview at all.
+    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
+      systemSpeech().speak(PREVIEW_TEXT, {
+        voiceId: state.prefs.systemVoice,
+        lang: docLang(),
+        rate: state.prefs.rate,
+        pitch: state.prefs.pitch,
+      }).then(done, done);
+      return;
+    }
+
     const cap = neuralCapability();
     if (!cap.ok) { toast('The natural voice cannot run here — ' + cap.reason + '.'); done(); return; }
     setPreparing(true);
@@ -2335,6 +2600,9 @@
       neuralCapability: neuralCapability,
       resetCapability: function () { neuralCapabilityCache = null; },
       neuralCapabilityLine: neuralCapabilityLine,
+      rankSystemVoices: rankSystemVoices,
+      systemVoiceHint: systemVoiceHint,
+      setSystemVoices: function (list) { state.systemVoices = list; },
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
     },

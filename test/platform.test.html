@@ -228,6 +228,17 @@ window.__done = (async function main() {
   assertEq(await P.backup.write('{"series":[]}'), false, 'backup.write resolves false on web');
   assertEq(await P.backup.readLatest(), null, 'backup.readLatest resolves null on web');
 
+  // ── The iPhone's own narrator (§2.14) ─────────────────────────────────────
+  assertEq(P.speech.available(), false, 'speech.available() is false on web');
+  assert(Array.isArray(await P.speech.voices()) && (await P.speech.voices()).length === 0,
+    'speech.voices() resolves [] on web');
+  assertEq(await P.speech.speak('hello', {}), false,
+    'speech.speak resolves false on web (expected condition, no rejection)');
+  let speechThrew = false;
+  try { await P.speech.stop(); await P.speech.pause(); await P.speech.resume(); }
+  catch (e) { speechThrew = true; }
+  assert(!speechThrew, 'speech stop/pause/resume resolve without throwing on web');
+
   // ── Behavioral guarantees ─────────────────────────────────────────────────
   // The bridge never registers a service worker; on this harness page nothing
   // else does either, so any registration would be the bridge's doing.

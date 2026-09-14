@@ -1,0 +1,35 @@
+{
+  "name": "or-speech",
+  "version": "0.1.0",
+  "description": "The iPhone's own narrator for Offline Reader, with the Enhanced and Premium voices iOS hides behind a Settings download. Starts speaking immediately; no model, no weights, no wait proportional to paragraph length.",
+  "main": "index.js",
+  "license": "AGPL-3.0-or-later",
+  "author": "Offline Reader",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smelvintime/Offline-Reader"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "native",
+    "tts",
+    "speech"
+  ],
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "Package.swift",
+    "OrSpeech.podspec",
+    "index.js"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

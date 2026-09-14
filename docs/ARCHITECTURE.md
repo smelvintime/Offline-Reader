@@ -969,7 +969,25 @@ file absent (or a browser with neither `speechSynthesis` nor `Worker`,
 in which case the module leaves `window.NovelVoice` undefined), the reader
 renders no Listen button and behaves exactly as before.
 
-**One engine, by design.** Narration is Kokoro-82M through the vendored
+**Two narrators, named rather than ranked.** The iPhone's own voice
+(`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
+immediately and costs nothing to run. The natural voice sounds better and has to
+build every sentence before it can say it. These are different trades, not
+better and worse, so the sheet presents them as a choice and `voice.narrator`
+records it.
+
+On a device where the OS narrator exists, that is the default. The natural voice
+is one tap away, but it generates slower than it speaks on real hardware, and an
+app whose default setting is "silence for ten minutes" is not offering a choice.
+
+**The compact voice is why the first device narrator was written off.** iOS
+speaks through a small default voice unless asked otherwise; the Enhanced and
+Premium voices are downloads sitting one screen away in Settings. The picker
+sorts on iOS's own quality tier and says so when only the compact voice is
+installed, because that is a settings problem with a one-minute fix and nothing
+in the old code ever surfaced it.
+
+**One neural engine, by design.** Narration is Kokoro-82M through the vendored
 `vendor/tts/kokoro.web.js` (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a
 module worker, WASM and the q8 weights. The device engine (`speechSynthesis`,
 and `Platform.tts` on native) was removed: it sounded like what it was, and

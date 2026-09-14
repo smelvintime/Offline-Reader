@@ -391,27 +391,6 @@ window.Platform = {
     cancelDaily(),    // → Promise<void>
   },
 
-  tts: {          // reader-voice native backend (§2.14). Android's System
-                  //   WebView has no window.speechSynthesis, so novel-voice
-                  //   prefers this facade whenever available() is true.
-                  //   Backed by @capacitor-community/text-to-speech; plugin
-                  //   missing (and always on web) → unavailable → the
-                  //   speechSynthesis path runs.
-    available(),      // → boolean, at call time
-    voices(),         // → Promise<SpeechSynthesisVoice-shaped[]> — cached
-                      //   after first fetch; never rejects; [] = none (yet)
-    speak(text, { voiceURI, rate, pitch }),
-                      // → Promise<boolean>: true when the utterance FINISHES,
-                      //   false immediately when the plugin is missing (the
-                      //   expected-condition fallback — callers gate on
-                      //   available()); rejects only on real engine failure.
-                      //   voiceURI→plugin-index translation stays inside
-                      //   platform.js. iOS speaks with category 'playback'
-                      //   (background narration, given NATIVE_BUILD.md's
-                      //   UIBackgroundModes step).
-    stop(),           // → Promise<void>; never rejects
-  },
-
   pickFiles({ accept, multiple }),
       // → Promise<PickedFile[] | null>;  PickedFile = { name, size, uri }
       //   null  = no native picker (web / plugin missing) → caller falls back
@@ -996,8 +975,31 @@ module worker, WASM and the q8 weights. The device engine (`speechSynthesis`,
 and `Platform.tts` on native) was removed: it sounded like what it was, and
 keeping it as a silent fallback meant a natural voice that could not run
 looked like an app that worked. When the engine cannot run, the session ends
-and says so. `Platform.tts` (§2.3) survives as an unused facade with its own
-tests; nothing in the reader calls it.
+and says so. `Platform.tts` and `@capacitor-community/text-to-speech` are gone
+with it — an unused facade is still a plugin every native build compiles.
+
+**The heap is capped to what the device will give.** emscripten's glue creates
+the engine's memory with a hardcoded `{initial: 256, maximum: 65536, shared:
+true}` — 16 MB of pages behind a **4 GB reservation**. A shared memory can
+never be relocated, so that maximum is reserved as contiguous address space the
+moment it is created, and iOS refuses it. The throw lands inside the engine's
+init where nothing is reported and nothing is retried, which is how a tap on
+Listen became "Preparing the narrator" forever on a phone that had granted
+shared memory perfectly happily.
+
+`js/novel-voice-worker.js` wraps `WebAssembly.Memory` and walks
+`[65536, 16384, 8192, 4096]` pages, largest first, taking the biggest
+reservation the device grants. A smaller maximum links against the same binary
+— the import asks for at least 256 pages and at most 65536, so any maximum
+inside that range is a valid link — and Kokoro at q8 never approaches a
+gigabyte. The wrapper touches only the engine's own oversized shared request
+and passes everything else through, so `vendor/` stays unedited.
+
+`neuralCapability()` walks the same list on the main thread before a worker is
+spawned, and the reader-facing engine line reports the size it found. The size
+is the whole answer: the probe it replaced asked for a single page, got "yes"
+on the very device whose engine could not start, and made the check look like
+it had cleared the engine when it had not asked the question.
 
 Weights are **bundled when the build has them and downloaded when it does
 not**: the worker points transformers.js's `localModelPath` at

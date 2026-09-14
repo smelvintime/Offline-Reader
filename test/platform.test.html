@@ -228,15 +228,6 @@ window.__done = (async function main() {
   assertEq(await P.backup.write('{"series":[]}'), false, 'backup.write resolves false on web');
   assertEq(await P.backup.readLatest(), null, 'backup.readLatest resolves null on web');
 
-  // ── Reader-voice TTS facade (§2.14) ───────────────────────────────────────
-  assertEq(P.tts.available(), false, 'tts.available() is false on web');
-  assert(Array.isArray(await P.tts.voices()) && (await P.tts.voices()).length === 0,
-    'tts.voices() resolves [] on web');
-  assertEq(await P.tts.speak('hello', {}), false, 'tts.speak resolves false on web (expected condition, no rejection)');
-  let ttsStopThrew = false;
-  try { await P.tts.stop(); } catch (e) { ttsStopThrew = true; }
-  assert(!ttsStopThrew, 'tts.stop() resolves without throwing on web');
-
   // ── Behavioral guarantees ─────────────────────────────────────────────────
   // The bridge never registers a service worker; on this harness page nothing
   // else does either, so any registration would be the bridge's doing.

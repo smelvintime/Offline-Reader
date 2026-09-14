@@ -140,22 +140,44 @@
   // only for books in a language it actually speaks.
   const NEURAL_LANGS = { en: true };
 
+  // The reservations the worker will try, largest first, in 64 KB wasm pages.
+  //
+  // 65536 pages is 4 GB, which is what emscripten's glue asks for unprompted
+  // and what a desktop browser happily hands over. The smaller rungs exist for
+  // phones. Kokoro-82M at q8 peaks a little over 300 MB with its arena, so
+  // 16384 (1 GB) is comfortable and 4096 (256 MB) is the floor below which the
+  // session would OOM mid-sentence anyway — better to fail the check and say
+  // so than to fail on the third paragraph of a chapter.
+  //
+  // Kept next to the probe that walks them because the probe's answer is only
+  // meaningful if the worker attempts the same list. js/novel-voice-worker.js
+  // is handed this array in the init message rather than duplicating it.
+  const NEURAL_HEAP_PAGES = [65536, 16384, 8192, 4096];
+
+  // emscripten's glue asks for 256 pages (16 MB) of actual memory. The import
+  // section demands at least that, so this is a floor, not a preference.
+  const WASM_MIN_PAGES = 256;
+
   // ── Can this runtime run the engine at all? ──────────────────────────────
   //
   // The vendored ONNX Runtime binary imports a SHARED WebAssembly memory —
   // `flags=0x3` in its import section, and linking it against a non-shared
-  // memory is a hard LinkError, not a slow path. Shared memory needs
-  // SharedArrayBuffer, which needs a cross-origin-isolated page.
+  // memory is a hard LinkError, not a slow path.
   //
-  // Chrome grants shared wasm memory outside isolation, so this passes in a
-  // browser tab. WebKit does not, and the native shell is served from a custom
-  // URL scheme with no COOP/COEP headers, so it is never isolated. There the
-  // memory allocation throws somewhere inside emscripten's init, below the
-  // level that reports anything — which is how "Preparing the narrator on this
-  // device…" came to sit there forever.
+  // What matters is not *whether* shared memory is granted but *how much*. A
+  // shared memory cannot be moved once handed out, so the engine must reserve
+  // its `maximum` as address space up front, and emscripten's glue asks for
+  // `{initial: 256, maximum: 65536}` — 16 MB of pages backed by a 4 GB
+  // reservation. iOS hands out the first and refuses the second, and it
+  // refuses it inside emscripten's init, below the level that reports
+  // anything. That is how "Preparing the narrator on this device…" came to sit
+  // there forever on a phone whose engine check said "shared wasm memory: yes".
   //
-  // Asking the question directly, before spawning a worker and loading 88 MB,
-  // turns that into an answer on the first tap.
+  // It said yes because it asked the wrong question: one page, maximum one.
+  // Every device on earth grants that. So the probe now walks the reservations
+  // the worker will actually attempt, largest first, and reports the biggest
+  // one this device will grant — which is the number the worker then caps the
+  // engine to.
   let neuralCapabilityCache = null;
   function neuralCapability() {
     if (neuralCapabilityCache) return neuralCapabilityCache;
@@ -168,33 +190,52 @@
       reason: '',
     };
     if (c.wasm) {
-      try {
-        // The shape the vendored binary imports: 256 pages up to 65536, shared.
-        new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true });
-        c.sharedMemory = true;
-      } catch (e) {
-        c.sharedMemory = false;
-        c.memoryError = e && e.message ? String(e.message).slice(0, 120) : String(e);
+      for (let i = 0; i < NEURAL_HEAP_PAGES.length; i++) {
+        const max = NEURAL_HEAP_PAGES[i];
+        try {
+          // Allocated and dropped. The point is the reservation, not the bytes:
+          // if this throws, the worker asking for the same thing will throw too.
+          new WebAssembly.Memory({ initial: WASM_MIN_PAGES, maximum: max, shared: true });
+          c.sharedMemory = true;
+          c.heapPages = max;
+          break;
+        } catch (e) {
+          c.memoryError = e && e.message ? String(e.message).slice(0, 120) : String(e);
+        }
       }
+      if (c.sharedMemory) c.memoryError = '';
     }
     c.ok = c.worker && c.wasm && c.sharedMemory;
     if (!c.worker) c.reason = 'this browser has no Web Workers';
     else if (!c.wasm) c.reason = 'this browser has no WebAssembly';
     else if (!c.sharedMemory) {
-      c.reason = 'this app cannot use shared WebAssembly memory, which the voice engine requires'
+      c.reason = 'this device would not grant the voice engine any shared WebAssembly memory'
         + (c.isolated ? '' : ' (the page is not cross-origin isolated)');
     }
     neuralCapabilityCache = c;
     return c;
   }
 
+  /**
+   * Record the heap the worker actually got. The main thread probes the same
+   * list, but a worker is a separate realm with its own address space, and on
+   * a phone under pressure the two can disagree. The one that ran the engine
+   * wins.
+   */
+  function noteHeapPages(pages) {
+    const c = neuralCapability();
+    c.heapPages = pages;
+  }
+
   /** One line, safe to show a reader, describing what was found. */
   function neuralCapabilityLine() {
     const c = neuralCapability();
-    return 'engine check — shared wasm memory: ' + (c.sharedMemory ? 'yes' : 'NO')
+    return 'engine check — shared wasm heap: '
+      + (c.sharedMemory ? Math.round(c.heapPages / 16) + ' MB' : 'NONE')
       + ' · cross-origin isolated: ' + (c.isolated ? 'yes' : 'no')
       + ' · SharedArrayBuffer: ' + (c.sab ? 'yes' : 'no')
-      + (c.memoryError ? ' · ' + c.memoryError : '');
+      + (c.memoryError ? ' · ' + c.memoryError : '')
+      + (neuralEngine.bundledWhy ? ' · ' + neuralEngine.bundledWhy : '');
   }
 
   function neuralSpeaks(lang) {
@@ -883,7 +924,13 @@
           const m = ev.data || {};
           if (!settled) bump();
           if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
-          else if (m.type === 'ready') { finish(null); if (self.onprogress) self.onprogress({ type: 'ready' }); }
+          else if (m.type === 'ready') {
+            // The worker's realm is the one that had to succeed, so its number
+            // supersedes the main thread's guess in the line a reader reads.
+            if (m.heapPages) noteHeapPages(m.heapPages);
+            finish(null);
+            if (self.onprogress) self.onprogress({ type: 'ready' });
+          }
           else if (m.type === 'init-error') { finish(new Error(m.message || 'Could not load the voice model')); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'audio') self.settle(m.id, null, m);
@@ -898,6 +945,11 @@
           // copies in the bundle. Only the voices this app offers — the pack
           // has fifty-odd and nobody is served by shipping the rest.
           voices: NEURAL_VOICES.map(function (v) { return v.id; }),
+          // The reservations to try, biggest first. The probe already walked
+          // this list on the main thread; the worker walks it again because a
+          // worker is a separate JS realm with its own address space, and the
+          // one that has to succeed is the worker's.
+          heapPages: NEURAL_HEAP_PAGES,
         });
       });
       return this.readyPromise;
@@ -1022,12 +1074,28 @@
     //
     // Memoised: the answer cannot change without a reinstall.
     bundledCache: null,
+    // Why the answer was no, for the engine line. "Download voice (~90 MB)" on
+    // a build that bundles its weights means this probe failed, and the useful
+    // question is then whether the file 404'd (it never reached the bundle) or
+    // the fetch threw (the scheme handler refused it). Guessing between those
+    // two costs a rebuild; reporting it costs a string.
+    bundledWhy: '',
     bundled: function () {
       if (this.bundledCache !== null) return Promise.resolve(this.bundledCache);
       const self = this;
-      return fetch('./vendor/tts/models/' + MODEL_ID + '/config.json')
-        .then(function (r) { self.bundledCache = r.ok; return r.ok; })
-        .catch(function () { self.bundledCache = false; return false; });
+      const url = './vendor/tts/models/' + MODEL_ID + '/config.json';
+      return fetch(url)
+        .then(function (r) {
+          self.bundledCache = r.ok;
+          if (!r.ok) self.bundledWhy = 'weights HTTP ' + r.status;
+          return r.ok;
+        })
+        .catch(function (e) {
+          self.bundledCache = false;
+          self.bundledWhy = 'weights unreachable: '
+            + String((e && e.message) || e).slice(0, 60);
+          return false;
+        });
     },
 
     removeDownload: function () {

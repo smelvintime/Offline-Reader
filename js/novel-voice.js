@@ -137,6 +137,63 @@
   // only for books in a language it actually speaks.
   const NEURAL_LANGS = { en: true };
 
+  // ── Can this runtime run the engine at all? ──────────────────────────────
+  //
+  // The vendored ONNX Runtime binary imports a SHARED WebAssembly memory —
+  // `flags=0x3` in its import section, and linking it against a non-shared
+  // memory is a hard LinkError, not a slow path. Shared memory needs
+  // SharedArrayBuffer, which needs a cross-origin-isolated page.
+  //
+  // Chrome grants shared wasm memory outside isolation, so this passes in a
+  // browser tab. WebKit does not, and the native shell is served from a custom
+  // URL scheme with no COOP/COEP headers, so it is never isolated. There the
+  // memory allocation throws somewhere inside emscripten's init, below the
+  // level that reports anything — which is how "Preparing the narrator on this
+  // device…" came to sit there forever.
+  //
+  // Asking the question directly, before spawning a worker and loading 88 MB,
+  // turns that into an answer on the first tap.
+  let neuralCapabilityCache = null;
+  function neuralCapability() {
+    if (neuralCapabilityCache) return neuralCapabilityCache;
+    const c = {
+      worker: typeof Worker !== 'undefined',
+      wasm: typeof WebAssembly !== 'undefined',
+      isolated: typeof self !== 'undefined' && !!self.crossOriginIsolated,
+      sab: typeof SharedArrayBuffer !== 'undefined',
+      sharedMemory: false,
+      reason: '',
+    };
+    if (c.wasm) {
+      try {
+        // The shape the vendored binary imports: 256 pages up to 65536, shared.
+        new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true });
+        c.sharedMemory = true;
+      } catch (e) {
+        c.sharedMemory = false;
+        c.memoryError = e && e.message ? String(e.message).slice(0, 120) : String(e);
+      }
+    }
+    c.ok = c.worker && c.wasm && c.sharedMemory;
+    if (!c.worker) c.reason = 'this browser has no Web Workers';
+    else if (!c.wasm) c.reason = 'this browser has no WebAssembly';
+    else if (!c.sharedMemory) {
+      c.reason = 'this app cannot use shared WebAssembly memory, which the voice engine requires'
+        + (c.isolated ? '' : ' (the page is not cross-origin isolated)');
+    }
+    neuralCapabilityCache = c;
+    return c;
+  }
+
+  /** One line, safe to show a reader, describing what was found. */
+  function neuralCapabilityLine() {
+    const c = neuralCapability();
+    return 'engine check — shared wasm memory: ' + (c.sharedMemory ? 'yes' : 'NO')
+      + ' · cross-origin isolated: ' + (c.isolated ? 'yes' : 'no')
+      + ' · SharedArrayBuffer: ' + (c.sab ? 'yes' : 'no')
+      + (c.memoryError ? ' · ' + c.memoryError : '');
+  }
+
   function neuralSpeaks(lang) {
     const base = String(lang || 'en').toLowerCase().split('-')[0];
     return !!NEURAL_LANGS[base];
@@ -1541,6 +1598,17 @@
   }
 
   function ensureNeuralThenSpeak() {
+    // Can this runtime run the engine at all? Asked first, because the answer
+    // is instant and the alternative is loading 88 MB to find out.
+    const cap = neuralCapability();
+    if (!cap.ok) {
+      state.prefs.engine = 'device';       // session only; the stored pref stands
+      toast('The natural voice cannot run here — ' + cap.reason + '. Using the device voice.');
+      syncSheet();
+      if (deviceEngine.available()) speakCurrent();
+      else finishSession('No voice on this device can read this book aloud.');
+      return;
+    }
     // Wrong-language book: fall back BEFORE the ~90 MB download, not after.
     if (!neuralSpeaks(docLang())) {
       state.prefs.engine = 'device';       // session only; the stored pref stands
@@ -2105,6 +2173,17 @@
   }
 
   function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
+    // Before download state, before anything: if the engine cannot run on this
+    // runtime, that is the whole story and the rest of the panel is noise.
+    const cap = neuralCapability();
+    if (!cap.ok) {
+      natText.textContent = 'Not available on this device: ' + cap.reason + '. '
+        + neuralCapabilityLine();
+      natBar.hidden = true;
+      natAction.hidden = true;
+      removeBtn.hidden = true;
+      return;
+    }
     // Said before anything about downloads: offering a 90 MB download for a
     // book the engine cannot read would be the app wasting someone's data.
     if (state.bridge && !neuralSpeaks(docLang())) {
@@ -2281,6 +2360,7 @@
     // Opening a book must never be what kills the app. This path has no user
     // action behind it, so after a load-phase crash it is the first thing to
     // stand down — a background half-gigabyte is not worth one warm start.
+    if (!neuralCapability().ok) return;
     const crashed = guardRead();
     if (crashed && crashed.phase === 'model') return;
 
@@ -2333,6 +2413,8 @@
     if (wasPlaying) pause();
     const done = function () { if (wasPlaying) resume(); };
     if (state.prefs.engine === 'neural') {
+      const cap = neuralCapability();
+      if (!cap.ok) { toast('The natural voice cannot run here — ' + cap.reason + '.'); done(); return; }
       setPreparing(true);
       neuralEngine.ensureReady()
         .then(function () {
@@ -2447,6 +2529,9 @@
       pause: pause,
       resume: resume,
       guardRead: guardRead,
+      neuralCapability: neuralCapability,
+      resetCapability: function () { neuralCapabilityCache = null; },
+      neuralCapabilityLine: neuralCapabilityLine,
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
     },

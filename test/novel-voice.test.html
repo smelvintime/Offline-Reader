@@ -806,6 +806,40 @@ const T = {
       // A generation that reported no timing must not invent one.
       ne.noteSpeed({ seconds: 3 });
       pass = ok(ne.speed.ratio === 5, 'a message with no timing leaves the last reading alone') && pass;
+
+      // The caps follow the measurement. Fixed caps assume the engine outruns
+      // the reader; on a device where it does not, a 300-character group is
+      // eight times the wait of a chapter title, spent in silence.
+      const caps = VT().neuralGroupCaps;
+      ne.speed = null;
+      const wide = caps();
+      pass = ok(wide.max === 300, 'unmeasured: the original caps stand', JSON.stringify(wide)) && pass;
+
+      ne.noteSpeed({ ms: 1000, seconds: 5, chars: 120 });     // 5x realtime
+      pass = ok(caps().max === 300, 'a fast engine keeps its groups whole', JSON.stringify(caps())) && pass;
+
+      ne.noteSpeed({ ms: 1000, seconds: 1, chars: 120 });     // 1.0x: break-even
+      pass = ok(caps().max === 160, 'break-even is not enough slack for lookahead, so groups shrink',
+        JSON.stringify(caps())) && pass;
+
+      ne.noteSpeed({ ms: 10000, seconds: 2, chars: 300 });    // 0.2x: far behind
+      const tight = caps();
+      pass = ok(tight.max === 90, 'far behind: groups shrink hard so audio starts sooner',
+        JSON.stringify(tight)) && pass;
+      pass = ok(tight.target < tight.max && tight.max < tight.contMax,
+        'and the three caps keep their ordering at every tier', JSON.stringify(tight)) && pass;
+
+      // Purity is what lets the suite above drive grouping directly: an
+      // explicit cap must beat whatever the last generation happened to say.
+      const list = [
+        { text: 'A'.repeat(50), blockIdx: 0, kind: 'p', start: 0, end: 50 },
+        { text: 'B'.repeat(50), blockIdx: 0, kind: 'p', start: 50, end: 100 },
+      ];
+      const forced = VT().groupSentences(list, 0, { target: 160, max: 300, contMax: 700 });
+      pass = ok(forced.to === 1, 'an explicit cap overrides the measured one', JSON.stringify(forced.to)) && pass;
+      const measured = VT().groupSentences(list, 0);
+      pass = ok(measured.to === 0, 'and the measured one applies when none is given',
+        JSON.stringify(measured.to)) && pass;
     } finally {
       ne.speed = held;
     }

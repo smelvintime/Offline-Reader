@@ -1280,9 +1280,35 @@
   // generation call. Same-block only, so the highlight stays a single range
   // and a group never straddles a paragraph pause. Pure over its inputs —
   // the test page drives it directly.
-  function groupSentences(list, from) {
+  /**
+   * How big a group may get, given how fast this device actually generates.
+   *
+   * The fixed caps assume the engine outruns the reader. On a device where it
+   * does not, they are the worst possible choice: a 300-character group is
+   * eight times the wait of a chapter title, and the reader sits in silence
+   * for all of it. Shrinking does not make the device faster — nothing here
+   * can — but it turns one long stall into audio that starts sooner.
+   *
+   * Measured, not assumed: neuralEngine.speed comes from the worker timing its
+   * own generations. Until a group has been generated there is no reading, and
+   * the original caps stand.
+   */
+  function neuralGroupCaps() {
+    const sp = neuralEngine.speed;
+    const wide = { target: NEURAL_GROUP_TARGET, max: NEURAL_GROUP_MAX, contMax: NEURAL_GROUP_CONT_MAX };
+    if (!sp || !sp.ratio) return wide;
+    // Comfortably ahead of the reader: leave prosody alone, it is why groups
+    // exist. The margin is above 1.0 because lookahead needs slack to stay
+    // ahead, not merely to break even.
+    if (sp.ratio >= 1.5) return wide;
+    if (sp.ratio >= 0.7) return { target: 90, max: 160, contMax: 400 };
+    return { target: 45, max: 90, contMax: 220 };
+  }
+
+  function groupSentences(list, from, caps) {
     const first = list[from];
     if (!first) return null;
+    const cap = caps || neuralGroupCaps();
     let to = from;
     let chars = first.text.length;
     while (to + 1 < list.length) {
@@ -1295,13 +1321,13 @@
       // rising note and then starts the remainder cold. Keep them together past
       // the normal caps, up to a ceiling that still generates in one go.
       if (next.cont) {
-        if (chars + next.text.length > NEURAL_GROUP_CONT_MAX) break;
+        if (chars + next.text.length > cap.contMax) break;
         chars += next.text.length;
         to++;
         continue;
       }
-      if (chars >= NEURAL_GROUP_TARGET) break;
-      if (chars + next.text.length > NEURAL_GROUP_MAX) break;
+      if (chars >= cap.target) break;
+      if (chars + next.text.length > cap.max) break;
       chars += next.text.length;
       to++;
     }
@@ -2289,6 +2315,7 @@
       segmentBlocks: segmentBlocks,
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,
+      neuralGroupCaps: neuralGroupCaps,
       normalizeForSpeech: normalizeForSpeech,
       encodeWav: encodeWav,
       readPrefs: readPrefs,

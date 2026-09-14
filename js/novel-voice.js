@@ -248,6 +248,12 @@
       + ' · native: ' + (isNativeApp() ? 'yes' : 'NO')
       + ' · ' + weights
       + (neuralEngine.stage ? ' · stage: ' + neuralEngine.stage : '')
+      + (neuralEngine.speed
+          ? ' · last group: ' + neuralEngine.speed.chars + ' chars, '
+            + (neuralEngine.speed.ms / 1000).toFixed(1) + 's compute for '
+            + neuralEngine.speed.seconds.toFixed(1) + 's audio ('
+            + neuralEngine.speed.ratio.toFixed(2) + '× realtime)'
+          : '')
       + (c.memoryError ? ' · ' + c.memoryError : '');
   }
 
@@ -867,6 +873,7 @@
     worker: null,
     local: null,           // true once a load proved the weights are bundled
     stage: '',             // the worker's last announced init step
+    speed: null,           // { ms, seconds, chars, ratio } for the last group
     device: null,          // device the live worker was initialised with
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
@@ -944,12 +951,13 @@
             // The worker's realm is the one that had to succeed, so its number
             // supersedes the main thread's guess in the line a reader reads.
             if (m.heapPages) noteHeapPages(m.heapPages);
+            self.stage = '';       // init is over; the step it ended on is stale
             finish(null);
             if (self.onprogress) self.onprogress({ type: 'ready' });
           }
           else if (m.type === 'init-error') { finish(new Error(m.message || 'Could not load the voice model')); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
-          else if (m.type === 'audio') self.settle(m.id, null, m);
+          else if (m.type === 'audio') { self.noteSpeed(m); self.settle(m.id, null, m); }
           else if (m.type === 'error') self.settle(m.id, new Error(m.message || 'Generation failed'), null);
         };
         w.postMessage({
@@ -1042,6 +1050,24 @@
       job.then(forget, forget);
       this.inFlight.set(cacheKey, job);
       return job;
+    },
+
+    /**
+     * Seconds of audio per second of compute, for the last group.
+     *
+     * Below 1.0 the engine cannot keep up with its own output: the reader
+     * hears a sentence, then a gap, then a sentence. That is not a failure
+     * any error path catches, because nothing failed -- and it is why "it
+     * read the chapter title and stopped" is ambiguous until this is measured.
+     */
+    noteSpeed: function (m) {
+      if (!m || !m.ms) return;
+      this.speed = {
+        ms: m.ms,
+        seconds: m.seconds || 0,
+        chars: m.chars || 0,
+        ratio: m.ms > 0 ? (m.seconds || 0) / (m.ms / 1000) : 0,
+      };
     },
 
     cancelPending: function () {
@@ -1254,9 +1280,35 @@
   // generation call. Same-block only, so the highlight stays a single range
   // and a group never straddles a paragraph pause. Pure over its inputs —
   // the test page drives it directly.
-  function groupSentences(list, from) {
+  /**
+   * How big a group may get, given how fast this device actually generates.
+   *
+   * The fixed caps assume the engine outruns the reader. On a device where it
+   * does not, they are the worst possible choice: a 300-character group is
+   * eight times the wait of a chapter title, and the reader sits in silence
+   * for all of it. Shrinking does not make the device faster — nothing here
+   * can — but it turns one long stall into audio that starts sooner.
+   *
+   * Measured, not assumed: neuralEngine.speed comes from the worker timing its
+   * own generations. Until a group has been generated there is no reading, and
+   * the original caps stand.
+   */
+  function neuralGroupCaps() {
+    const sp = neuralEngine.speed;
+    const wide = { target: NEURAL_GROUP_TARGET, max: NEURAL_GROUP_MAX, contMax: NEURAL_GROUP_CONT_MAX };
+    if (!sp || !sp.ratio) return wide;
+    // Comfortably ahead of the reader: leave prosody alone, it is why groups
+    // exist. The margin is above 1.0 because lookahead needs slack to stay
+    // ahead, not merely to break even.
+    if (sp.ratio >= 1.5) return wide;
+    if (sp.ratio >= 0.7) return { target: 90, max: 160, contMax: 400 };
+    return { target: 45, max: 90, contMax: 220 };
+  }
+
+  function groupSentences(list, from, caps) {
     const first = list[from];
     if (!first) return null;
+    const cap = caps || neuralGroupCaps();
     let to = from;
     let chars = first.text.length;
     while (to + 1 < list.length) {
@@ -1269,13 +1321,13 @@
       // rising note and then starts the remainder cold. Keep them together past
       // the normal caps, up to a ceiling that still generates in one go.
       if (next.cont) {
-        if (chars + next.text.length > NEURAL_GROUP_CONT_MAX) break;
+        if (chars + next.text.length > cap.contMax) break;
         chars += next.text.length;
         to++;
         continue;
       }
-      if (chars >= NEURAL_GROUP_TARGET) break;
-      if (chars + next.text.length > NEURAL_GROUP_MAX) break;
+      if (chars >= cap.target) break;
+      if (chars + next.text.length > cap.max) break;
       chars += next.text.length;
       to++;
     }
@@ -1721,8 +1773,16 @@
     dom.playBtn.classList.toggle('vc-preparing', state.preparing);
     const n = state.sentences.length;
     const at = n ? state.index + 1 : 0;
+    // "Preparing voice…" alone is why "it read the title and stopped" was
+    // unreadable: a gap because the engine is grinding and a gap because it
+    // died look the same. The last group's cost says which, in the place a
+    // reader is already staring at while waiting.
+    const sp = neuralEngine.speed;
     dom.statusLine.textContent = state.preparing
-      ? 'Preparing voice…'
+      ? (sp
+          ? 'Preparing voice… (last: ' + (sp.ms / 1000).toFixed(1) + 's for '
+            + sp.seconds.toFixed(1) + 's of speech)'
+          : 'Preparing voice…')
       : (n ? at + ' / ' + n : 'Nothing to read');
   }
 
@@ -2255,6 +2315,7 @@
       segmentBlocks: segmentBlocks,
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,
+      neuralGroupCaps: neuralGroupCaps,
       normalizeForSpeech: normalizeForSpeech,
       encodeWav: encodeWav,
       readPrefs: readPrefs,

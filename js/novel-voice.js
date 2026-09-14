@@ -1932,7 +1932,13 @@
     const initInFlight = !!(neuralEngine.readyPromise && !neuralEngine.ready);
     if (state.neuralDownloading || initInFlight) {
       if (state.neuralPhase === 'init') {
-        natText.textContent = 'Preparing the narrator on this device — the first time can take up to a minute…';
+        // Naming the step live, rather than only in the stall message three
+        // minutes later. "Preparing the narrator" with no step is what made
+        // this bug take three rounds: a reader watching it had nothing to
+        // report, so every screenshot of it was compatible with every theory.
+        natText.textContent = 'Preparing the narrator on this device'
+          + (neuralEngine.stage ? ' — ' + neuralEngine.stage : '')
+          + ' — the first time can take up to a minute…';
         natBar.hidden = false;
         natBar.firstChild.style.width = '100%';
       } else {
@@ -2038,6 +2044,13 @@
     // progress that follows. refreshNeuralHave's probe may not have run yet.
     if (m.type === 'source') {
       state.neuralBundled = !!m.local;
+      syncSheetSoon();
+      return;
+    }
+    // A step announcement carries no bytes, but it is the only thing that
+    // changes during a session compile — which is precisely the stretch that
+    // used to look like a hang. Repaint so the label tracks it.
+    if (m.type === 'stage') {
       syncSheetSoon();
       return;
     }

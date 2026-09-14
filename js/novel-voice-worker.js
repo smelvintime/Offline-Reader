@@ -100,6 +100,12 @@ function mark(name) {
   post({ type: 'stage', stage: name });
 }
 
+// Announced at top-level evaluation, before anything can go wrong. Its absence
+// is itself the finding: a module worker that never evaluates (the constructor
+// resolved, the module did not load) is a different bug from one that hangs
+// inside init, and without this they look identical from the main thread.
+mark('worker alive');
+
 // An exception that escapes init's try/catch — thrown from a wasm callback, an
 // unawaited promise, an emscripten abort handler — used to leave the UI on
 // "Preparing the narrator" with nothing said. These two make it speak.

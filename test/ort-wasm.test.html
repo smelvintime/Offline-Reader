@@ -13,7 +13,7 @@
 </head>
 <body>
 
-<h1>Does the vendored engine start without cross-origin isolation?</h1>
+<h1>Does the vendored engine start on a strict WebKit?</h1>
 
 <p>Three rounds of an iOS bug were spent on the theory that it could not: first
 that WebKit refuses shared WebAssembly memory outside an isolated page, then
@@ -124,6 +124,57 @@ window.T = {
            'capped: the shim landed on a real reservation', last.heap + ' pages');
       }
     }
+
+    // The other way this engine fails on WebKit, and the one that produced a
+    // report from a real iPhone. kokoro-js unpacks the eSpeak dictionary with
+    // `for await (const e of A)` over a DecompressionStream, which needs
+    // Symbol.asyncIterator on ReadableStream. Without it the loop calls an
+    // undefined iterator method -- "undefined is not a function (near
+    // '...e of A...')" -- inside an async IIFE whose only job is to resolve the
+    // promise every generate() waits on. No error surfaces; the voice just
+    // never speaks.
+    const saved = ReadableStream.prototype[Symbol.asyncIterator];
+    try {
+      // Stand in for a WebKit that lacks it, and prove the loop really breaks.
+      delete ReadableStream.prototype[Symbol.asyncIterator];
+      let broke = '';
+      try {
+        const t = [];
+        for await (const c of new Blob([new Uint8Array([1, 2, 3])]).stream()) t.push(c);
+      } catch (e) { broke = e.message; }
+      ok(!!broke, 'without Symbol.asyncIterator the vendored loop throws', broke);
+
+      // js/novel-voice-worker.js installs exactly this.
+      ReadableStream.prototype[Symbol.asyncIterator] = function () {
+        const reader = this.getReader();
+        return {
+          next: function () { return reader.read(); },
+          return: function (v) { reader.releaseLock(); return Promise.resolve({ value: v, done: true }); },
+          throw: function (e) { reader.releaseLock(); return Promise.reject(e); },
+          [Symbol.asyncIterator]: function () { return this; },
+        };
+      };
+
+      // The real shape: gzip in, dictionary bytes out.
+      const payload = new TextEncoder().encode('phoneme dictionary '.repeat(500));
+      const gz = await new Response(new Blob([payload]).stream()
+        .pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+      const A = new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
+      const chunks = [];
+      for await (const c of A) chunks.push(c);
+      const bytes = await new Blob(chunks).arrayBuffer();
+      const back = new TextDecoder().decode(bytes);
+      ok(bytes.byteLength === payload.length,
+         'with the polyfill the gzipped dictionary decompresses whole',
+         bytes.byteLength + ' of ' + payload.length + ' bytes');
+      ok(back.startsWith('phoneme dictionary '), 'and the bytes survive the round trip');
+    } finally {
+      if (saved) ReadableStream.prototype[Symbol.asyncIterator] = saved;
+      else delete ReadableStream.prototype[Symbol.asyncIterator];
+    }
+    ok(typeof ReadableStream.prototype[Symbol.asyncIterator] === 'function',
+       'and this browser is left exactly as it was found');
+
     log(failed ? '════ FAILURES ABOVE ════' : '════ ALL PASS ════', failed ? 'bad' : 'ok');
     return { name: 'ort wasm', pass: failed === 0, passed, failed };
   },

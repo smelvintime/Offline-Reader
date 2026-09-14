@@ -5,7 +5,8 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "sync": "bash scripts/sync-www.sh && cap sync",
+    "sync": "bash scripts/sync-www.sh && cap sync && node scripts/apply-native-config.mjs",
+    "native:config": "node scripts/apply-native-config.mjs --verbose",
     "ios": "npm run sync && cap open ios",
     "android": "npm run sync && cap open android"
   },

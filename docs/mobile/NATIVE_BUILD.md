@@ -16,7 +16,7 @@ below exists only to wrap that same tree into native shells.
 |---|---|
 | `package.json` + `package-lock.json` | `node_modules/` |
 | `capacitor.config.json` | `www/` (made by `scripts/sync-www.sh`) |
-| `scripts/sync-www.sh` | `ios/` (made by `npx cap add ios`) |
+| `scripts/sync-www.sh`, `scripts/apply-native-config.mjs` | `ios/` (made by `npx cap add ios`) |
 | `native/or-zip/` — the one committed native plugin | `android/` (made by `npx cap add android`) |
 | `assets/icon-1024.png` — icon master | icon/splash sets inside `ios/`/`android/` (made by `@capacitor/assets`) |
 
@@ -103,7 +103,7 @@ the plugin's Android side is `java.util.zip`, platform API.
 Then do the first full sync:
 
 ```bash
-npm run sync              # = scripts/sync-www.sh && cap sync
+npm run sync              # sync-www.sh && cap sync && apply-native-config.mjs
 ```
 
 `cap sync` copies `www/` into the native project and wires up every plugin
@@ -131,13 +131,17 @@ The generated icon/splash sets land **inside** `ios/`/`android/`, so this step
 is on the re-apply list. The three committed PNGs in `icons/` are the web
 PWA's manifest icons and have nothing to do with this step.
 
-## 5. Manual step: the `offlinereader://` URL scheme (iOS)
+## 5. The `offlinereader://` URL scheme (iOS)
 
-> **Re-apply after every regeneration of `ios/`.** `cap sync` never touches it.
+> **Applied for you by `npm run sync`.** `cap sync` never touches it, so
+> `scripts/apply-native-config.mjs` runs straight after and puts it back. You
+> only need the manual version below if you are curious what it wrote, or if
+> the script refused because the key was already there in a shape it would not
+> overwrite.
 
 The importer's deep-link intake (PLAN.md §6.2, `Platform.onAppUrlOpen`)
 needs the custom scheme registered in
-`ios/App/App/Info.plist`. Add inside the top-level `<dict>`:
+`ios/App/App/Info.plist`, inside the top-level `<dict>`:
 
 ```xml
 <key>CFBundleURLTypes</key>
@@ -192,6 +196,10 @@ app ids. The paid program removes all three.
 npm run sync    # after ANY edit to the web files or native/or-zip
 ```
 
+(That also re-applies the native config edits of §5, §8.3 and §9 if a
+regeneration dropped them. It prints a line per change and nothing at all when
+there is nothing to do, so a quiet run means the projects were already right.)
+
 then **⌘R** in Xcode. The native app runs a *copy* of the tree (`www/`), so a
 stale bundle — not code — is the usual reason an edit "didn't take". Edits to
 existing or-zip source files are picked up by the next Xcode build directly
@@ -216,10 +224,10 @@ defined — if it is not, `cap sync` has not run since the plugin was added.
      --splashBackgroundColor '#0a0a0a' --splashBackgroundColorDark '#0a0a0a'
    ```
 
-3. **Manual step — re-apply after every regeneration of `android/`:** the
+3. **Applied for you by `npm run sync`** (step 2 above already ran it): the
    `offlinereader://` intake needs a `VIEW` intent-filter in
    `android/app/src/main/AndroidManifest.xml`, inside the main `<activity>`
-   element (alongside the existing LAUNCHER intent-filter):
+   element, alongside the existing LAUNCHER one. This is what gets written:
 
    ```xml
    <intent-filter>
@@ -255,10 +263,11 @@ are worth knowing, and one is a manual iOS step:
   good ones); on iOS it follows Settings → Accessibility → Spoken Content →
   Voices.
 
-- **Manual iOS step — background narration.** For the voice (device or
+- **Background narration (applied for you).** For the voice (device or
   Natural) to keep reading with the screen locked, the app needs the audio
-  background mode. In `ios/App/App/Info.plist`, inside the top-level
-  `<dict>`:
+  background mode. `npm run sync` adds it via
+  `scripts/apply-native-config.mjs`; this is what it writes into
+  `ios/App/App/Info.plist`, inside the top-level `<dict>`:
 
   ```xml
   <key>UIBackgroundModes</key>
@@ -269,8 +278,8 @@ are worth knowing, and one is a manual iOS step:
 
   (Equivalently in Xcode: App target → Signing & Capabilities → **+
   Capability** → Background Modes → check **Audio, AirPlay, and Picture in
-  Picture**.) This is on the re-apply list below. Without it, narration
-  simply pauses on lock — nothing breaks.
+  Picture**.) Without it, narration simply pauses on lock — nothing breaks,
+  and nothing warns, which is why it is scripted rather than remembered.
 
 - **App size.** `vendor/tts/` (the self-hosted Natural-voice engine, ~24 MB)
   ships inside `www/`, so the installed app grows by that much. The model
@@ -283,14 +292,29 @@ are worth knowing, and one is a manual iOS step:
 ## Re-apply after every regeneration
 
 Deleting/regenerating `ios/` or `android/` (or `cap add` on a fresh clone)
-loses exactly these, in order:
+loses the hand-edits those projects carry. Most of that is now automatic.
 
-1. **Icons + splash** — §4 (`@capacitor/assets generate`).
-2. **iOS URL scheme** — §5 (`CFBundleURLTypes` in `ios/App/App/Info.plist`).
-3. **Android intent-filter** — §8.3 (`AndroidManifest.xml`).
-4. **iOS background audio** — §9 (`UIBackgroundModes` in
-   `ios/App/App/Info.plist`; without it the reader voice pauses on lock).
-5. Any bundle-id change made in Xcode/Gradle instead of in
+**`npm run sync` restores these** — it runs
+`scripts/apply-native-config.mjs` after `cap sync`, which is idempotent, says
+what it changed, and stays quiet when there is nothing to do:
+
+- **iOS background audio** (`UIBackgroundModes`) — without it the reader
+  voice pauses the moment the screen locks. Nothing errors and nothing warns,
+  so a forgotten step looks exactly like a broken feature. That asymmetry is
+  why this list shrank into a script.
+- **iOS URL scheme** (`CFBundleURLTypes`) — §5.
+- **Android intent-filter** (`VIEW` + `offlinereader`) — §8.3.
+
+It never overwrites a value you put there yourself: an existing
+`UIBackgroundModes` gains `audio` alongside whatever else is in it, existing
+URL types gain a second entry rather than being replaced, and anything of an
+unexpected shape stops the script with a message instead of being rewritten.
+
+**Still yours to redo by hand:**
+
+1. **Icons + splash** — §4 (`@capacitor/assets generate`). Needs the network
+   and overwrites generated asset catalogues, so it stays an explicit step.
+2. Any bundle-id change made in Xcode/Gradle instead of in
    `capacitor.config.json` (avoid that; see §2).
 
 Everything else — plugins, or-zip, the web bundle, plugin config — is
@@ -310,6 +334,9 @@ restored mechanically by `npm install` + `npm run sync`.
 - **`window.Capacitor.Plugins.OrZip` undefined on device** — `npm run sync`
   was skipped after `npm install`, or the Podfile/settings.gradle entry is
   from a stale generation: regenerate the platform dir.
+- **Narration stops when the screen locks** — `UIBackgroundModes` is missing.
+  Run `npm run native:config`; if it refuses, the key is there in a shape it
+  will not overwrite, and §9 shows what it should look like.
 - **Anything structurally weird in `ios/`/`android/`** — delete the directory,
   `npx cap add ios` (or `android`), re-apply the list above. That workflow is
   the design, not a workaround.

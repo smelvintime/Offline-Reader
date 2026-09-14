@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ONNX Runtime wasm — cross-origin isolation harness</title>
+  <style>
+    body { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 12px; background: #111; color: #ddd; }
+    h1 { font-size: 14px; color: #fff; }
+    p { max-width: 70ch; color: #aaa; }
+    #log { white-space: pre-wrap; margin-top: 12px; }
+    .ok { color: #9f9; } .bad { color: #f99; }
+  </style>
+</head>
+<body>
+
+<h1>Does the vendored engine start without cross-origin isolation?</h1>
+
+<p>Three rounds of an iOS bug were spent on the theory that it could not: first
+that WebKit refuses shared WebAssembly memory outside an isolated page, then
+that it refuses the 4 GB reservation emscripten's glue asks for. The device
+disproved both, one rebuild at a time.</p>
+
+<p>This asks the question directly. Chromium without COOP/COEP reproduces the
+capability signature iOS reported — <code>SharedArrayBuffer</code> absent from
+the global scope, shared wasm memory granted anyway — so a pass here means the
+memory layer is not the fault, and the next theory has to be about something
+else.</p>
+
+<p>Run it with and without isolation headers; both must pass. It needs no model
+and no network: the 21 MB binary under <code>vendor/tts/</code> is the subject.</p>
+
+<div id="log"></div>
+
+<script>
+const logEl = document.getElementById('log');
+const log = (s, cls) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; logEl.append(d); };
+
+// The shim js/novel-voice-worker.js installs, inlined so the worker under test
+// stays a few lines and the harness has no import of its own.
+// A blob: worker resolves relative imports against blob:, which resolves
+// nowhere. The vendor directory's absolute URL is baked in instead.
+const VENDOR = new URL('../vendor/tts/', location.href).href;
+
+const WORKER_SRC = `
+
+function capWasmMemory(pages){
+  const Native=WebAssembly.Memory;
+  if(Native.__orCapped) return;
+  let granted=0;
+  function Capped(desc){
+    const d=desc||{};
+    if(!d.shared||!(d.maximum>pages[pages.length-1])) return new Native(d);
+    let lastErr=null;
+    for(const p of pages){ if(p>d.maximum) continue;
+      try{ const m=new Native({initial:d.initial,maximum:p,shared:true}); granted=p; return m; }catch(e){lastErr=e;} }
+    throw lastErr||new RangeError('no shared memory');
+  }
+  Capped.prototype=Native.prototype; Capped.__orCapped=true;
+  WebAssembly.Memory=Capped; return ()=>granted;
+}
+let stage='spawned';
+const mark=n=>{stage=n; postMessage({stage:n});};
+addEventListener('error',e=>postMessage({err:'at '+stage+': '+(e.message||'worker error')}));
+addEventListener('unhandledrejection',e=>postMessage({err:'at '+stage+': '+((e.reason&&e.reason.message)||String(e.reason))}));
+(async()=>{
+ try{
+  const cap = self.name==='capped' ? capWasmMemory([65536,16384,8192,4096]) : null;
+  postMessage({info:{sab: typeof SharedArrayBuffer!=='undefined', isolated: !!self.crossOriginIsolated}});
+  mark('importing glue');
+  const factory=(await import(VENDOR+'ort-wasm-simd-threaded.jsep.mjs')).default;
+  mark('instantiating wasm');
+  const mod=await factory({ numThreads:1, locateFile:f=>VENDOR+f });
+  postMessage({done:true, heap:cap?cap():'uncapped',
+    heapBytes: mod.HEAPU8?mod.HEAPU8.byteLength:0,
+    buffer: mod.HEAPU8?mod.HEAPU8.buffer.constructor.name:'none',
+    ortInit: typeof mod._OrtInit});
+ }catch(e){ postMessage({err:'at '+stage+': '+(e&&(e.message||e))}); }
+})();
+`;
+
+function spawn(name) {
+  return new Promise(res => {
+    const src = 'const VENDOR=' + JSON.stringify(VENDOR) + ';\n' + WORKER_SRC;
+    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    const w = new Worker(url, { type: 'module', name: name });
+    const seen = [];
+    const t = setTimeout(() => { w.terminate(); res({ seen, timeout: true }); }, 60000);
+    w.onmessage = e => {
+      seen.push(e.data);
+      if (e.data.done || e.data.err) { clearTimeout(t); w.terminate(); res({ seen, last: e.data }); }
+    };
+    w.onerror = e => { clearTimeout(t); w.terminate(); res({ seen, last: { err: e.message } }); };
+  });
+}
+
+window.T = {
+  async all() {
+    let passed = 0, failed = 0;
+    const ok = (cond, what, detail) => {
+      log((cond ? 'PASS  ' : 'FAIL  ') + what + (detail ? '  [' + detail + ']' : ''), cond ? 'ok' : 'bad');
+      cond ? passed++ : failed++;
+      return cond;
+    };
+    log('crossOriginIsolated on this page: ' + !!self.crossOriginIsolated);
+
+    for (const mode of ['plain', 'capped']) {
+      const r = await spawn(mode);
+      const last = r.last || {};
+      const info = (r.seen.find(x => x.info) || {}).info || {};
+      ok(!r.timeout, mode + ': the engine starts rather than hanging',
+         r.timeout ? 'timed out at ' + JSON.stringify(r.seen.slice(-1)) : '');
+      ok(!last.err, mode + ': no error escaped', last.err || '');
+      ok(last.done === true, mode + ': the wasm module instantiated');
+      ok(last.heapBytes > 0, mode + ': it has a usable heap', last.heapBytes + ' bytes');
+      ok(last.buffer === 'SharedArrayBuffer', mode + ': backed by shared memory', last.buffer);
+      ok(last.ortInit === 'function', mode + ': ONNX Runtime entry points are present', last.ortInit);
+      // The point of the whole harness: none of the above needed isolation.
+      if (!info.isolated) {
+        ok(last.done === true, mode + ': and it did all of that WITHOUT cross-origin isolation',
+           'SharedArrayBuffer global: ' + info.sab);
+      }
+      if (mode === 'capped') {
+        ok(typeof last.heap === 'number' && last.heap >= 4096,
+           'capped: the shim landed on a real reservation', last.heap + ' pages');
+      }
+    }
+    log(failed ? '════ FAILURES ABOVE ════' : '════ ALL PASS ════', failed ? 'bad' : 'ok');
+    return { name: 'ort wasm', pass: failed === 0, passed, failed };
+  },
+};
+</script>
+</body>
+</html>

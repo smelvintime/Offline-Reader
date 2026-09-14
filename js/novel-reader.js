@@ -2874,7 +2874,17 @@
 
       seriesInfo: function () {
         if (!state.series) return null;
-        return { id: state.series.id, title: state.series.title || '', cover: state.series.cover || null };
+        // `lang` is the BOOK's language (EPUB dc:language, catalogue
+        // Series.language), not the app's. The voice module needs it to rank
+        // device voices and to segment sentences — narrating a Japanese import
+        // with an English voice is the same bug as showing it in the wrong font.
+        const ch = state.chapters[state.chIndex];
+        return {
+          id: state.series.id,
+          title: state.series.title || '',
+          cover: state.series.cover || null,
+          lang: (ch && ch.lang) || state.series.language || null,
+        };
       },
 
       /** Is this character on the current page / inside the readable band?

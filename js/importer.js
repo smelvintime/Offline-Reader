@@ -821,6 +821,12 @@
     'link', 'meta', 'title', 'base', 'form', 'input', 'button', 'select', 'option',
     'textarea', 'audio', 'video', 'canvas', 'map', 'area', 'param', 'source',
     'track', 'applet', 'frame', 'frameset', 'math', 'annotation', 'annotation-xml',
+    // Ruby annotations. <rt> is a pronunciation gloss printed ABOVE the base
+    // text, not part of the sentence, and <rp> is the parenthesis a ruby-less
+    // renderer shows instead. Light novels ruby-annotate constantly, so
+    // keeping them turns "冒険者" into "冒険者ぼうけんしゃ" on the page and reads every
+    // glossed word twice aloud (§2.14). The base text alone is the prose.
+    'rt', 'rp',
   ]);
 
   const HEADING_MAP = { h1: 'h2', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h4', h6: 'h4' };
@@ -1014,7 +1020,9 @@
       }
 
       if (hasBlockDescendant(child)) { flush(); await walkXhtml(child, out, ctx); }
-      else buf += ' ' + (child.textContent || '') + ' ';
+      // textOf, not textContent: this branch takes an inline element whole, and
+      // only textOf honours XHTML_SKIP (ruby glosses, stray <script>).
+      else buf += ' ' + textOf(child) + ' ';
     }
     flush();
   }

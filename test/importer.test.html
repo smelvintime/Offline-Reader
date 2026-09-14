@@ -74,8 +74,8 @@
     const results = [];
     let currentTest = null;
 
-    function ok(cond, label) {
-      currentTest.checks.push({ ok: !!cond, label: label });
+    function ok(cond, label, detail) {
+      currentTest.checks.push({ ok: !!cond, label: label, detail: cond ? null : (detail || null) });
       if (!cond) currentTest.failed = true;
     }
     function eq(actual, expected, label) {
@@ -179,7 +179,7 @@
         '<dc:title>' + (o.title || 'The Test Chronicles') + '</dc:title>' +
         '<dc:creator>' + (o.creator || 'A. Tester') + '</dc:creator>' +
         '<dc:description>' + (o.description || 'A book that exists to be parsed.') + '</dc:description>' +
-        '<dc:language>en</dc:language>' +
+        '<dc:language>' + (o.language || 'en') + '</dc:language>' +
         '<meta name="cover" content="coverimg"/>' +
         '</metadata><manifest>' +
         '<item id="coverimg" href="images/cover.png" media-type="image/png"/>' +
@@ -863,6 +863,46 @@
         eq((await Store.listThoughts({})).length, 2, 'and leaves existing thoughts alone');
 
         await wipeThoughts();
+      });
+
+      await test('EPUB: ruby annotations are stripped, base text kept', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'ruby.epub',
+          title: 'The Ruby Chronicles',
+          chapters: [{
+            file: 'r1.xhtml', tocTitle: 'Furigana',
+            xhtml:
+              // The three shapes real light novels use: plain ruby, ruby with
+              // <rp> fallback parentheses, and per-character ruby.
+              '<p>The <ruby>adventurer<rt>boukensha</rt></ruby> guild.</p>' +
+              '<p><ruby>冒険者<rp>(</rp><rt>ぼうけんしゃ</rt><rp>)</rp></ruby>ギルド。</p>' +
+              '<p><ruby>冒<rt>ぼう</rt>険<rt>けん</rt>者<rt>しゃ</rt></ruby>だ。</p>' +
+              // Ruby directly under a wrapper div takes the inline-buffer path.
+              '<div><ruby>道<rt>みち</rt></ruby>は長い。</div>',
+          }],
+        });
+        const series = await I.importFile(file);
+        const blocks = (await Store.getChapter(series.id, series.chapters[0].id)).blocks;
+        const text = blocks.map(function (b) { return b.c || ''; }).join('\n');
+        ok(text.indexOf('boukensha') === -1, 'the Latin reading is gone', text);
+        ok(text.indexOf('ぼうけんしゃ') === -1, 'the kana reading is gone', text);
+        ok(text.indexOf('(') === -1 && text.indexOf(')') === -1, '<rp> fallback parentheses are gone', text);
+        ok(text.indexOf('The adventurer guild.') !== -1, 'base text survives intact', text);
+        ok(text.indexOf('冒険者ギルド。') !== -1, 'base text survives with <rp> too', text);
+        ok(text.indexOf('冒険者だ。') !== -1, 'per-character ruby rejoins as the word', text);
+        ok(text.indexOf('道は長い。') !== -1, 'ruby inside a bare wrapper is stripped too', text);
+      });
+
+      await test('EPUB: dc:language reaches the series and its chapters', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'lang.epub', title: 'A Language Book', language: 'ja',
+          chapters: [{ file: 'l1.xhtml', tocTitle: 'One', xhtml: '<p>こんにちは。</p>' }],
+        });
+        const series = await I.importFile(file);
+        eq(series.language, 'ja', 'series.language from dc:language');
+        eq(series.chapters[0].lang, 'ja', 'chapter.lang follows it');
       });
 
       await test('refreshSeries merges only genuinely new chapters', async function () {

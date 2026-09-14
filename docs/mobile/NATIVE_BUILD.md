@@ -252,16 +252,12 @@ compiles against `java.util.zip` from the platform.
 Nothing extra to generate — the pieces arrive mechanically — but three things
 are worth knowing, and one is a manual iOS step:
 
-- **The device voice speaks through a plugin, not the WebView.** Android's
-  System WebView has no `window.speechSynthesis` (the Chrome browser does;
-  the WebView never wired it), so `@capacitor-community/text-to-speech` is in
-  `package.json` and `Platform.tts` (§2.3) routes the device engine through
-  the OS speech services on both platforms. `npm install` + `npm run sync`
-  wires it like any plugin; there is no per-platform config. Voice quality on
-  Android follows the device's installed TTS voices (Settings → General
-  management → Text-to-speech output — Google Speech Services voices are the
-  good ones); on iOS it follows Settings → Accessibility → Spoken Content →
-  Voices.
+- **There is no device voice, and no speech plugin.** Narration is Kokoro or
+  nothing (ARCHITECTURE §2.14), so `@capacitor-community/text-to-speech` is
+  not a dependency and nothing routes through the OS speech services. If it
+  reappears in `package.json`, Xcode will warn about `AVSpeechSynthesizer`
+  being non-`Sendable` in a `Sendable` class — a real warning, from a plugin
+  this app does not use.
 
 - **Background narration (applied for you).** For the voice (device or
   Natural) to keep reading with the screen locked, the app needs the audio

@@ -664,11 +664,16 @@ const T = {
     pass = ok(cap.sharedMemory === true, 'this browser grants shared wasm memory', 'sharedMemory=' + cap.sharedMemory) && pass;
     pass = ok(cap.ok === true, 'so the engine is offered here') && pass;
     pass = ok(cap.reason === '', 'and no reason is given when it can run', cap.reason) && pass;
+    // The size is the answer, not the yes/no. A probe asking for one page got
+    // "yes" on the very phone whose engine could not start, because the engine
+    // asks for a 4 GB reservation and one page is not the same question.
+    pass = ok(cap.heapPages >= 4096, 'the granted heap is recorded in pages', 'heapPages=' + cap.heapPages) && pass;
     // The line a reader sees names all three facts, so a screenshot is a bug report.
     const line = T.neuralCapabilityLine();
-    for (const bit of ['shared wasm memory', 'cross-origin isolated', 'SharedArrayBuffer']) {
+    for (const bit of ['shared wasm heap', 'cross-origin isolated', 'SharedArrayBuffer']) {
       pass = ok(line.indexOf(bit) !== -1, 'the readable line names ' + bit, line) && pass;
     }
+    pass = ok(/shared wasm heap: \d+ MB/.test(line), 'and reports the heap in megabytes', line) && pass;
     // Memoised — WebAssembly.Memory allocation is not free to repeat.
     pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
 
@@ -694,6 +699,8 @@ const T = {
       const webkit = T.neuralCapability();
       pass = ok(webkit.ok === false, 'no shared memory -> the engine is not offered') && pass;
       pass = ok(/shared WebAssembly memory/.test(webkit.reason), 'and the reason names it', webkit.reason) && pass;
+      pass = ok(T.neuralCapabilityLine().indexOf('heap: NONE') !== -1,
+        'and the line says NONE rather than a size', T.neuralCapabilityLine()) && pass;
       pass = ok(/cross-origin isolated/.test(webkit.reason), 'and points at isolation', webkit.reason) && pass;
       pass = ok(/cross-origin isolated context/.test(webkit.memoryError || ''), 'the engine error is kept verbatim', webkit.memoryError) && pass;
 
@@ -705,6 +712,24 @@ const T = {
       pass = ok(!V().state().preparing, 'and never enters the preparing state') && pass;
       pass = ok(neuralStub.spoken.length === 0, 'nothing was generated') && pass;
       endSession();
+
+      // The case this whole change exists for: iOS grants shared memory, and
+      // refuses the 4 GB reservation the engine asks for unprompted. The old
+      // probe asked for one page, got a yes, and sent the reader to a
+      // "Preparing the narrator" that never finished. Stepping down is the fix.
+      WebAssembly.Memory = function (d) {
+        if (d && d.maximum > 16384) throw new RangeError('could not allocate memory');
+        return new realMemory(d);
+      };
+      T.resetCapability();
+      const phone = T.neuralCapability();
+      pass = ok(phone.ok === true, 'a phone that refuses 4 GB still gets the engine') && pass;
+      pass = ok(phone.heapPages === 16384, 'stepped down to the largest heap it would grant',
+        'heapPages=' + phone.heapPages) && pass;
+      pass = ok(T.neuralCapabilityLine().indexOf('heap: 1024 MB') !== -1,
+        'and the line reports what was granted, not what was asked',
+        T.neuralCapabilityLine()) && pass;
+      pass = ok(!phone.memoryError, 'a step-down is not an error', phone.memoryError) && pass;
     } finally {
       WebAssembly.Memory = realMemory;
       T.resetCapability();
@@ -746,17 +771,35 @@ const T = {
       // Nothing bundled: falls through to the cache probe, which is what keeps
       // the plain web app downloading exactly as it did before.
       ne.bundledCache = null;
-      stubFetch(() => Promise.resolve({ ok: false }));
+      stubFetch(() => Promise.resolve({ ok: false, status: 404 }));
       pass = ok(await ne.bundled() === false, 'no bundled weights -> false') && pass;
       pass = ok(await ne.downloaded() === false, 'and nothing cached -> still a download') && pass;
+      // "Download voice (~90 MB)" on a build that bundles its weights is this
+      // probe having failed, and 404 (never reached the bundle) wants a
+      // different fix from a throw (the scheme handler refused it). Saying
+      // which is the difference between one rebuild and three.
+      pass = ok(ne.bundledWhy === 'weights HTTP 404', 'a miss records the status', ne.bundledWhy) && pass;
+      pass = ok(VT().neuralCapabilityLine().indexOf('weights HTTP 404') !== -1,
+        'and it reaches the line the reader can screenshot', VT().neuralCapabilityLine()) && pass;
 
       // A probe that throws is a "no", not a crash.
       ne.bundledCache = null;
+      ne.bundledWhy = '';
       stubFetch(() => Promise.reject(new Error('nope')));
       pass = ok(await ne.bundled() === false, 'a throwing probe answers no rather than rejecting') && pass;
+      pass = ok(/weights unreachable: nope/.test(ne.bundledWhy),
+        'and a throw is reported as unreachable, not as a status', ne.bundledWhy) && pass;
+
+      // A build that has them says nothing extra: the line stays short.
+      ne.bundledCache = null;
+      ne.bundledWhy = '';
+      stubFetch(() => Promise.resolve({ ok: true }));
+      await ne.bundled();
+      pass = ok(ne.bundledWhy === '', 'a found build adds nothing to the line', ne.bundledWhy) && pass;
     } finally {
       window.fetch = realFetch;
       ne.bundledCache = null;
+      ne.bundledWhy = '';
     }
     return { name: 'bundled weights', pass };
   },

@@ -9,12 +9,13 @@
 // their library should not be paying for.
 //
 // Protocol (all messages are plain objects with a `type`):
-//   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[] }
+//   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[],
+//                        heapPages:number[] }
 //   in:  { type:'generate', id, text, voice }
 //   in:  { type:'cancel' }                  — drop everything not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'progress', file, loaded, total }   — model download
-//   out: { type:'ready' } | { type:'init-error', message }
+//   out: { type:'ready', heapPages } | { type:'init-error', message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds }  (wav transferred)
 //   out: { type:'error', id, message }
 //
@@ -32,6 +33,51 @@ let running = false;
 // happens after we have told the main thread we exist.
 function loadEngine() {
   return import(new URL('../vendor/tts/kokoro.web.js', self.location.href).href);
+}
+
+// ── Cap the engine's address-space reservation ───────────────────────────────
+//
+// emscripten's glue creates the heap with a hardcoded
+// `new WebAssembly.Memory({initial: 256, maximum: 65536, shared: true})`:
+// 16 MB of real pages behind a 4 GB reservation. A shared memory can never be
+// relocated, so that maximum is reserved as contiguous address space the
+// moment it is created, and iOS refuses it. The throw happens inside the
+// engine's init, where nothing is reported and nothing is retried, which is
+// how a tap on Listen turned into "Preparing the narrator" forever.
+//
+// A smaller maximum links against the same binary: the import asks for at
+// least 256 pages and at most 65536, so any maximum inside that range is a
+// valid link. Kokoro at q8 never comes close to a gigabyte.
+//
+// So the constructor is wrapped rather than vendor/ being edited, because
+// vendored code is not ours to edit and this is our decision to make. Only
+// the engine's own oversized shared request is touched; everything else is
+// passed straight through untouched.
+function capWasmMemory(pages) {
+  const Native = WebAssembly.Memory;
+  if (Native.__orCapped) return;              // a second init must not re-wrap
+  let granted = 0;
+
+  function Capped(desc) {
+    const d = desc || {};
+    // Not the engine's heap: hand it to the real constructor unchanged.
+    if (!d.shared || !(d.maximum > pages[pages.length - 1])) return new Native(d);
+    let lastErr = null;
+    for (let i = 0; i < pages.length; i++) {
+      if (pages[i] > d.maximum) continue;      // never widen what was asked for
+      try {
+        const mem = new Native({ initial: d.initial, maximum: pages[i], shared: true });
+        granted = pages[i];
+        return mem;
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new RangeError('no shared WebAssembly memory could be reserved');
+  }
+
+  Capped.prototype = Native.prototype;        // instanceof keeps working
+  Capped.__orCapped = true;
+  WebAssembly.Memory = Capped;
+  return function () { return granted; };
 }
 
 function post(msg, transfer) {
@@ -88,6 +134,10 @@ async function haveLocalWeights(model) {
 
 async function init(msg) {
   try {
+    const heapGranted = capWasmMemory(
+      Array.isArray(msg.heapPages) && msg.heapPages.length
+        ? msg.heapPages : [65536, 16384, 8192, 4096],
+    );
     const mod = await loadEngine();
     // ONNX Runtime would otherwise fetch its wasm from a CDN; everything this
     // app runs is self-hosted, so point it at vendor/tts/ next to the bundle.
@@ -116,7 +166,9 @@ async function init(msg) {
         }
       },
     });
-    post({ type: 'ready' });
+    // Says which rung the reservation actually landed on, so the reader-facing
+    // engine line reports what the engine got rather than what it asked for.
+    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0 });
     pump();
   } catch (e) {
     post({ type: 'init-error', message: e && e.message ? String(e.message) : 'init failed' });

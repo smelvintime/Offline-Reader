@@ -1041,7 +1041,8 @@ page turn), and renders the header Listen button only when `window.NovelVoice`
 exists. Everything the voice module does to the reader goes through the
 `bridge` (novel-reader's `voiceBridge()`): `state()`, `blockText` (the shared
 canonical text function — offsets must agree or anchors drift), `entry` /
-`entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`,
+`entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`
+(carrying the book's own `lang`),
 `anchorVisible(anchor)`, `reveal(anchor)` (→ `settleLayout`, so listening
 persists progress through the exact path a page turn uses), `goChapter(delta)`,
 `mount(node)`, `toast`, `listenPressed(on)`.
@@ -1434,6 +1435,16 @@ await Importer.hydrateChapter(seriesId, chapterId)
 await Importer.exportLibrary({ includeChapters })  // → backup JSON (no source blobs)
 await Importer.importLibrary(json)         // bulk upserts — idempotent over intact rows
 ```
+
+**EPUB XHTML → blocks** (`xhtmlToBlocks`) takes the prose and nothing else.
+Beyond the inert-by-construction tags (`script`, `style`, `iframe`, …),
+`XHTML_SKIP` drops **`rt` and `rp`**: ruby annotations are a pronunciation
+gloss printed above the base text, not part of the sentence. Light novels
+ruby-annotate constantly, and keeping them renders `冒険者` as
+`冒険者ぼうけんしゃ` on the page and makes the reader voice (§2.14) say every
+glossed word twice. `dc:language` is carried onto the `Series` and each
+`Chapter`, which is what lets the voice module pick a narrator that can
+actually read the book.
 
 The URL flow calls the worker's `/resolve` endpoint (§6.2), normalizes the
 response into a `Series` with `source: "user"`, and persists it via

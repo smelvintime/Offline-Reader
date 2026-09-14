@@ -97,7 +97,15 @@ into each other, play/pause on the lock screen. Two narrators to choose from:
 - **Natural voice** — an 82-million-parameter neural narrator ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M))
   that runs **entirely on your device**. One ~90 MB download, then it works
   offline, forever, with eight narrators to pick from. No account, no API key,
-  no audio ever leaving the device — same as everything else here.
+  no audio ever leaving the device — same as everything else here. It reads
+  English; open a book in another language and the app says so and uses the
+  device voice instead, rather than offering you a download it cannot use.
+
+Both narrators are fed the book as a person would read it: furigana and other
+ruby glosses stay above the line instead of being spoken, a sentence is never
+cut in half between two clips, and the typography translated light novels are
+full of — `……`, `――`, `「」` — becomes the pause or the quotation mark it stands
+for instead of something read out or swallowed.
 
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.

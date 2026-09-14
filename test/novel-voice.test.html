@@ -40,6 +40,7 @@
   <button onclick="T.testNativeTts().then(T.report)">native tts</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
+  <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
   <button onclick="T.testNeuralFallback().then(T.report)">neural fallback</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
@@ -300,6 +301,17 @@ const T = {
     pass = ok(n('salt — and iron', 'neural') === 'salt — and iron', 'neural: em-dash kept for the model') && pass;
     pass = ok(n('“curly” and ‘single’', 'device') === '"curly" and \'single\'', 'device: curly quotes straightened') && pass;
     pass = ok(n('a b\n c', 'neural') === 'a b c', 'whitespace collapsed') && pass;
+
+    // Light-novel typography (§2.14): shapes an engine chokes on rather than
+    // stylistic choices it can interpret.
+    pass = ok(n('Wait…… what?', 'neural') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'neural')) && pass;
+    pass = ok(n('Well...... no', 'device') === 'Well… no', 'a run of dots is one ellipsis too', n('Well...... no', 'device')) && pass;
+    pass = ok(n('He said――then stopped', 'neural') === 'He said—then stopped', 'a dash RUN becomes one em dash', n('He said――then stopped', 'neural')) && pass;
+    pass = ok(n('He said――then stopped', 'device') === 'He said, then stopped', 'device turns the same run into a pause') && pass;
+    pass = ok(n('「はい」', 'neural') === '“はい”', 'corner brackets read as quotation marks', n('「はい」', 'neural')) && pass;
+    pass = ok(n('え！　なぜ？', 'neural') === 'え! なぜ?', 'full-width terminators become ASCII', n('え！　なぜ？', 'neural')) && pass;
+    // The katakana prolonged sound mark LOOKS like a dash and is a letter.
+    pass = ok(n('ラーメン', 'device') === 'ラーメン', 'U+30FC survives as part of the word', n('ラーメン', 'device')) && pass;
     return { name: 'normalize', pass };
   },
 
@@ -660,10 +672,34 @@ const T = {
     }
     pass = ok(covered === s.length, 'group chain covers the chapter exactly', covered + '/' + s.length) && pass;
 
-    // A very long single sentence is its own group (cap respected upstream).
-    const long = VT().segmentBlocks([{ t: 'p', c: Array(30).fill('the wind counted coins against the shutters and nobody spoke').join(', ') + '.' }], blockText);
+    // A very long single sentence: splitLong cuts it into `cont` pieces for the
+    // device engine's utterance cap, and grouping must put them BACK together
+    // so the neural engine never renders half a clause. One group, whole
+    // sentence, and still bounded.
+    const oneSentence = Array(7).fill('the wind counted coins against the shutters and nobody spoke').join(', ') + '.';
+    const long = VT().segmentBlocks([{ t: 'p', c: oneSentence }], blockText);
+    pass = ok(long.length > 1, 'the long sentence was split for the device cap', long.length + ' pieces') && pass;
+    pass = ok(long.slice(1).every(x => x.cont), 'every piece after the first is flagged as a continuation') && pass;
     const gl = VT().groupSentences(long, 0);
-    pass = ok(gl.text.length <= 320, 'long-sentence groups stay near the utterance cap', gl.text.length) && pass;
+    pass = ok(gl.to === long.length - 1, 'the split sentence comes back as ONE group', gl.from + '..' + gl.to) && pass;
+    pass = ok(gl.text.length <= 700, 'rejoined groups stay under the continuation ceiling', gl.text.length) && pass;
+
+    // Two such sentences in one paragraph must NOT chain into one giant group:
+    // the continuation rule finishes a sentence, it does not merge sentences.
+    const two = VT().segmentBlocks([{ t: 'p', c: oneSentence + ' ' + oneSentence }], blockText);
+    const g2a = VT().groupSentences(two, 0);
+    pass = ok(g2a.to === long.length - 1, 'a second long sentence starts a new group', g2a.from + '..' + g2a.to + ' of ' + (two.length - 1)) && pass;
+
+    // A pathologically long sentence is still bounded — the ceiling wins over
+    // the finish-the-sentence rule, so one generation can never run away.
+    const huge = VT().segmentBlocks([{ t: 'p', c: Array(40).fill('the wind counted coins against the shutters and nobody spoke').join(', ') + '.' }], blockText);
+    const gh = VT().groupSentences(huge, 0);
+    pass = ok(gh.text.length <= 700, 'even a runaway sentence is capped', gh.text.length) && pass;
+
+    // Light-novel dialogue: short complete lines stay their own sentences
+    // instead of being swallowed as "fragments".
+    const beats = VT().segmentBlocks([{ t: 'p', c: 'Ah! Mm. Eh? She went.' }], blockText);
+    pass = ok(beats.length === 4, 'short but complete sentences are not merged away', beats.map(b => b.text).join(' | ')) && pass;
     return { name: 'grouping', pass };
   },
 
@@ -709,6 +745,60 @@ const T = {
       endSession();
     }
     return { name: 'neural pipeline', pass };
+  },
+
+  // The lookahead and the cursor race for the same group. wavCache only knows
+  // about FINISHED generations, so without in-flight dedupe the model renders
+  // every group twice on a serial queue — the stutter people hear on a phone.
+  async testNeuralDedupe() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const orig = { ensureReady: ne.ensureReady };
+    const jobs = [];
+    const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 0.1 s
+    // Real generate(), real wavCache, real lookahead; only the worker is fake.
+    // It must be SLOWER than playback (400 ms per group against 100 ms of
+    // audio) — that is the slower-than-realtime phone this guards, and the only
+    // condition under which a prefetch is still in flight when the cursor
+    // arrives. A fast fake would pass with or without the dedupe.
+    ne.ensureReady = function () {
+      ne.worker = {
+        postMessage(m) {
+          if (m.type !== 'generate') return;
+          jobs.push(m.text);
+          setTimeout(() => ne.settle(m.id, null, { type: 'audio', id: m.id, wav: wav.slice(0), seconds: 0.1 }), 400);
+        },
+        terminate() {},
+      };
+      ne.readyPromise = Promise.resolve();
+      ne.ready = true;
+      return ne.readyPromise;
+    };
+    try {
+      await freshOpen();
+      Store.prefs.set('voice.engine', 'neural');
+      Store.prefs.set('voice.autoNext', false);
+      V().toggle();
+      await waitFor(() => V().state().index >= 4, 15000, 'cursor advanced across groups');
+      VT().pause();
+      await pause(250);
+      const counts = {};
+      jobs.forEach(t => { counts[t] = (counts[t] || 0) + 1; });
+      const repeated = Object.keys(counts).filter(k => counts[k] > 1);
+      pass = ok(jobs.length > 2, 'the worker was actually exercised', jobs.length + ' jobs') && pass;
+      pass = ok(jobs.length === Object.keys(counts).length, 'one job per distinct group',
+                jobs.length + ' jobs / ' + Object.keys(counts).length + ' groups') && pass;
+      pass = ok(repeated.length === 0, 'no group is synthesised twice',
+                repeated.length ? 'x' + counts[repeated[0]] + ' ' + repeated[0].slice(0, 60) : jobs.length + ' jobs, all distinct') && pass;
+    } finally {
+      ne.ensureReady = orig.ensureReady;
+      ne.ready = false; ne.readyPromise = null; ne.worker = null;
+      ne.inFlight.clear();
+      Store.prefs.set('voice.engine', 'device');
+      Store.prefs.set('voice.autoNext', true);
+      endSession();
+    }
+    return { name: 'neural dedupe', pass };
   },
 
   async testNeuralFallback() {
@@ -760,7 +850,7 @@ const T = {
       T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
-      T.testGrouping, T.testNeuralPipeline, T.testNeuralFallback, T.testClose,
+      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

@@ -74,6 +74,10 @@
   // control there is a feature.
   const NEURAL_GROUP_TARGET = 160;   // stop growing a group past this
   const NEURAL_GROUP_MAX = 300;      // never exceed (long groups delay first audio)
+  // …except to finish a sentence splitLong had to cut: a seam inside a clause
+  // is worse than a slightly longer generation. Kokoro chunks internally, so
+  // this costs latency on one group, not correctness.
+  const NEURAL_GROUP_CONT_MAX = 700;
   const NEURAL_LOOKAHEAD = 2;        // groups generated ahead of playback
   const NEURAL_TIMEOUT_MS = 120000;  // one group; the first pays session warm-up
   const WAV_CACHE_MAX = 10;          // generated groups kept for replay/skip-back
@@ -120,6 +124,19 @@
   // The narrators offered, curated from kokoro-js's graded list: everything
   // B-or-better plus the best male options (the male half of the pack grades
   // lower across the board; Michael/Fenrir/Puck are its strongest).
+  // Kokoro-82M's multilingual weights exist, but the vendored kokoro-js web
+  // bundle ships only the en-us / en-gb voices and only an English G2P front
+  // end (see vendor/tts/README.md). Handing it Japanese or Chinese prose does
+  // not fail — it phonemizes the characters as if they were English and reads
+  // confident nonsense, which is worse than failing. The engine is offered
+  // only for books in a language it actually speaks.
+  const NEURAL_LANGS = { en: true };
+
+  function neuralSpeaks(lang) {
+    const base = String(lang || 'en').toLowerCase().split('-')[0];
+    return !!NEURAL_LANGS[base];
+  }
+
   const NEURAL_VOICES = [
     { id: 'af_heart',   label: 'Heart',   note: 'American · warm' },
     { id: 'af_bella',   label: 'Bella',   note: 'American · bright' },
@@ -250,15 +267,23 @@
   const SKIP_BLOCKS = { hr: true, img: true };
   const HEADING_BLOCKS = { h2: true, h3: true, h4: true };
 
-  let sentenceSegmenter = null;
-  function getSegmenter() {
-    if (sentenceSegmenter !== null) return sentenceSegmenter;
+  // One segmenter per language tag. The book's language, not the app's: an
+  // imported Japanese light novel must not be sentence-broken by English rules.
+  const segmenterCache = new Map();
+  function getSegmenter(lang) {
+    const tag = lang || 'en';
+    if (segmenterCache.has(tag)) return segmenterCache.get(tag);
+    let seg = false;
     try {
-      sentenceSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
-        ? new Intl.Segmenter('en', { granularity: 'sentence' })
-        : false;
-    } catch (e) { sentenceSegmenter = false; }
-    return sentenceSegmenter;
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        seg = new Intl.Segmenter(tag, { granularity: 'sentence' });
+      }
+    } catch (e) {
+      // An unknown or malformed tag throws RangeError; English rules beat none.
+      try { seg = new Intl.Segmenter('en', { granularity: 'sentence' }); } catch (e2) { seg = false; }
+    }
+    segmenterCache.set(tag, seg);
+    return seg;
   }
 
   // Abbreviations that must not end a sentence. Intl.Segmenter follows ICU's
@@ -266,6 +291,11 @@
   // spoke." really does come back as two segments — so BOTH paths need this
   // merge, not just the regex fallback.
   const ABBREV = /(?:\b(?:mr|mrs|ms|dr|prof|st|mt|vs|etc|jr|sr|no|vol|ch|pp?))[.]["'”’)\]]*\s*$/i;
+
+  // A range that ends on a real terminator is a whole sentence however short it
+  // is — "Ah!", "「はい」", "Mm." Light-novel dialogue is made of these, and the
+  // length rule below would otherwise glue them onto the next line.
+  const COMPLETE_SHORT = /[.!?…。！？]["'”’)\]」』】〉》]*\s*$/;
 
   // Merge a range into its successor when it ends in an abbreviation (or is a
   // fragment too short to be a sentence, like an initial). Runs until stable
@@ -277,7 +307,7 @@
       while (i + 1 < ranges.length) {
         const seg = text.slice(r.start, r.end);
         const trimmed = seg.trim();
-        if (!ABBREV.test(seg) && trimmed.length > 3) break;
+        if (!ABBREV.test(seg) && (trimmed.length > 3 || COMPLETE_SHORT.test(trimmed))) break;
         r.end = ranges[i + 1].end;
         i++;
       }
@@ -286,11 +316,11 @@
     return out;
   }
 
-  function splitIntoSentences(text) {
+  function splitIntoSentences(text, lang) {
     // → [{ start, end }] over `text`, untrimmed. Trimming happens in the caller
     // so both paths share it.
     const out = [];
-    const seg = getSegmenter();
+    const seg = getSegmenter(lang);
     if (seg) {
       const it = seg.segment(text);
       let iter = it[Symbol.iterator](), r;
@@ -300,15 +330,22 @@
       }
       return mergeAbbrevRanges(text, out);
     }
-    // Fallback: split after . ! ? … followed by whitespace + a capital/quote,
-    // unless the tail looks like a known abbreviation.
+    // Fallback (no Intl.Segmenter). Two shapes of prose to serve:
+    //
+    //   Western — split after . ! ? … followed by whitespace + a capital or an
+    //   opening quote, unless the tail looks like a known abbreviation.
+    //   CJK — no spaces at all, so the whitespace rule never fires. Full-width
+    //   terminators (。！？) end a sentence on their own, after any closing
+    //   bracket that trails them.
     let start = 0;
-    const re = /[.!?…]+["'”’)\]]*\s+/g;
+    const re = /(?:[.!?…]+["'”’)\]]*\s+|[。！？]+[」』】〉》"'”’)\]]*)/g;
     let m;
     while ((m = re.exec(text))) {
       const end = m.index + m[0].length;
       const next = text[end];
-      if (next && !/[A-Z0-9"'“‘]/.test(next)) continue;
+      // The whitespace-terminated branch still wants a sentence-looking start
+      // after it; the full-width branch is unambiguous and always splits.
+      if (/\s$/.test(m[0]) && next && !/[A-Z0-9"'“‘]/.test(next)) continue;
       out.push({ start: start, end: end });
       start = end;
     }
@@ -319,19 +356,33 @@
   // A very long sentence is split at its last clause mark before the cap —
   // falling back to the last space — so no single utterance runs long enough
   // for an engine to lose its footing.
+  //
+  // Every piece after the first is flagged `cont`: it is a CONTINUATION of one
+  // sentence, not a sentence of its own. The device engine still speaks the
+  // pieces separately (that cap is what keeps Chrome from cutting out
+  // mid-paragraph), but the neural engine rejoins them (groupSentences below) so the
+  // model never renders half a clause with nothing after the comma.
   function splitLong(text, start, end, into) {
+    let cont = false;
     while (end - start > MAX_SPOKEN_CHARS) {
       const slice = text.slice(start, start + MAX_SPOKEN_CHARS);
       let cut = -1;
+      // Latin clause marks want the following space; CJK has none, and its
+      // marks (、。；：) are themselves the boundary.
       const clause = /[,;:—–]\s[^,;:—–]*$/.exec(slice);
       if (clause) cut = clause.index + 1;
+      if (cut < 40) {
+        const cjk = /[、。；：」』][^、。；：」』]*$/.exec(slice);
+        if (cjk) cut = cjk.index + 1;
+      }
       if (cut < 40) cut = slice.lastIndexOf(' ');
       if (cut < 40) cut = MAX_SPOKEN_CHARS;
-      into.push({ start: start, end: start + cut });
+      into.push({ start: start, end: start + cut, cont: cont });
+      cont = true;
       start += cut;
       while (start < end && /\s/.test(text[start])) start++;
     }
-    if (start < end) into.push({ start: start, end: end });
+    if (start < end) into.push({ start: start, end: end, cont: cont });
   }
 
   function pushTrimmed(text, range, blockIdx, kind, out) {
@@ -349,13 +400,16 @@
     splitLong(text, s, e, parts);
     for (let i = 0; i < parts.length; i++) {
       out.push({ blockIdx: blockIdx, start: parts[i].start, end: parts[i].end,
-                 text: text.slice(parts[i].start, parts[i].end), kind: kind });
+                 text: text.slice(parts[i].start, parts[i].end), kind: kind,
+                 cont: !!parts[i].cont });
     }
   }
 
   // blockTextFn is novel-reader's own blockText, passed through the bridge so
-  // the two modules can never disagree about what a block "says".
-  function segmentBlocks(blocks, blockTextFn) {
+  // the two modules can never disagree about what a block "says". `lang` is the
+  // BOOK's language tag (bridge.seriesInfo().lang), which decides the sentence
+  // rules — omit it and English is assumed, as before.
+  function segmentBlocks(blocks, blockTextFn, lang) {
     const out = [];
     for (let i = 0; i < (blocks ? blocks.length : 0); i++) {
       const b = blocks[i];
@@ -375,7 +429,7 @@
         let off = 0;
         for (let k = 0; k < b.items.length; k++) {
           const item = String(b.items[k]);
-          const ranges = splitIntoSentences(item);
+          const ranges = splitIntoSentences(item, lang);
           for (let r = 0; r < ranges.length; r++) {
             pushTrimmed(text, { start: off + ranges[r].start, end: off + ranges[r].end }, i, 'text', out);
           }
@@ -384,7 +438,7 @@
         continue;
       }
 
-      const ranges = splitIntoSentences(text);
+      const ranges = splitIntoSentences(text, lang);
       for (let r = 0; r < ranges.length; r++) pushTrimmed(text, ranges[r], i, 'text', out);
     }
     return out;
@@ -407,17 +461,50 @@
   // handed to an engine is transformed, so nothing here can drift an anchor.
   // ─────────────────────────────────────────────────────────────────────────
 
+  // Every dash a translated light novel uses for an interruption. U+2014/2013
+  // are the Western pair; U+2015 (horizontal bar) and U+2500/U+2501 (box
+  // drawing) are what Japanese typesetting's ―― becomes once it survives a
+  // round trip, and they turn up in fan translations constantly.
+  //
+  // Deliberately NOT here: U+30FC, the katakana prolonged sound mark. It looks
+  // like a dash and is a letter — ラーメン is a word, not ラ, a pause, メン.
+  const DASH_CHARS = '\u2014\u2013\u2015\u2500\u2501';
+  const DASH_RUN = new RegExp('[' + DASH_CHARS + ']+', 'g');            // the marks alone
+  const DASH_CLAUSE = new RegExp('\\s*[' + DASH_CHARS + ']+\\s*', 'g');   // and the space around them
+
   function normalizeForSpeech(text, engine) {
     let s = String(text);
     // Footnote markers are typography, not prose. "[3]" read aloud is noise.
     s = s.replace(/\[\d+\]/g, ' ');
+
+    // Light-novel typography, normalised for BOTH engines — these are not
+    // stylistic choices an engine can interpret, they are shapes it chokes on.
+    //
+    // A run of dots or ellipses ("……", "......") is one pause, not six. Kokoro
+    // renders a long run as a long dead stop and some device engines read the
+    // dots out; a single ellipsis gets the beat the page is asking for.
+    s = s.replace(/(?:…|\.\s*\.\s*\.)(?:\s*(?:…|\.))*/g, '…');
+    // Corner brackets are Japanese quotation marks. Left as-is an engine either
+    // skips them or names them ("left corner bracket"); as quotes they carry
+    // the dialogue the way the rest of the book's quotes do.
+    s = s.replace(/[「『〈《｢]/g, '“').replace(/[」』〉》｣]/g, '”');
+    // Full-width terminators an English G2P front end does not know.
+    s = s.replace(/！/g, '!').replace(/？/g, '?').replace(/，/g, ',').replace(/、/g, ',').replace(/。/g, '.');
+    // U+30FB katakana middle dot, used as a name separator.
+    s = s.replace(/・/g, ' ');
+
     s = s.replace(/\s+/g, ' ');
     if (engine === 'device') {
       // Device engines mostly ignore dashes and run the clauses together; a
       // comma buys the pause a narrator would take. The neural engine was
       // trained on real punctuation and does better with the dash kept.
-      s = s.replace(/\s*[—–]\s*/g, ', ');
+      s = s.replace(DASH_CLAUSE, ', ');
       s = s.replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'");
+    } else {
+      // Neural: keep the dash and the spacing the page had, but reduce a RUN to
+      // one em dash — the shape the model was trained on. "―――" is not a
+      // punctuation mark it has ever seen.
+      s = s.replace(DASH_RUN, '—');
     }
     return s.trim();
   }
@@ -780,8 +867,21 @@
     },
   };
 
+  // The language narration should be IN. The open book's own tag wins — an
+  // imported Japanese light novel read by an English voice is noise, and the
+  // app shell's <html lang> says nothing about what is on the page. Falls back
+  // to the shell, then to English.
+  function bookLang() {
+    try {
+      const info = state.bridge && state.bridge.seriesInfo && state.bridge.seriesInfo();
+      const l = info && info.lang;
+      if (typeof l === 'string' && l.trim()) return l.trim();
+    } catch (e) { /* the bridge is an accessory too */ }
+    return '';
+  }
+
   function docLang() {
-    const l = document.documentElement.getAttribute('lang');
+    const l = bookLang() || document.documentElement.getAttribute('lang');
     return l || 'en';
   }
 
@@ -821,6 +921,7 @@
     ready: false,          // resolved at least once (drives the sheet status)
     nextId: 1,
     pending: new Map(),    // id → { resolve, reject, timer }
+    inFlight: new Map(),   // cacheKey → Promise<blob URL> not yet settled
     wavCache: new Map(),   // cacheKey → blob URL (bounded LRU)
     onprogress: null,      // sheet download/init-progress hook
     idleTimer: 0,          // scheduled teardown after release()
@@ -900,9 +1001,17 @@
         this.wavCache.delete(cacheKey); this.wavCache.set(cacheKey, cached);
         return Promise.resolve(cached);
       }
+      // wavCache only knows about FINISHED generations. Without this, a group
+      // the lookahead is still synthesising is requested a second time the
+      // moment the cursor reaches it — and since the worker is a serial queue,
+      // the model renders the same audio twice while playback waits behind it.
+      // That doubling is what a slower-than-realtime phone hears as stuttering.
+      const live = this.inFlight.get(cacheKey);
+      if (live) return live;
+
       const self = this;
       const id = this.nextId++;
-      return new Promise(function (resolve, reject) {
+      const job = new Promise(function (resolve, reject) {
         const timer = setTimeout(function () {
           self.pending.delete(id);
           reject(new Error('Timed out generating audio'));
@@ -920,12 +1029,19 @@
         }
         return url;
       });
+      // Settled either way, this key is no longer in flight: a failed group
+      // must be retryable, and a finished one is answered by wavCache above.
+      const forget = function () { if (self.inFlight.get(cacheKey) === job) self.inFlight.delete(cacheKey); };
+      job.then(forget, forget);
+      this.inFlight.set(cacheKey, job);
+      return job;
     },
 
     cancelPending: function () {
       const self = this;
       this.pending.forEach(function (p) { clearTimeout(p.timer); p.reject(new Error('cancelled')); });
       this.pending.clear();
+      this.inFlight.clear();
       if (this.worker) { try { this.worker.postMessage({ type: 'cancel' }); } catch (e) {} }
     },
 
@@ -1042,7 +1158,7 @@
     const rs = b.state();
     state.chapterId = rs.chapterId;
     const entry = b.entry(state.chapterId);
-    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText) : [];
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang()) : [];
     const a = rs.anchor && rs.anchor.chapterId === state.chapterId ? rs.anchor : { blockIdx: 0, charInBlock: 0 };
     state.index = sentenceIndexAt(state.sentences, a.blockIdx | 0, a.charInBlock | 0);
   }
@@ -1123,6 +1239,17 @@
       const next = list[to + 1];
       if (next.blockIdx !== first.blockIdx) break;
       if (next.kind !== first.kind) break;
+      // A `cont` piece is the back half of ONE sentence that splitLong cut for
+      // the device engine's utterance cap. Ending a group there hands Kokoro a
+      // clause with no resolution — it renders the trailing comma as a held,
+      // rising note and then starts the remainder cold. Keep them together past
+      // the normal caps, up to a ceiling that still generates in one go.
+      if (next.cont) {
+        if (chars + next.text.length > NEURAL_GROUP_CONT_MAX) break;
+        chars += next.text.length;
+        to++;
+        continue;
+      }
       if (chars >= NEURAL_GROUP_TARGET) break;
       if (chars + next.text.length > NEURAL_GROUP_MAX) break;
       chars += next.text.length;
@@ -1248,7 +1375,7 @@
     const b = state.bridge;
     state.chapterId = chapter.id;
     const entry = b.entry(chapter.id);
-    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText) : [];
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang()) : [];
     state.index = 0;
     mediaSessionUpdate();
     if (!state.sentences.length) { state.emptyHops++; onChapterExhausted(); return; }
@@ -1317,6 +1444,15 @@
   }
 
   function ensureNeuralThenSpeak() {
+    // Wrong-language book: fall back BEFORE the ~90 MB download, not after.
+    if (!neuralSpeaks(docLang())) {
+      state.prefs.engine = 'device';       // session only; the stored pref stands
+      toast('The natural voice only reads English. Using the device voice for this book.');
+      syncSheet();
+      if (deviceEngine.available()) speakCurrent();
+      else finishSession('No voice on this device can read this book aloud.');
+      return;
+    }
     setPreparingSoon();
     const token = state.speakToken;
     neuralEngine.ensureReady(state.prefs.neuralDevice)
@@ -1893,6 +2029,15 @@
   }
 
   function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
+    // Said before anything about downloads: offering a 90 MB download for a
+    // book the engine cannot read would be the app wasting someone's data.
+    if (state.bridge && !neuralSpeaks(docLang())) {
+      natText.textContent = 'This narrator reads English only, and this book is not in English — it will be read by the device voice above.';
+      natBar.hidden = true;
+      natAction.hidden = true;
+      removeBtn.hidden = !state.neuralHave;
+      return;
+    }
     const initInFlight = !!(neuralEngine.readyPromise && !neuralEngine.ready);
     if (state.neuralDownloading || initInFlight) {
       if (state.neuralPhase === 'init') {
@@ -2027,6 +2172,8 @@
   // download nobody asked for.
   function prewarmNeural() {
     if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
+    if (!neuralSpeaks(docLang())) return;   // this book will use the device voice
+
     // Prewarming is a HIGH-memory-class luxury. Loading half a gigabyte of
     // model in the background of every book open is exactly the kind of
     // pressure that gets a phone's tab OOM-killed — there, the engine loads

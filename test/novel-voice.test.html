@@ -37,7 +37,6 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
-  <button onclick="T.testGpuGate().then(T.report)">gpu gate</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testNativeTts().then(T.report)">native tts</button>
@@ -354,13 +353,11 @@ const T = {
     Store.prefs.set('voice.rate', 99);
     Store.prefs.set('voice.pitch', -3);
     Store.prefs.set('voice.neuralVoice', 'af_nonexistent');
-    Store.prefs.set('voice.neuralDevice', 'quantum');
     const p = VT().readPrefs();
     pass = ok(p.engine === 'device', 'bad engine falls back') && pass;
     pass = ok(p.rate === 1.6, 'rate clamps to its ceiling', p.rate) && pass;
     pass = ok(p.pitch === 0.8, 'pitch clamps to its floor', p.pitch) && pass;
     pass = ok(p.neuralVoice === 'af_heart', 'unknown narrator falls back') && pass;
-    pass = ok(p.neuralDevice === 'wasm', 'unknown device falls back') && pass;
     Store.prefs.set('voice.engine', 'device');
     Store.prefs.set('voice.rate', 1);
     Store.prefs.set('voice.pitch', 1);
@@ -625,98 +622,54 @@ const T = {
   },
 
   // Weights shipped inside the app: the phone must never be told to download
-  // something it already has, and "Remove download" must not offer to delete a
-  // file the next launch restores.
+  // something it already has, and the probe has to work over the custom URL
+  // scheme the native shell serves from.
   async testBundledWeights() {
     let pass = true;
     const ne = VT().neuralEngine;
     const realFetch = window.fetch;
     const asked = [];
-    try {
-      // A build WITH the q8 weights bundled and without the fp32 ones.
+    const stubFetch = (answer) => {
       window.fetch = function (url, opts) {
         const u = String(url);
         if (u.indexOf('/vendor/tts/models/') !== -1) {
-          asked.push((opts && opts.method) + ' ' + u.split('/onnx/')[1]);
-          return Promise.resolve({ ok: u.indexOf('model_quantized.onnx') !== -1 });
+          asked.push((opts && opts.method ? opts.method : 'GET') + ' ' + u.split('/').pop());
+          return answer(u);
         }
         return realFetch.apply(window, arguments);
       };
-      ne.bundledCache = {};
-      pass = ok(await ne.bundled('wasm') === true, 'the bundled q8 weights are found') && pass;
-      pass = ok(await ne.bundled('webgpu') === false, 'the absent fp32 weights are not') && pass;
-      pass = ok(asked.length === 2 && asked.every(a => a.indexOf('HEAD ') === 0),
-        'probed with HEAD, once per dtype', asked.join(' | ')) && pass;
+    };
+    try {
+      stubFetch(() => Promise.resolve({ ok: true }));
+      ne.bundledCache = null;
+      pass = ok(await ne.bundled() === true, 'bundled weights are found') && pass;
+      // A HEAD is the wrong tool: a custom scheme handler only answers the
+      // request types it implements, and GET is the one they all do.
+      pass = ok(asked.length === 1 && asked[0] === 'GET config.json',
+        'probed with a plain GET of the small file next to the weights', asked.join(' | ')) && pass;
 
-      // Memoised: the answer cannot change without a reinstall.
-      await ne.bundled('wasm');
-      pass = ok(asked.length === 2, 'the probe is not repeated', asked.length + ' fetches') && pass;
+      await ne.bundled();
+      pass = ok(asked.length === 1, 'the probe is memoised', asked.length + ' fetches') && pass;
+      pass = ok(await ne.downloaded() === true, 'bundled counts as present') && pass;
 
-      // Bundled counts as downloaded, without consulting the Cache API at all.
-      pass = ok(await ne.downloaded('wasm') === true, 'bundled weights count as present') && pass;
+      // Nothing bundled: falls through to the cache probe, which is what keeps
+      // the plain web app downloading exactly as it did before.
+      ne.bundledCache = null;
+      stubFetch(() => Promise.resolve({ ok: false }));
+      pass = ok(await ne.bundled() === false, 'no bundled weights -> false') && pass;
+      pass = ok(await ne.downloaded() === false, 'and nothing cached -> still a download') && pass;
 
-      // A build with nothing bundled falls back to the cache probe, which is
-      // what keeps the plain web app downloading exactly as it did before.
-      ne.bundledCache = {};
-      window.fetch = function (url) {
-        if (String(url).indexOf('/vendor/tts/models/') !== -1) return Promise.resolve({ ok: false });
-        return realFetch.apply(window, arguments);
-      };
-      pass = ok(await ne.bundled('wasm') === false, 'no bundled weights -> false') && pass;
-      pass = ok(await ne.downloaded('wasm') === false, 'and nothing in the cache -> still a download') && pass;
-
-      // A probe that throws (no fetch, a blocked scheme) is a "no", not a crash.
-      ne.bundledCache = {};
-      window.fetch = function (url) {
-        if (String(url).indexOf('/vendor/tts/models/') !== -1) return Promise.reject(new Error('nope'));
-        return realFetch.apply(window, arguments);
-      };
-      pass = ok(await ne.bundled('wasm') === false, 'a throwing probe answers no rather than rejecting') && pass;
+      // A probe that throws is a "no", not a crash.
+      ne.bundledCache = null;
+      stubFetch(() => Promise.reject(new Error('nope')));
+      pass = ok(await ne.bundled() === false, 'a throwing probe answers no rather than rejecting') && pass;
     } finally {
       window.fetch = realFetch;
-      ne.bundledCache = {};
+      ne.bundledCache = null;
     }
     return { name: 'bundled weights', pass };
   },
 
-  // The GPU row is a 330 MB ask. Offering it where it can only kill the app is
-  // worse than not offering it.
-  async testGpuGate() {
-    let pass = true;
-    const origPlatform = window.Platform;
-    const origGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
-    const setGpu = (v) => Object.defineProperty(navigator, 'gpu', { value: v, configurable: true });
-    try {
-      setGpu(undefined);
-      window.Platform = { memoryClass: () => 'high' };
-      pass = ok(VT().gpuViable() === false, 'no WebGPU -> not offered') && pass;
-      pass = ok(/no WebGPU/.test(VT().gpuRefusal()), 'and says why', VT().gpuRefusal()) && pass;
-
-      setGpu({});
-      window.Platform = { memoryClass: () => 'mid' };
-      pass = ok(VT().gpuViable() === false, 'WebGPU but mid memory -> not offered') && pass;
-      pass = ok(/memory headroom/.test(VT().gpuRefusal()), 'and says why', VT().gpuRefusal()) && pass;
-
-      window.Platform = { memoryClass: () => 'high' };
-      pass = ok(VT().gpuViable() === true, 'WebGPU on a high-memory device -> offered') && pass;
-
-      // A pref stored as webgpu on a device that cannot survive it is corrected
-      // on read, so no consumer can act on it.
-      window.Platform = { memoryClass: () => 'low' };
-      Store.prefs.set('voice.neuralDevice', 'webgpu');
-      pass = ok(VT().readPrefs().neuralDevice === 'wasm',
-        'a stored webgpu is corrected to wasm on an unfit device', VT().readPrefs().neuralDevice) && pass;
-      window.Platform = { memoryClass: () => 'high' };
-      pass = ok(VT().readPrefs().neuralDevice === 'webgpu',
-        'and left alone on a fit one', VT().readPrefs().neuralDevice) && pass;
-    } finally {
-      Store.prefs.set('voice.neuralDevice', 'wasm');
-      if (origGpu) Object.defineProperty(navigator, 'gpu', origGpu);
-      else delete navigator.gpu;
-      window.Platform = origPlatform;
-    }
-    return { name: 'gpu gate', pass };
-  },
 
   async testMemoryTier() {
     let pass = true;
@@ -1013,7 +966,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback,
-      T.testInitStall, T.testGpuGate, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

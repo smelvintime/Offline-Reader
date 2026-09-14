@@ -55,7 +55,10 @@
   // ─────────────────────────────────────────────────────────────────────────
 
   const ENGINES = ['device', 'neural'];
-  const NEURAL_DEVICES = ['wasm', 'webgpu'];
+  // One path only. The GPU path needed the fp32 weights — four times the size,
+  // never bundled, and on a phone a dead process rather than a faster one. It
+  // was a 330 MB download sitting behind a toggle that read as an upgrade.
+  const NEURAL_DEVICE = 'wasm';
 
   const RATE_MIN = 0.6, RATE_MAX = 1.6, RATE_STEP = 0.05;
   const PITCH_MIN = 0.8, PITCH_MAX = 1.2, PITCH_STEP = 0.05;
@@ -118,10 +121,8 @@
   // Cache probes for "is the model already on disk". transformers.js keys its
   // Cache API entries by the resolve URL it fetched; these are the two dtypes
   // this module can ask for. A miss only means "show the download button".
-  const MODEL_URLS = {
-    q8:   'https://huggingface.co/' + MODEL_ID + '/resolve/main/onnx/model_quantized.onnx',
-    fp32: 'https://huggingface.co/' + MODEL_ID + '/resolve/main/onnx/model.onnx',
-  };
+  const MODEL_FILE = 'model_quantized.onnx';   // the q8 weights, and the only ones
+  const MODEL_URL = 'https://huggingface.co/' + MODEL_ID + '/resolve/main/onnx/' + MODEL_FILE;
   const TRANSFORMERS_CACHE = 'transformers-cache';
   const KOKORO_VOICES_CACHE = 'kokoro-voices';
 
@@ -158,7 +159,6 @@
     rate:         'voice.rate',
     pitch:        'voice.pitch',
     neuralVoice:  'voice.neuralVoice',
-    neuralDevice: 'voice.neuralDevice',
     follow:       'voice.follow',
     autoNext:     'voice.autoNext',
     highlight:    'voice.highlight',
@@ -170,7 +170,6 @@
     rate: 1,
     pitch: 1,
     neuralVoice: 'af_heart',
-    neuralDevice: 'wasm',     // webgpu is opt-in: fp32 weights are a 330 MB ask
     follow: true,
     autoNext: true,
     highlight: true,
@@ -221,20 +220,12 @@
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
       pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
       neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
-      neuralDevice: effectiveNeuralDevice(
-        oneOf(prefGet(PREF.neuralDevice, DEFAULTS.neuralDevice), NEURAL_DEVICES, DEFAULTS.neuralDevice)),
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
     };
   }
 
-  // A stored 'webgpu' that this device cannot survive is corrected at read
-  // time, not at use time: every consumer (prewarm, the download probe, the
-  // sheet) would otherwise have to remember to ask.
-  function effectiveNeuralDevice(stored) {
-    return stored === 'webgpu' && !gpuViable() ? 'wasm' : stored;
-  }
 
   function validNeuralVoice(id) {
     for (let i = 0; i < NEURAL_VOICES.length; i++) if (NEURAL_VOICES[i].id === id) return id;
@@ -914,6 +905,13 @@
     return '';
   }
 
+  // Running inside the Capacitor shell rather than a browser tab. The two have
+  // different bargains about downloads: a tab may fetch a model, an installed
+  // app should already contain it.
+  function isNativeApp() {
+    try { return !!(window.Platform && window.Platform.isNative); } catch (e) { return false; }
+  }
+
   function docLang() {
     const l = bookLang() || document.documentElement.getAttribute('lang');
     return l || 'en';
@@ -1032,7 +1030,7 @@
           type: 'init',
           model: MODEL_ID,
           device: device,
-          dtype: device === 'webgpu' ? 'fp32' : 'q8',
+          dtype: 'q8',
           // The worker seeds these into the cache kokoro-js reads, from the
           // copies in the bundle. Only the voices this app offers — the pack
           // has fifty-odd and nobody is served by shipping the rest.
@@ -1136,40 +1134,37 @@
       this.wavCache.clear();
     },
 
-    // "Is the model already on disk?" — a Cache API probe, so the sheet can
-    // say "Downloaded" vs "~90 MB download" without spawning the worker.
-    // Per-device: the CPU path uses the q8 weights and the GPU path fp32, so
-    // having one says nothing about the other.
-    // "Is the model on this device?" — bundled counts, and is asked first:
-    // a build that ships the weights has nothing to download and must never
+    // "Is the model on this device?" — bundled counts, and is asked first: a
+    // build that ships its own weights has nothing to download and must never
     // be offered a download button.
-    downloaded: function (device) {
-      const self = this;
-      return this.bundled(device).then(function (inApp) {
+    downloaded: function () {
+      return this.bundled().then(function (inApp) {
         if (inApp) return true;
         if (typeof caches === 'undefined') return false;
-        const url = device === 'webgpu' ? MODEL_URLS.fp32 : MODEL_URLS.q8;
         return caches.open(TRANSFORMERS_CACHE)
-          .then(function (c) { return c.match(url); })
+          .then(function (c) { return c.match(MODEL_URL); })
           .then(function (r) { return !!r; })
           .catch(function () { return false; });
       });
     },
 
     // Weights shipped inside the app (scripts/fetch-voice-model.mjs put them in
-    // vendor/tts/models/, sync-www.sh carried them into the bundle). Probed
-    // with HEAD so it costs nothing, and memoised per device because the
-    // answer cannot change without a reinstall.
-    bundledCache: {},
-    bundled: function (device) {
-      const key = device === 'webgpu' ? 'fp32' : 'q8';
-      if (key in this.bundledCache) return Promise.resolve(this.bundledCache[key]);
+    // vendor/tts/models/, sync-www.sh carried them into the bundle).
+    //
+    // Probed by GETting config.json — 44 bytes, next to the weights, fetched by
+    // the same script — rather than HEADing the 88 MB file. A HEAD looks
+    // cheaper and is the wrong tool here: the native app is served by a custom
+    // URL scheme handler, and a scheme handler only has to answer the requests
+    // it chose to implement. GET is the one every one of them implements.
+    //
+    // Memoised: the answer cannot change without a reinstall.
+    bundledCache: null,
+    bundled: function () {
+      if (this.bundledCache !== null) return Promise.resolve(this.bundledCache);
       const self = this;
-      const file = key === 'fp32' ? 'model.onnx' : 'model_quantized.onnx';
-      const url = './vendor/tts/models/' + MODEL_ID + '/onnx/' + file;
-      return fetch(url, { method: 'HEAD' })
-        .then(function (r) { self.bundledCache[key] = r.ok; return r.ok; })
-        .catch(function () { self.bundledCache[key] = false; return false; });
+      return fetch('./vendor/tts/models/' + MODEL_ID + '/config.json')
+        .then(function (r) { self.bundledCache = r.ok; return r.ok; })
+        .catch(function () { self.bundledCache = false; return false; });
     },
 
     removeDownload: function () {
@@ -1557,7 +1552,7 @@
     }
     setPreparingSoon();
     const token = state.speakToken;
-    neuralEngine.ensureReady(state.prefs.neuralDevice)
+    neuralEngine.ensureReady()
       .then(function () {
         syncSheet();
         if (!state.playing || token !== state.speakToken) return;
@@ -1630,7 +1625,6 @@
         state.prefs.engine = 'device';
         state.neuralBlocked = true;
         toast('Loading the natural voice closed the app last time'
-          + (crashed.device === 'webgpu' ? ' (GPU mode)' : '')
           + '. Using the device voice — open the voice sheet to try it again.');
         syncSheet();
         play();
@@ -1931,54 +1925,18 @@
     }
     natRow.appendChild(natVoices);
 
+    // Preview is the only tool left here. The GPU toggle is gone (it bought a
+    // 330 MB download and a dead process), and so is "Remove download" —
+    // there is nothing to remove from a build that carries its own weights,
+    // and on a build that does not, removing them helps no one.
     const natTools = el('div', 'vc-nat-tools');
     const preview2 = previewBtn();
     preview2.addEventListener('click', function () { previewVoice(); });
-    const gpuToggle = el('button', 'vc-toggle');
-    gpuToggle.type = 'button';
-    gpuToggle.append(el('span', null, 'Use GPU (fp32, ~330 MB)'), el('span', 'vc-pill', 'Off'));
-    gpuToggle.addEventListener('click', function () {
-      const next = state.prefs.neuralDevice === 'webgpu' ? 'wasm' : 'webgpu';
-      if (next === 'webgpu' && !gpuViable()) {
-        toast(gpuRefusal());
-        return;
-      }
-      state.prefs.neuralDevice = next;
-      prefSet(PREF.neuralDevice, next);
-      neuralEngine.dispose();     // next play re-inits on the chosen device
-      state.neuralPhase = null;
-      state.neuralError = null;
-      state.neuralHave = null;    // q8 and fp32 are separate downloads — re-probe
-      syncSheet();
-    });
-    const removeBtn = el('button', 'vc-action vc-action-quiet');
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'Remove download';
-    removeBtn.addEventListener('click', function () {
-      removeBtn.disabled = true;
-      neuralEngine.removeDownload().then(function () {
-        removeBtn.disabled = false;
-        state.neuralError = null;
-        state.neuralPhase = null;
-        state.neuralHave = false;
-        syncSheet();
-        toast('Natural voice removed from this device.');
-      });
-    });
-    natTools.append(preview2, gpuToggle, removeBtn);
-    // Machines with WebGPU get told it exists — a slow CPU generation with a
-    // fast GPU sitting idle is the wrong default experience to leave silent.
-    const gpuHint = el('div', 'vc-hint');
-    gpuHint.textContent = 'This device looks GPU-capable — turning GPU on makes generation several times faster (one-time ~330 MB download).';
-    gpuHint.hidden = true;
-    natTools.appendChild(gpuHint);
+    natTools.append(preview2);
     natRow.appendChild(natTools);
     body.appendChild(natRow);
 
     natAction.addEventListener('click', function () { downloadNeural(); });
-
-    // WebGPU is only offered where the API exists at all.
-    if (!('gpu' in navigator)) gpuToggle.hidden = true;
 
     // ── Speed / pitch ─────────────────────────────────────────────────────
     body.appendChild(stepRow('Speed', {
@@ -2042,16 +2000,6 @@
           chips[i].classList.toggle('vc-on', onV);
           chips[i].setAttribute('aria-checked', String(onV));
         }
-        const gpu = state.prefs.neuralDevice === 'webgpu';
-        const canGpu = gpuViable();
-        gpuToggle.setAttribute('aria-pressed', String(gpu));
-        gpuToggle.lastChild.textContent = gpu ? 'On' : 'Off';
-        // Shown but visibly unavailable rather than hidden: someone looking for
-        // the GPU switch should find out WHY it is off, not wonder where it went.
-        gpuToggle.disabled = !canGpu && !gpu;
-        gpuToggle.classList.toggle('vc-row-disabled', !canGpu && !gpu);
-        gpuToggle.title = canGpu ? '' : gpuRefusal();
-        gpuHint.hidden = !canGpu || gpu;
         syncNeuralStatus(natText, natBar, natAction, removeBtn);
       }
     });
@@ -2191,7 +2139,7 @@
     }
     if (neuralEngine.ready) {
       natText.textContent = 'Ready — running on this device ('
-        + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + ')'
+        + ')'
         + (state.neuralBundled ? ', included with the app' : '') + '. Works offline.';
       natAction.hidden = true;
       removeBtn.hidden = false;
@@ -2217,10 +2165,18 @@
       natText.textContent = 'Downloaded — loads when you press play. Works offline.';
       natAction.hidden = true;
       removeBtn.hidden = false;
+    } else if (isNativeApp()) {
+      // In the app the weights are supposed to BE the app. Missing them is a
+      // build that skipped scripts/fetch-voice-model.mjs, and a download button
+      // would paper over that instead of surfacing it.
+      natText.textContent = 'The narrator is missing from this build. It should ship inside the app — '
+        + 'rebuild with scripts/fetch-voice-model.mjs, then npm run sync.';
+      natAction.hidden = true;
+      removeBtn.hidden = true;
     } else {
       natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
       natAction.hidden = false;
-      natAction.textContent = state.prefs.neuralDevice === 'webgpu' ? 'Download voice (~330 MB)' : 'Download voice (~90 MB)';
+      natAction.textContent = 'Download voice (~90 MB)';
       removeBtn.hidden = true;
     }
   }
@@ -2232,7 +2188,7 @@
     state.neuralProgress = 0;
     state.neuralProgressText = 'Starting download…';
     syncSheet();
-    neuralEngine.ensureReady(state.prefs.neuralDevice)
+    neuralEngine.ensureReady()
       .then(function () {
         state.neuralDownloading = false;
         state.neuralHave = true;
@@ -2262,6 +2218,14 @@
   }
 
   function handleNeuralProgress(m) {
+    // The worker says which source it is loading from before the first byte
+    // moves, which is the only answer that arrives in time to label the
+    // progress that follows. refreshNeuralHave's probe may not have run yet.
+    if (m.type === 'source') {
+      state.neuralBundled = !!m.local;
+      syncSheetSoon();
+      return;
+    }
     if (m.type === 'ready') {
       state.neuralDownloading = false;
       state.neuralPhase = 'ready';
@@ -2281,8 +2245,13 @@
       // of the browser cache, just faster.
       state.neuralPhase = 'download';
       state.neuralProgress = m.loaded / m.total;
-      state.neuralProgressText = 'Loading narrator — ' +
-        Math.round(m.loaded / 1048576) + ' / ' + Math.round(m.total / 1048576) + ' MB';
+      // Bundled weights stream the same progress events as a download does.
+      // Showing megabytes for a file that is already on the device reads as a
+      // download that should not be happening, so only the network gets numbers.
+      state.neuralProgressText = state.neuralBundled
+        ? 'Loading the narrator from the app…'
+        : 'Downloading narrator — ' + Math.round(m.loaded / 1048576)
+          + ' / ' + Math.round(m.total / 1048576) + ' MB';
       if (m.loaded >= m.total) state.neuralPhase = 'init';
       syncSheetSoon();
     }
@@ -2293,9 +2262,9 @@
   function refreshNeuralHave(cb) {
     if (neuralProbeInFlight) return;
     neuralProbeInFlight = true;
-    neuralEngine.bundled(state.prefs.neuralDevice).then(function (inApp) {
+    neuralEngine.bundled().then(function (inApp) {
       state.neuralBundled = inApp;
-      return neuralEngine.downloaded(state.prefs.neuralDevice);
+      return neuralEngine.downloaded();
     }).then(function (have) {
       neuralProbeInFlight = false;
       state.neuralHave = have;
@@ -2304,29 +2273,7 @@
     });
   }
 
-  // Opening a book with the Natural voice selected warms the engine in the
-  // background, so by the time a reader taps Listen the model is loaded or
-  // well on its way — this is where "takes forever" actually went. Only when
-  // the weights are ALREADY on disk: prewarming must never start a 90 MB
-  // download nobody asked for.
-  // Whether the GPU path can be offered at all. Two independent reasons it
-  // cannot, and they fail differently: with no WebGPU the runtime has nothing
-  // to bind to, and on a phone the fp32 weights the GPU path needs are roughly
-  // four times the CPU path's — the memory ceiling a WebView dies against, not
-  // a speed trade. Offering a switch whose only outcome is a killed app is
-  // worse than not offering it.
-  function gpuViable() {
-    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
-    return memoryClass() === 'high';
-  }
 
-  function gpuRefusal() {
-    if (typeof navigator === 'undefined' || !navigator.gpu) {
-      return 'This device has no WebGPU, so the GPU path has nothing to run on.';
-    }
-    return 'The GPU path needs the 330 MB weights — about four times the CPU path. '
-      + 'This device does not have the memory headroom, and trying it closes the app.';
-  }
 
   function prewarmNeural() {
     if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
@@ -2344,7 +2291,7 @@
     if (memoryClass() !== 'high') return;
     refreshNeuralHave(function (have) {
       if (!have) return;
-      neuralEngine.ensureReady(state.prefs.neuralDevice)
+      neuralEngine.ensureReady()
         .then(function () { syncSheetSoon(); })
         .catch(function (e) { state.neuralError = shortErr(e); syncSheetSoon(); });
     });
@@ -2387,7 +2334,7 @@
     const done = function () { if (wasPlaying) resume(); };
     if (state.prefs.engine === 'neural') {
       setPreparing(true);
-      neuralEngine.ensureReady(state.prefs.neuralDevice)
+      neuralEngine.ensureReady()
         .then(function () {
           return neuralEngine.generate('preview:' + state.prefs.neuralVoice, PREVIEW_TEXT, state.prefs.neuralVoice);
         })
@@ -2501,8 +2448,6 @@
       resume: resume,
       guardRead: guardRead,
       guardArm: guardArm,
-      gpuViable: gpuViable,
-      gpuRefusal: gpuRefusal,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
     },
   };

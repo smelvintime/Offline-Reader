@@ -9,9 +9,12 @@
 // So for the native build the weights ship in the bundle, and this is what puts
 // them there.
 //
-//   node scripts/fetch-voice-model.mjs             # q8 (~90 MB) — the CPU path
-//   node scripts/fetch-voice-model.mjs --dtype fp32  # the GPU path's weights
+//   node scripts/fetch-voice-model.mjs             # q8 (~88 MB) — what the app loads
 //   node scripts/fetch-voice-model.mjs --list      # what the repo offers, with sizes
+//
+// q8 is the only dtype the app loads. --dtype still takes the others so their
+// sizes can be compared against a phone's budget, but fetching one does not
+// make the app use it.
 //
 // Output lands in vendor/tts/models/ and vendor/tts/voices/, both gitignored:
 // ~90 MB is a download, not a commit (vendor/tts/README.md). scripts/sync-www.sh
@@ -94,7 +97,7 @@ async function list() {
   for (const [name, file, size] of rows) {
     console.log('  ' + name.padEnd(w) + '  ' + size.padStart(10) + '  ' + file);
   }
-  console.log('\n  q8 is the default and the one the CPU path loads.');
+  console.log('\n  q8 is the default and the only one the app loads.');
   console.log('  A bigger file is a bigger memory footprint on the phone, not just a bigger download.');
 }
 

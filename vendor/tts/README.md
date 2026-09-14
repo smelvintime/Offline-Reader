@@ -18,7 +18,27 @@ the worker imports `kokoro.web.js` from here, pointing ONNX Runtime's
 `wasmPaths` at this directory instead of its default CDN.
 
 The **model weights are not in this repository** (~90 MB is a download, not
-a commit). The worker fetches Kokoro-82M from
+a commit), but they can be in the BUILD, and for the native app they should
+be:
+
+```bash
+node scripts/fetch-voice-model.mjs      # → vendor/tts/models/, vendor/tts/voices/
+npm run sync                            # carries them into www/ and the app
+```
+
+Both directories are gitignored. `js/novel-voice-worker.js` points
+transformers.js's `localModelPath` at `vendor/tts/models/`, and transformers.js
+tries a local file **before** the network, so one code path serves both builds:
+a bundle with the weights never reaches huggingface.co, and a bundle without
+them 404s locally and downloads exactly as it always did.
+
+Voice embeddings need a second trick. kokoro-js hardcodes its voice URL with no
+env hook, but it checks the Cache API first — so the worker writes the bundled
+`.bin` files into the `kokoro-voices` cache under the URL kokoro-js will ask
+for, and the unmodified bundle finds them there. Patching `vendor/` would have
+been the other way to do it, and vendored code is not ours to edit.
+
+Without a bundle, the download path stands: the worker fetches Kokoro-82M from
 `huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX` the first time the
 voice is enabled; transformers.js stores it in the browser's Cache API
 (`transformers-cache`, voice embeddings in `kokoro-voices`), so every later

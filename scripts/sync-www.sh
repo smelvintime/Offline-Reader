@@ -25,3 +25,15 @@ cp index.html styles.css catalog.json manifest.json icon.svg jszip.min.js sw.js 
 cp -R css js fonts chapters icons vendor www/
 
 echo "www/ refreshed ($(du -sh www | cut -f1))"
+
+# The Natural voice's weights, if this build has them. They are gitignored and
+# fetched on purpose (scripts/fetch-voice-model.mjs), and their absence is not
+# an error — the runtime falls back to downloading on first use. It IS worth
+# saying out loud, because on a phone that fallback is the difference between
+# tapping Listen and waiting for 90 MB.
+if [ -d www/vendor/tts/models ] && [ -d www/vendor/tts/voices ]; then
+  echo "  natural voice: weights bundled ($(du -sh www/vendor/tts/models | cut -f1)) — the app will not download them"
+else
+  echo "  natural voice: NO weights bundled — the app will download ~90 MB on first use."
+  echo "                 node scripts/fetch-voice-model.mjs   (then re-run this)"
+fi

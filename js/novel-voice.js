@@ -80,6 +80,10 @@
   const NEURAL_GROUP_CONT_MAX = 700;
   const NEURAL_LOOKAHEAD = 2;        // groups generated ahead of playback
   const NEURAL_TIMEOUT_MS = 120000;  // one group; the first pays session warm-up
+  // Silence from the worker during init. Not a deadline for the whole load —
+  // every message resets it — so a slow download and a slow ONNX session
+  // compile each get this long with nothing to say before we call it dead.
+  const NEURAL_INIT_STALL_MS = 180000;
   const WAV_CACHE_MAX = 10;          // generated groups kept for replay/skip-back
 
   // The engine's working set is hundreds of MB, so it should not be held
@@ -217,11 +221,19 @@
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
       pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
       neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
-      neuralDevice: oneOf(prefGet(PREF.neuralDevice, DEFAULTS.neuralDevice), NEURAL_DEVICES, DEFAULTS.neuralDevice),
+      neuralDevice: effectiveNeuralDevice(
+        oneOf(prefGet(PREF.neuralDevice, DEFAULTS.neuralDevice), NEURAL_DEVICES, DEFAULTS.neuralDevice)),
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
     };
+  }
+
+  // A stored 'webgpu' that this device cannot survive is corrected at read
+  // time, not at use time: every consumer (prewarm, the download probe, the
+  // sheet) would otherwise have to remember to ask.
+  function effectiveNeuralDevice(stored) {
+    return stored === 'webgpu' && !gpuViable() ? 'wasm' : stored;
   }
 
   function validNeuralVoice(id) {
@@ -243,14 +255,36 @@
 
   // ── Crash-loop breaker plumbing ───────────────────────────────────────────
 
+  // The flag records WHICH phase was in flight, not just that one was. The two
+  // phases fail completely differently — loading the model is a half-gigabyte
+  // memory spike that the OS answers by killing the web content process,
+  // speaking is a platform TTS call — and the recovery differs with them, so
+  // the next launch has to be able to tell them apart.
+  //
+  // Written as JSON; a bare timestamp from an older build still reads as a
+  // 'speak' crash, which is what that build could only have meant.
   function guardRead() {
-    try {
-      const t = parseInt(localStorage.getItem(CRASH_GUARD_KEY) || '', 10);
-      return Number.isFinite(t) && (Date.now() - t) < CRASH_GUARD_FRESH_MS;
-    } catch (e) { return false; }
+    let raw = null;
+    try { raw = localStorage.getItem(CRASH_GUARD_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    let rec = null;
+    try { rec = JSON.parse(raw); } catch (e) { rec = null; }
+    if (!rec || typeof rec !== 'object') {
+      const t = parseInt(raw, 10);
+      rec = Number.isFinite(t) ? { t: t, phase: 'speak' } : null;
+    }
+    if (!rec || !Number.isFinite(rec.t)) return null;
+    if (Date.now() - rec.t >= CRASH_GUARD_FRESH_MS) return null;
+    return { phase: rec.phase === 'model' ? 'model' : 'speak', device: rec.device || null };
   }
-  function guardArm() {
-    try { localStorage.setItem(CRASH_GUARD_KEY, String(Date.now())); } catch (e) {}
+  function guardArm(phase, device) {
+    try {
+      localStorage.setItem(CRASH_GUARD_KEY, JSON.stringify({
+        t: Date.now(),
+        phase: phase === 'model' ? 'model' : 'speak',
+        device: device || null,
+      }));
+    } catch (e) {}
   }
   function guardClear() {
     try { localStorage.removeItem(CRASH_GUARD_KEY); } catch (e) {}
@@ -916,6 +950,7 @@
 
   const neuralEngine = {
     worker: null,
+    local: null,           // true once a load proved the weights are bundled
     device: null,          // device the live worker was initialised with
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
@@ -938,18 +973,57 @@
       this.device = device;
       this.readyPromise = new Promise(function (resolve, reject) {
         let w;
+        let settled = false;
+        let stall = 0;
+
+        // Loading the model is the memory spike that gets a phone's web
+        // content process killed, so the crash-loop breaker is armed HERE
+        // rather than by the callers. Three of the four ways in (the Download
+        // button, the voice preview, the open-book prewarm) never went through
+        // play(), which was the only place that armed it — so a device that
+        // died loading the model met the same load again on the next launch,
+        // with nothing having noticed.
+        guardArm('model', device);
+
+        const finish = function (err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(stall);
+          // Reaching a verdict at all — ready OR a clean error — means the
+          // page survived the load. Only a process death leaves it armed.
+          guardClear();
+          if (err) { reject(err); self.disposeIfNotReady(w); }
+          else { self.ready = true; resolve(); }
+        };
+
+        // Nothing here settles on its own if the worker dies quietly, and on
+        // iOS a worker killed for memory fires no 'error' event at all — the
+        // page just waits, which is the "Preparing the narrator…" that never
+        // finishes. A silence watchdog turns that into a real failure the
+        // fallback can act on. Any message from the worker resets it, so a
+        // slow download and a slow session compile both keep their time.
+        const bump = function () {
+          clearTimeout(stall);
+          stall = setTimeout(function () {
+            finish(new Error('The voice engine stopped responding while loading. '
+              + 'On a phone this is usually the model running out of memory.'));
+          }, NEURAL_INIT_STALL_MS);
+        };
+
         try {
           w = new Worker('./js/novel-voice-worker.js', { type: 'module' });
-        } catch (e) { reject(e); return; }
+        } catch (e) { finish(e); return; }
         self.worker = w;
+        bump();
         w.onerror = function (e) {
-          reject(new Error(e && e.message ? e.message : 'Worker failed to start'));
-          self.disposeIfNotReady(w);
+          finish(new Error(e && e.message ? e.message : 'Worker failed to start'));
         };
         w.onmessage = function (ev) {
           const m = ev.data || {};
-          if (m.type === 'ready') { self.ready = true; resolve(); if (self.onprogress) self.onprogress({ type: 'ready' }); }
-          else if (m.type === 'init-error') { reject(new Error(m.message || 'Could not load the voice model')); self.disposeIfNotReady(w); }
+          if (!settled) bump();
+          if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
+          else if (m.type === 'ready') { finish(null); if (self.onprogress) self.onprogress({ type: 'ready' }); }
+          else if (m.type === 'init-error') { finish(new Error(m.message || 'Could not load the voice model')); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'audio') self.settle(m.id, null, m);
           else if (m.type === 'error') self.settle(m.id, new Error(m.message || 'Generation failed'), null);
@@ -959,6 +1033,10 @@
           model: MODEL_ID,
           device: device,
           dtype: device === 'webgpu' ? 'fp32' : 'q8',
+          // The worker seeds these into the cache kokoro-js reads, from the
+          // copies in the bundle. Only the voices this app offers — the pack
+          // has fifty-odd and nobody is served by shipping the rest.
+          voices: NEURAL_VOICES.map(function (v) { return v.id; }),
         });
       });
       return this.readyPromise;
@@ -1062,12 +1140,36 @@
     // say "Downloaded" vs "~90 MB download" without spawning the worker.
     // Per-device: the CPU path uses the q8 weights and the GPU path fp32, so
     // having one says nothing about the other.
+    // "Is the model on this device?" — bundled counts, and is asked first:
+    // a build that ships the weights has nothing to download and must never
+    // be offered a download button.
     downloaded: function (device) {
-      if (typeof caches === 'undefined') return Promise.resolve(false);
-      const url = device === 'webgpu' ? MODEL_URLS.fp32 : MODEL_URLS.q8;
-      return caches.open(TRANSFORMERS_CACHE).then(function (c) {
-        return c.match(url);
-      }).then(function (r) { return !!r; }).catch(function () { return false; });
+      const self = this;
+      return this.bundled(device).then(function (inApp) {
+        if (inApp) return true;
+        if (typeof caches === 'undefined') return false;
+        const url = device === 'webgpu' ? MODEL_URLS.fp32 : MODEL_URLS.q8;
+        return caches.open(TRANSFORMERS_CACHE)
+          .then(function (c) { return c.match(url); })
+          .then(function (r) { return !!r; })
+          .catch(function () { return false; });
+      });
+    },
+
+    // Weights shipped inside the app (scripts/fetch-voice-model.mjs put them in
+    // vendor/tts/models/, sync-www.sh carried them into the bundle). Probed
+    // with HEAD so it costs nothing, and memoised per device because the
+    // answer cannot change without a reinstall.
+    bundledCache: {},
+    bundled: function (device) {
+      const key = device === 'webgpu' ? 'fp32' : 'q8';
+      if (key in this.bundledCache) return Promise.resolve(this.bundledCache[key]);
+      const self = this;
+      const file = key === 'fp32' ? 'model.onnx' : 'model_quantized.onnx';
+      const url = './vendor/tts/models/' + MODEL_ID + '/onnx/' + file;
+      return fetch(url, { method: 'HEAD' })
+        .then(function (r) { self.bundledCache[key] = r.ok; return r.ok; })
+        .catch(function () { self.bundledCache[key] = false; return false; });
     },
 
     removeDownload: function () {
@@ -1425,7 +1527,7 @@
     // Armed until two utterances complete: if speech takes the page down
     // (WebKit home-screen apps have form here; low-memory phones OOM), the
     // flag survives the crash and the next session refuses to auto-play.
-    if ((state.spokeOk | 0) < 2) guardArm();
+    if ((state.spokeOk | 0) < 2) guardArm('speak');
 
     if (!state.sentences.length || state.chapterId !== state.bridge.state().chapterId) seedFromReader();
     if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
@@ -1518,11 +1620,27 @@
     // Crash-loop breaker: a fresh guard flag means the last narration attempt
     // never got two sentences out — on some platforms because it took the
     // whole page down. Starting paused turns a crash loop into a choice.
-    if (guardRead()) {
+    const crashed = guardRead();
+    if (crashed) {
+      if (crashed.phase === 'model') {
+        // The app died LOADING the model, not speaking. Retrying the same load
+        // is retrying the crash, so this session uses the device voice and the
+        // natural voice waits for a deliberate tap in the sheet. The stored
+        // pref is untouched.
+        state.prefs.engine = 'device';
+        state.neuralBlocked = true;
+        toast('Loading the natural voice closed the app last time'
+          + (crashed.device === 'webgpu' ? ' (GPU mode)' : '')
+          + '. Using the device voice — open the voice sheet to try it again.');
+        syncSheet();
+        play();
+        return;
+      }
       toast('Narration may have crashed the app last time — not starting by itself. Press play to retry, or pick another voice first.');
       updateBar();
       return;
     }
+    state.neuralBlocked = false;
     // Autoplay on open: the tap on Listen IS the gesture, and a player that
     // appears silent makes everyone hunt for a second button.
     play();
@@ -1821,6 +1939,10 @@
     gpuToggle.append(el('span', null, 'Use GPU (fp32, ~330 MB)'), el('span', 'vc-pill', 'Off'));
     gpuToggle.addEventListener('click', function () {
       const next = state.prefs.neuralDevice === 'webgpu' ? 'wasm' : 'webgpu';
+      if (next === 'webgpu' && !gpuViable()) {
+        toast(gpuRefusal());
+        return;
+      }
       state.prefs.neuralDevice = next;
       prefSet(PREF.neuralDevice, next);
       neuralEngine.dispose();     // next play re-inits on the chosen device
@@ -1921,9 +2043,15 @@
           chips[i].setAttribute('aria-checked', String(onV));
         }
         const gpu = state.prefs.neuralDevice === 'webgpu';
+        const canGpu = gpuViable();
         gpuToggle.setAttribute('aria-pressed', String(gpu));
         gpuToggle.lastChild.textContent = gpu ? 'On' : 'Off';
-        gpuHint.hidden = !('gpu' in navigator) || gpu;
+        // Shown but visibly unavailable rather than hidden: someone looking for
+        // the GPU switch should find out WHY it is off, not wonder where it went.
+        gpuToggle.disabled = !canGpu && !gpu;
+        gpuToggle.classList.toggle('vc-row-disabled', !canGpu && !gpu);
+        gpuToggle.title = canGpu ? '' : gpuRefusal();
+        gpuHint.hidden = !canGpu || gpu;
         syncNeuralStatus(natText, natBar, natAction, removeBtn);
       }
     });
@@ -2062,7 +2190,9 @@
       return;
     }
     if (neuralEngine.ready) {
-      natText.textContent = 'Ready — running on this device (' + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + '). Works offline.';
+      natText.textContent = 'Ready — running on this device ('
+        + (neuralEngine.device === 'webgpu' ? 'GPU' : 'CPU') + ')'
+        + (state.neuralBundled ? ', included with the app' : '') + '. Works offline.';
       natAction.hidden = true;
       removeBtn.hidden = false;
       return;
@@ -2077,7 +2207,13 @@
       refreshNeuralHave();
       return;
     }
-    if (state.neuralHave) {
+    if (state.neuralBundled) {
+      // Shipped in the app. There is nothing to download and nothing to remove
+      // — "Remove download" here would delete a file the next launch restores.
+      natText.textContent = 'Included with the app — nothing to download, works offline.';
+      natAction.hidden = true;
+      removeBtn.hidden = true;
+    } else if (state.neuralHave) {
       natText.textContent = 'Downloaded — loads when you press play. Works offline.';
       natAction.hidden = true;
       removeBtn.hidden = false;
@@ -2157,7 +2293,10 @@
   function refreshNeuralHave(cb) {
     if (neuralProbeInFlight) return;
     neuralProbeInFlight = true;
-    neuralEngine.downloaded(state.prefs.neuralDevice).then(function (have) {
+    neuralEngine.bundled(state.prefs.neuralDevice).then(function (inApp) {
+      state.neuralBundled = inApp;
+      return neuralEngine.downloaded(state.prefs.neuralDevice);
+    }).then(function (have) {
       neuralProbeInFlight = false;
       state.neuralHave = have;
       syncSheetSoon();
@@ -2170,9 +2309,33 @@
   // well on its way — this is where "takes forever" actually went. Only when
   // the weights are ALREADY on disk: prewarming must never start a 90 MB
   // download nobody asked for.
+  // Whether the GPU path can be offered at all. Two independent reasons it
+  // cannot, and they fail differently: with no WebGPU the runtime has nothing
+  // to bind to, and on a phone the fp32 weights the GPU path needs are roughly
+  // four times the CPU path's — the memory ceiling a WebView dies against, not
+  // a speed trade. Offering a switch whose only outcome is a killed app is
+  // worse than not offering it.
+  function gpuViable() {
+    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
+    return memoryClass() === 'high';
+  }
+
+  function gpuRefusal() {
+    if (typeof navigator === 'undefined' || !navigator.gpu) {
+      return 'This device has no WebGPU, so the GPU path has nothing to run on.';
+    }
+    return 'The GPU path needs the 330 MB weights — about four times the CPU path. '
+      + 'This device does not have the memory headroom, and trying it closes the app.';
+  }
+
   function prewarmNeural() {
     if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
     if (!neuralSpeaks(docLang())) return;   // this book will use the device voice
+    // Opening a book must never be what kills the app. This path has no user
+    // action behind it, so after a load-phase crash it is the first thing to
+    // stand down — a background half-gigabyte is not worth one warm start.
+    const crashed = guardRead();
+    if (crashed && crashed.phase === 'model') return;
 
     // Prewarming is a HIGH-memory-class luxury. Loading half a gigabyte of
     // model in the background of every book open is exactly the kind of
@@ -2336,6 +2499,11 @@
       skip: skip,
       pause: pause,
       resume: resume,
+      guardRead: guardRead,
+      guardArm: guardArm,
+      gpuViable: gpuViable,
+      gpuRefusal: gpuRefusal,
+      NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
     },
   };
 })();

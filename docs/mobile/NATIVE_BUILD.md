@@ -281,12 +281,30 @@ are worth knowing, and one is a manual iOS step:
   Picture**.) Without it, narration simply pauses on lock — nothing breaks,
   and nothing warns, which is why it is scripted rather than remembered.
 
+- **Bundle the weights. This is the one native-only step that matters for the
+  voice.** Run this once before your first `npm run sync`:
+
+  ```bash
+  node scripts/fetch-voice-model.mjs     # ~90 MB into vendor/tts/ (gitignored)
+  ```
+
+  Without it the app downloads the model on the device the first time someone
+  enables the Natural voice. On the web that is a reasonable trade; in an
+  installed app it is not — the reader who taps Listen on a train gets a
+  progress bar, and on iOS that download lands in a WebView cache the OS may
+  evict whenever it likes, so it is not a one-time cost either. `npm run sync`
+  says which build you have:
+
+  ```
+    natural voice: weights bundled (86M) — the app will not download them
+    natural voice: NO weights bundled — the app will download ~90 MB on first use.
+  ```
+
 - **App size.** `vendor/tts/` (the self-hosted Natural-voice engine, ~24 MB)
-  ships inside `www/`, so the installed app grows by that much. The model
-  weights do NOT ship — the ~90 MB download happens on the device the first
-  time someone enables the Natural voice, exactly as on the web, and is
-  stored by the WebView's Cache API. On-device generation speed is the WASM
-  path unless the WebView has WebGPU (recent Android System WebView has it;
+  ships inside `www/`, so the installed app grows by that much, plus the
+  weights once bundled. The engine is compiled and run in the WebView, and
+  reads the weights straight out of the bundle. On-device generation speed is
+  the WASM path unless the WebView has WebGPU (recent Android System WebView has it;
   iOS from the first WebKit with WebGPU enabled in WKWebView).
 
 ## Re-apply after every regeneration

@@ -248,6 +248,7 @@
       + ' · native: ' + (isNativeApp() ? 'yes' : 'NO')
       + ' · ' + weights
       + (neuralEngine.stage ? ' · stage: ' + neuralEngine.stage : '')
+      + (neuralEngine.note ? ' · note: ' + neuralEngine.note : '')
       + (neuralEngine.speed
           ? ' · last group: ' + neuralEngine.speed.chars + ' chars, '
             + (neuralEngine.speed.ms / 1000).toFixed(1) + 's compute for '
@@ -873,6 +874,7 @@
     worker: null,
     local: null,           // true once a load proved the weights are bundled
     stage: '',             // the worker's last announced init step
+    note: '',              // something the worker saw escape; diagnostic only
     speed: null,           // { ms, seconds, chars, ratio } for the last group
     device: null,          // device the live worker was initialised with
     readyPromise: null,
@@ -930,7 +932,8 @@
           stall = setTimeout(function () {
             finish(new Error('The voice engine stopped responding at "'
               + (self.stage || 'startup') + '". '
-              + 'On a phone this is usually the model running out of memory.'));
+              + (self.note ? 'It reported: ' + self.note + '. '
+                           : 'On a phone this is usually the model running out of memory.')));
           }, NEURAL_INIT_STALL_MS);
         };
 
@@ -947,6 +950,9 @@
           if (!settled) bump();
           if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'stage') { self.stage = m.stage; if (self.onprogress) self.onprogress(m); }
+          // Recorded, never acted on. See the worker's note() for why an
+          // escaped rejection is not allowed to end a session that is working.
+          else if (m.type === 'note') { self.note = m.message + ' (during ' + m.stage + ')'; }
           else if (m.type === 'ready') {
             // The worker's realm is the one that had to succeed, so its number
             // supersedes the main thread's guess in the line a reader reads.
@@ -1087,6 +1093,7 @@
       this.ready = false;
       this.device = null;
       this.stage = '';       // no worker, no step it is on
+      this.note = '';
       const self = this;
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();

@@ -73,12 +73,15 @@ async function seedVoices(model, voices) {
 }
 
 // Are the weights in the app, or is this going to be a download? Asked before
-// init so the UI can say which, and so "Download voice (~90 MB)" never appears
-// on a build that already has them.
-async function haveLocalWeights(model, dtype) {
-  const file = dtype === 'fp32' ? 'model.onnx' : 'model_quantized.onnx';
+// init so the UI can label the progress that follows, and so "Download voice
+// (~90 MB)" never appears on a build that already has them.
+//
+// GET of the 44-byte config.json, not HEAD of the 88 MB model: the native app
+// is served by a custom URL scheme handler, and such a handler only answers
+// the request types it chose to implement. GET is the one they all implement.
+async function haveLocalWeights(model) {
   try {
-    const res = await fetch(localModelsBase() + model + '/onnx/' + file, { method: 'HEAD' });
+    const res = await fetch(localModelsBase() + model + '/config.json');
     return res.ok;
   } catch (e) { return false; }
 }
@@ -96,7 +99,7 @@ async function init(msg) {
     mod.env.localModelPath = localModelsBase();
     mod.env.allowLocalModels = true;
 
-    const local = await haveLocalWeights(msg.model, msg.dtype);
+    const local = await haveLocalWeights(msg.model);
     post({ type: 'source', local: local });
     await seedVoices(msg.model, msg.voices);
 

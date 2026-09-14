@@ -1005,8 +1005,11 @@ Two engines behind one controller:
   everything. One utterance per sentence — long utterances are where engines
   flatten and where Chrome's stops entirely.
 - **Neural** — Kokoro-82M through the vendored `vendor/tts/kokoro.web.js`
-  (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a module worker, WASM by
-  default with WebGPU opt-in. Engine code is self-hosted (ONNX Runtime's
+  (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a module worker, WASM and
+  the q8 weights, full stop. The WebGPU path was removed: it needed the fp32
+  weights, four times the size, never bundled, and on a phone it did not make
+  generation faster, it made the web content process die. A toggle whose only
+  outcome is a killed app is worse than no toggle. Engine code is self-hosted (ONNX Runtime's
   `wasmPaths` points at `vendor/tts/`, never a CDN); the ~90 MB weights come
   from huggingface.co once, live in the runtime's own Cache API buckets
   (`transformers-cache`, `kokoro-voices`), and work offline thereafter.

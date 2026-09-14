@@ -9,9 +9,10 @@
 // their library should not be paying for.
 //
 // Protocol (all messages are plain objects with a `type`):
-//   in:  { type:'init', model, device:'wasm'|'webgpu', dtype }
+//   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[] }
 //   in:  { type:'generate', id, text, voice }
 //   in:  { type:'cancel' }                  — drop everything not yet started
+//   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'progress', file, loaded, total }   — model download
 //   out: { type:'ready' } | { type:'init-error', message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds }  (wav transferred)
@@ -37,12 +38,68 @@ function post(msg, transfer) {
   try { self.postMessage(msg, transfer || []); } catch (e) { /* worker torn down */ }
 }
 
+// Where bundled weights live, if the build has them (scripts/fetch-voice-model.mjs).
+// transformers.js resolves a local file as localModelPath + model_id + filename,
+// so the tree under here mirrors the Hugging Face repo layout exactly.
+function localModelsBase() {
+  return new URL('../vendor/tts/models/', self.location.href).href;
+}
+
+// kokoro-js hardcodes its voice URL — there is no env hook for it — but it
+// checks the Cache API first. So the bundled .bin files are written INTO that
+// cache under the URL it will ask for, and the unmodified vendor bundle then
+// finds them without ever reaching the network. Patching vendor/ would have
+// been the other way to do this, and vendored code is not ours to edit.
+const VOICE_CACHE = 'kokoro-voices';
+function voiceUrlFor(model, voice) {
+  return 'https://huggingface.co/' + model + '/resolve/main/voices/' + voice + '.bin';
+}
+
+async function seedVoices(model, voices) {
+  if (typeof caches === 'undefined' || !Array.isArray(voices) || !voices.length) return;
+  let cache;
+  try { cache = await caches.open(VOICE_CACHE); } catch (e) { return; }
+  const base = new URL('../vendor/tts/voices/', self.location.href).href;
+  for (const voice of voices) {
+    const url = voiceUrlFor(model, voice);
+    try {
+      if (await cache.match(url)) continue;             // already there
+      const res = await fetch(base + voice + '.bin');
+      if (!res.ok) continue;                            // not bundled: the
+      const buf = await res.arrayBuffer();              //   download path stands
+      await cache.put(url, new Response(buf));
+    } catch (e) { /* one voice failing is not the session failing */ }
+  }
+}
+
+// Are the weights in the app, or is this going to be a download? Asked before
+// init so the UI can say which, and so "Download voice (~90 MB)" never appears
+// on a build that already has them.
+async function haveLocalWeights(model, dtype) {
+  const file = dtype === 'fp32' ? 'model.onnx' : 'model_quantized.onnx';
+  try {
+    const res = await fetch(localModelsBase() + model + '/onnx/' + file, { method: 'HEAD' });
+    return res.ok;
+  } catch (e) { return false; }
+}
+
 async function init(msg) {
   try {
     const mod = await loadEngine();
     // ONNX Runtime would otherwise fetch its wasm from a CDN; everything this
     // app runs is self-hosted, so point it at vendor/tts/ next to the bundle.
     mod.env.wasmPaths = new URL('../vendor/tts/', self.location.href).href;
+    // Local first, remote as the fallback — that is transformers.js's own
+    // order, so one code path serves both builds: the native app finds the
+    // bundled weights and never touches the network, and a web build with no
+    // weights bundled 404s locally and downloads exactly as before.
+    mod.env.localModelPath = localModelsBase();
+    mod.env.allowLocalModels = true;
+
+    const local = await haveLocalWeights(msg.model, msg.dtype);
+    post({ type: 'source', local: local });
+    await seedVoices(msg.model, msg.voices);
+
     tts = await mod.KokoroTTS.from_pretrained(msg.model, {
       dtype: msg.dtype,
       device: msg.device,

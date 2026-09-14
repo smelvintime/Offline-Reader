@@ -95,8 +95,10 @@ into each other, play/pause on the lock screen. Two narrators to choose from:
   behind terrible defaults), and it speaks one sentence at a time, which is
   the difference between prosody and monotone.
 - **Natural voice** — an 82-million-parameter neural narrator ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M))
-  that runs **entirely on your device**. One ~90 MB download, then it works
-  offline, forever, with eight narrators to pick from. No account, no API key,
+  that runs **entirely on your device**, with eight narrators to pick from. In
+  the native apps the weights ship inside the app, so there is no download at
+  all; on the web it is one ~90 MB download and then it works offline forever.
+  No account, no API key,
   no audio ever leaving the device — same as everything else here. It reads
   English; open a book in another language and the app says so and uses the
   device voice instead, rather than offering you a download it cannot use.

@@ -257,3 +257,12 @@
   }
   #novel-screen .vc-sheet[hidden] { transform: translateX(101%); }
 }
+
+/* A row that is present but cannot be used — the GPU path on a device with no
+   WebGPU or no memory headroom. Dimmed rather than hidden, so someone hunting
+   for the switch learns why it is off instead of wondering where it went; the
+   reason rides on the title attribute. */
+#novel-screen .vc-row-disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}

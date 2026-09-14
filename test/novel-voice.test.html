@@ -36,6 +36,9 @@
   <button onclick="T.testAutoAdvance().then(T.report)">auto next chapter</button>
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
+  <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testGpuGate().then(T.report)">gpu gate</button>
+  <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testNativeTts().then(T.report)">native tts</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
@@ -553,7 +556,166 @@ const T = {
     VT().pause();
     pass = ok(!localStorage.getItem('or.voiceGuard'), 'pause clears the guard') && pass;
     endSession();
+
+    // A guard written by an older build is a bare timestamp. That build could
+    // only ever have armed it around an utterance, so it must read as 'speak'.
+    localStorage.setItem('or.voiceGuard', String(Date.now()));
+    pass = ok(VT().guardRead().phase === 'speak', 'a legacy bare timestamp reads as a speak crash') && pass;
+    localStorage.removeItem('or.voiceGuard');
+    pass = ok(VT().guardRead() === null, 'no guard reads as null') && pass;
+    localStorage.setItem('or.voiceGuard', JSON.stringify({ t: Date.now() - 20 * 60 * 1000, phase: 'model' }));
+    pass = ok(VT().guardRead() === null, 'a stale guard is not a crash') && pass;
+    localStorage.removeItem('or.voiceGuard');
+
+    // A crash while LOADING the model is not a crash while speaking. Retrying
+    // the same load is retrying the crash, so the session drops to the device
+    // voice and speaks instead of sitting there doing nothing.
+    await freshOpen();
+    Store.prefs.set('voice.engine', 'neural');
+    localStorage.setItem('or.voiceGuard', JSON.stringify({ t: Date.now(), phase: 'model', device: 'wasm' }));
+    V().toggle();
+    await pause(300);
+    pass = ok(V().state().engine === 'device', 'a load-phase crash falls back to the device voice', V().state().engine) && pass;
+    await waitFor(() => synthStub.spoken.length >= 1, 3000, 'and actually speaks');
+    pass = ok(true, 'narration still happens after a load-phase crash') && pass;
+    localStorage.removeItem('or.voiceGuard');
+    Store.prefs.set('voice.engine', 'device');
+    endSession();
     return { name: 'crash guard', pass };
+  },
+
+  // The symptom this guards: "Preparing the narrator…" forever. A worker the
+  // OS killed for memory fires no error event, so nothing settled the promise
+  // and the sheet sat on that line until the app was force-quit.
+  async testInitStall() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const origWorker = window.Worker;
+    try {
+      // A worker that starts, says nothing, and never comes back.
+      window.Worker = function () {
+        this.postMessage = function () {};
+        this.terminate = function () {};
+      };
+      // Reach into the real ensureReady with a stall budget short enough to test.
+      const started = Date.now();
+      ne.dispose();
+      const p = ne.ensureReady('wasm');
+      pass = ok(!!localStorage.getItem('or.voiceGuard'), 'the guard is armed while the model loads') && pass;
+      const armed = VT().guardRead();
+      pass = ok(armed && armed.phase === 'model', 'armed as a model-phase crash', armed && armed.phase) && pass;
+
+      let settled = null;
+      p.then(() => { settled = 'resolved'; }, (e) => { settled = e; });
+      await pause(400);
+      pass = ok(settled === null, 'still waiting well before the stall budget') && pass;
+      // Not waiting out the real 180 s here; the contract under test is that a
+      // budget exists and that arming/clearing bracket it. The budget's value
+      // is a constant, checked directly.
+      pass = ok(VT().NEURAL_INIT_STALL_MS > 0 && VT().NEURAL_INIT_STALL_MS <= 300000,
+        'the stall budget is finite and sane', VT().NEURAL_INIT_STALL_MS + 'ms') && pass;
+      ne.dispose();
+      await pause(50);
+    } finally {
+      window.Worker = origWorker;
+      localStorage.removeItem('or.voiceGuard');
+      ne.ready = false; ne.readyPromise = null; ne.worker = null;
+    }
+    return { name: 'init stall', pass };
+  },
+
+  // Weights shipped inside the app: the phone must never be told to download
+  // something it already has, and "Remove download" must not offer to delete a
+  // file the next launch restores.
+  async testBundledWeights() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const realFetch = window.fetch;
+    const asked = [];
+    try {
+      // A build WITH the q8 weights bundled and without the fp32 ones.
+      window.fetch = function (url, opts) {
+        const u = String(url);
+        if (u.indexOf('/vendor/tts/models/') !== -1) {
+          asked.push((opts && opts.method) + ' ' + u.split('/onnx/')[1]);
+          return Promise.resolve({ ok: u.indexOf('model_quantized.onnx') !== -1 });
+        }
+        return realFetch.apply(window, arguments);
+      };
+      ne.bundledCache = {};
+      pass = ok(await ne.bundled('wasm') === true, 'the bundled q8 weights are found') && pass;
+      pass = ok(await ne.bundled('webgpu') === false, 'the absent fp32 weights are not') && pass;
+      pass = ok(asked.length === 2 && asked.every(a => a.indexOf('HEAD ') === 0),
+        'probed with HEAD, once per dtype', asked.join(' | ')) && pass;
+
+      // Memoised: the answer cannot change without a reinstall.
+      await ne.bundled('wasm');
+      pass = ok(asked.length === 2, 'the probe is not repeated', asked.length + ' fetches') && pass;
+
+      // Bundled counts as downloaded, without consulting the Cache API at all.
+      pass = ok(await ne.downloaded('wasm') === true, 'bundled weights count as present') && pass;
+
+      // A build with nothing bundled falls back to the cache probe, which is
+      // what keeps the plain web app downloading exactly as it did before.
+      ne.bundledCache = {};
+      window.fetch = function (url) {
+        if (String(url).indexOf('/vendor/tts/models/') !== -1) return Promise.resolve({ ok: false });
+        return realFetch.apply(window, arguments);
+      };
+      pass = ok(await ne.bundled('wasm') === false, 'no bundled weights -> false') && pass;
+      pass = ok(await ne.downloaded('wasm') === false, 'and nothing in the cache -> still a download') && pass;
+
+      // A probe that throws (no fetch, a blocked scheme) is a "no", not a crash.
+      ne.bundledCache = {};
+      window.fetch = function (url) {
+        if (String(url).indexOf('/vendor/tts/models/') !== -1) return Promise.reject(new Error('nope'));
+        return realFetch.apply(window, arguments);
+      };
+      pass = ok(await ne.bundled('wasm') === false, 'a throwing probe answers no rather than rejecting') && pass;
+    } finally {
+      window.fetch = realFetch;
+      ne.bundledCache = {};
+    }
+    return { name: 'bundled weights', pass };
+  },
+
+  // The GPU row is a 330 MB ask. Offering it where it can only kill the app is
+  // worse than not offering it.
+  async testGpuGate() {
+    let pass = true;
+    const origPlatform = window.Platform;
+    const origGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
+    const setGpu = (v) => Object.defineProperty(navigator, 'gpu', { value: v, configurable: true });
+    try {
+      setGpu(undefined);
+      window.Platform = { memoryClass: () => 'high' };
+      pass = ok(VT().gpuViable() === false, 'no WebGPU -> not offered') && pass;
+      pass = ok(/no WebGPU/.test(VT().gpuRefusal()), 'and says why', VT().gpuRefusal()) && pass;
+
+      setGpu({});
+      window.Platform = { memoryClass: () => 'mid' };
+      pass = ok(VT().gpuViable() === false, 'WebGPU but mid memory -> not offered') && pass;
+      pass = ok(/memory headroom/.test(VT().gpuRefusal()), 'and says why', VT().gpuRefusal()) && pass;
+
+      window.Platform = { memoryClass: () => 'high' };
+      pass = ok(VT().gpuViable() === true, 'WebGPU on a high-memory device -> offered') && pass;
+
+      // A pref stored as webgpu on a device that cannot survive it is corrected
+      // on read, so no consumer can act on it.
+      window.Platform = { memoryClass: () => 'low' };
+      Store.prefs.set('voice.neuralDevice', 'webgpu');
+      pass = ok(VT().readPrefs().neuralDevice === 'wasm',
+        'a stored webgpu is corrected to wasm on an unfit device', VT().readPrefs().neuralDevice) && pass;
+      window.Platform = { memoryClass: () => 'high' };
+      pass = ok(VT().readPrefs().neuralDevice === 'webgpu',
+        'and left alone on a fit one', VT().readPrefs().neuralDevice) && pass;
+    } finally {
+      Store.prefs.set('voice.neuralDevice', 'wasm');
+      if (origGpu) Object.defineProperty(navigator, 'gpu', origGpu);
+      else delete navigator.gpu;
+      window.Platform = origPlatform;
+    }
+    return { name: 'gpu gate', pass };
   },
 
   async testMemoryTier() {
@@ -850,7 +1012,8 @@ const T = {
       T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
-      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback, T.testClose,
+      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback,
+      T.testInitStall, T.testGpuGate, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

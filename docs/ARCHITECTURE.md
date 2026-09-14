@@ -1023,16 +1023,36 @@ Two engines behind one controller:
   a 3 GB phone is an OOM kill waiting to happen), and opening a book with
   the Natural voice selected pre-warms it in the background on
   **high-memory devices only** — and only when the weights are already on
-  disk; prewarm never starts a download.
+  disk, bundled or downloaded; prewarm never starts a download, and never
+  runs at all after a `model`-phase crash.
 
 Narration also carries a **crash-loop breaker** (`or.voiceGuard`, §3.3):
 some platforms can take the whole page down when speech starts (WebKit has
 hard-crashed home-screen web apps on `speechSynthesis.speak`; low-memory
-phones OOM under the neural engine). The flag is armed before a session's
-first utterance and cleared by two completed utterances, pause/stop, or
-`pagehide` — a real crash clears nothing, so the next session finds it
-fresh and starts paused with an explanatory toast instead of auto-playing
-back into the wall.
+phones OOM under the neural engine). It records **which phase** was in
+flight, because the two fail differently and recover differently:
+
+- `speak` — armed before a session's first utterance, cleared by two
+  completed utterances, pause/stop, or `pagehide`. Found fresh, the next
+  session starts paused with an explanatory toast instead of auto-playing
+  back into the wall.
+- `model` — armed inside `neuralEngine.ensureReady`, so it covers **every**
+  way into a model load rather than only `play()`: the Download button, the
+  voice preview and the open-book prewarm load the same half-gigabyte and
+  none of them went through `play()`, so a device that died loading met the
+  same load again next launch with nothing having noticed. Cleared the
+  moment the load reaches any verdict, ready or error, since that proves the
+  page survived. Found fresh, the next session drops to the device voice and
+  says so, and prewarm stands down entirely — opening a book must never be
+  what kills the app.
+
+`ensureReady` also carries a **silence watchdog** (`NEURAL_INIT_STALL_MS`).
+A worker the OS kills for memory fires no `error` event, so nothing settled
+the promise and the sheet sat on "Preparing the narrator on this device…"
+until the app was force-quit. Every message from the worker resets the
+timer, so a slow download and a slow session compile each keep their time;
+only true silence ends it, as a rejection the device-voice fallback can act
+on.
 
 **Coupling to the reader is one call each way.** novel-reader.js calls
 `NovelVoice.readerEvent(kind, info, bridge)` with `'open'`, `'close'` and
@@ -1337,7 +1357,7 @@ synchronous source of truth.
 | `or.gap` | page-gap level index | yes — hide-time copy only |
 | `or.autoscroll` | JSON `{ speedIdx, scrollMode }` | yes — hide-time copy only |
 | `or.timer` | goals countdown `{ deadline, minutes }` | **no — deliberately.** Losing a running countdown to a WebKit eviction is accepted; resurrecting an expired one would chime for a timer the user never saw survive. |
-| `or.voiceGuard` | epoch-ms timestamp — novel-voice's crash-loop breaker (§2.14): written before a narration session's first utterance, cleared after two utterances complete, on pause/stop, and on `pagehide`. Found fresh (<10 min) at the next session start = the last attempt likely took the page down → that session starts paused instead of auto-playing. | **no — deliberately.** It describes one runtime's crash, not the reader's data; mirroring it would trip the breaker on the other runtime. |
+| `or.voiceGuard` | JSON `{ t, phase, device }` — novel-voice's crash-loop breaker (§2.14). `phase` is `speak` (written before a session's first utterance, cleared by two completed utterances, pause/stop, `pagehide`) or `model` (written inside `ensureReady`, cleared when the load reaches any verdict). Found fresh (<10 min) at the next session start = the last attempt likely took the page down → a `speak` crash starts paused, a `model` crash falls back to the device voice and suppresses prewarm. A bare timestamp from an older build reads as `speak`. | **no — deliberately.** It describes one runtime's crash, not the reader's data; mirroring it would trip the breaker on the other runtime. |
 
 ---
 

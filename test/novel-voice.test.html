@@ -37,6 +37,7 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testNativeTts().then(T.report)">native tts</button>
@@ -621,6 +622,54 @@ const T = {
     return { name: 'init stall', pass };
   },
 
+  // The engine cannot run without shared wasm memory, and asking costs nothing.
+  // Finding out after loading 88 MB is what "Preparing…" forever was.
+  async testCapability() {
+    let pass = true;
+    const T = VT();
+    const cap = T.neuralCapability();
+    pass = ok(typeof cap.ok === 'boolean', 'capability resolves to a verdict', JSON.stringify(cap)) && pass;
+    pass = ok(cap.sharedMemory === true, 'this browser grants shared wasm memory', 'sharedMemory=' + cap.sharedMemory) && pass;
+    pass = ok(cap.ok === true, 'so the engine is offered here') && pass;
+    pass = ok(cap.reason === '', 'and no reason is given when it can run', cap.reason) && pass;
+    // The line a reader sees names all three facts, so a screenshot is a bug report.
+    const line = T.neuralCapabilityLine();
+    for (const bit of ['shared wasm memory', 'cross-origin isolated', 'SharedArrayBuffer']) {
+      pass = ok(line.indexOf(bit) !== -1, 'the readable line names ' + bit, line) && pass;
+    }
+    // Memoised — WebAssembly.Memory allocation is not free to repeat.
+    pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
+
+    // WebKit's answer, which is the one the native app gets: shared memory is
+    // refused outside a cross-origin-isolated page. Chrome grants it anyway,
+    // which is exactly why this bug was invisible in a browser.
+    const realMemory = WebAssembly.Memory;
+    try {
+      WebAssembly.Memory = function () { throw new RangeError('Shared memory is only available in a cross-origin isolated context'); };
+      T.resetCapability();
+      const webkit = T.neuralCapability();
+      pass = ok(webkit.ok === false, 'no shared memory -> the engine is not offered') && pass;
+      pass = ok(/shared WebAssembly memory/.test(webkit.reason), 'and the reason names it', webkit.reason) && pass;
+      pass = ok(/cross-origin isolated/.test(webkit.reason), 'and points at isolation', webkit.reason) && pass;
+      pass = ok(/cross-origin isolated context/.test(webkit.memoryError || ''), 'the engine error is kept verbatim', webkit.memoryError) && pass;
+
+      // The session must reach the device voice and actually speak, not hang.
+      await freshOpen();
+      Store.prefs.set('voice.engine', 'neural');
+      V().toggle();
+      await pause(300);
+      pass = ok(V().state().engine === 'device', 'the session falls back to the device voice', V().state().engine) && pass;
+      await waitFor(() => synthStub.spoken.length >= 1, 3000, 'and speaks rather than sitting on Preparing');
+      pass = ok(!V().state().preparing, 'never enters the preparing state') && pass;
+      Store.prefs.set('voice.engine', 'device');
+      endSession();
+    } finally {
+      WebAssembly.Memory = realMemory;
+      T.resetCapability();
+    }
+    return { name: 'capability', pass };
+  },
+
   // Weights shipped inside the app: the phone must never be told to download
   // something it already has, and the probe has to work over the custom URL
   // scheme the native shell serves from.
@@ -966,7 +1015,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback,
-      T.testInitStall, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testCapability, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

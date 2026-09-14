@@ -17,7 +17,7 @@
 //   out: { type:'stage', stage:string }     — where init has got to
 //   out: { type:'progress', file, loaded, total }   — model download
 //   out: { type:'ready', heapPages } | { type:'init-error', message }
-//   out: { type:'audio', id, wav:ArrayBuffer, seconds }  (wav transferred)
+//   out: { type:'audio', id, wav:ArrayBuffer, seconds, ms, chars }  (wav transferred)
 //   out: { type:'error', id, message }
 //
 // Generation is strictly one at a time: the model is not reentrant, and a
@@ -255,14 +255,25 @@ async function pump() {
   running = true;
   while (queue.length) {
     const job = queue.shift();
+    // How long a group takes, against how much audio it produced. This ratio
+    // is the difference between an engine that is broken and one that is
+    // merely slower than the reader, and those want opposite fixes: the first
+    // is a bug, the second is smaller groups or a lighter model. Without it,
+    // both look identical from the outside -- a voice that says one sentence
+    // and then goes quiet.
+    const t0 = (self.performance || Date).now();
     try {
       const audio = await tts.generate(job.text, { voice: job.voice, speed: 1 });
       const pcm = audio.audio || audio.data;
       const rate = audio.sampling_rate || 24000;
       const wav = encodeWav(pcm, rate);
-      post({ type: 'audio', id: job.id, wav: wav, seconds: pcm.length / rate }, [wav]);
+      post({ type: 'audio', id: job.id, wav: wav, seconds: pcm.length / rate,
+             ms: Math.round((self.performance || Date).now() - t0),
+             chars: job.text.length }, [wav]);
     } catch (e) {
-      post({ type: 'error', id: job.id, message: e && e.message ? String(e.message) : 'generation failed' });
+      post({ type: 'error', id: job.id,
+             ms: Math.round((self.performance || Date).now() - t0),
+             message: e && e.message ? String(e.message) : 'generation failed' });
     }
   }
   running = false;

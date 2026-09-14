@@ -248,6 +248,12 @@
       + ' · native: ' + (isNativeApp() ? 'yes' : 'NO')
       + ' · ' + weights
       + (neuralEngine.stage ? ' · stage: ' + neuralEngine.stage : '')
+      + (neuralEngine.speed
+          ? ' · last group: ' + neuralEngine.speed.chars + ' chars, '
+            + (neuralEngine.speed.ms / 1000).toFixed(1) + 's compute for '
+            + neuralEngine.speed.seconds.toFixed(1) + 's audio ('
+            + neuralEngine.speed.ratio.toFixed(2) + '× realtime)'
+          : '')
       + (c.memoryError ? ' · ' + c.memoryError : '');
   }
 
@@ -867,6 +873,7 @@
     worker: null,
     local: null,           // true once a load proved the weights are bundled
     stage: '',             // the worker's last announced init step
+    speed: null,           // { ms, seconds, chars, ratio } for the last group
     device: null,          // device the live worker was initialised with
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
@@ -944,12 +951,13 @@
             // The worker's realm is the one that had to succeed, so its number
             // supersedes the main thread's guess in the line a reader reads.
             if (m.heapPages) noteHeapPages(m.heapPages);
+            self.stage = '';       // init is over; the step it ended on is stale
             finish(null);
             if (self.onprogress) self.onprogress({ type: 'ready' });
           }
           else if (m.type === 'init-error') { finish(new Error(m.message || 'Could not load the voice model')); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
-          else if (m.type === 'audio') self.settle(m.id, null, m);
+          else if (m.type === 'audio') { self.noteSpeed(m); self.settle(m.id, null, m); }
           else if (m.type === 'error') self.settle(m.id, new Error(m.message || 'Generation failed'), null);
         };
         w.postMessage({
@@ -1042,6 +1050,24 @@
       job.then(forget, forget);
       this.inFlight.set(cacheKey, job);
       return job;
+    },
+
+    /**
+     * Seconds of audio per second of compute, for the last group.
+     *
+     * Below 1.0 the engine cannot keep up with its own output: the reader
+     * hears a sentence, then a gap, then a sentence. That is not a failure
+     * any error path catches, because nothing failed -- and it is why "it
+     * read the chapter title and stopped" is ambiguous until this is measured.
+     */
+    noteSpeed: function (m) {
+      if (!m || !m.ms) return;
+      this.speed = {
+        ms: m.ms,
+        seconds: m.seconds || 0,
+        chars: m.chars || 0,
+        ratio: m.ms > 0 ? (m.seconds || 0) / (m.ms / 1000) : 0,
+      };
     },
 
     cancelPending: function () {
@@ -1721,8 +1747,16 @@
     dom.playBtn.classList.toggle('vc-preparing', state.preparing);
     const n = state.sentences.length;
     const at = n ? state.index + 1 : 0;
+    // "Preparing voice…" alone is why "it read the title and stopped" was
+    // unreadable: a gap because the engine is grinding and a gap because it
+    // died look the same. The last group's cost says which, in the place a
+    // reader is already staring at while waiting.
+    const sp = neuralEngine.speed;
     dom.statusLine.textContent = state.preparing
-      ? 'Preparing voice…'
+      ? (sp
+          ? 'Preparing voice… (last: ' + (sp.ms / 1000).toFixed(1) + 's for '
+            + sp.seconds.toFixed(1) + 's of speech)'
+          : 'Preparing voice…')
       : (n ? at + ' / ' + n : 'Nothing to read');
   }
 

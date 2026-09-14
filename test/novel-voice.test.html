@@ -37,6 +37,7 @@
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
   <button onclick="T.testCapability().then(T.report)">capability</button>
+  <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
@@ -775,6 +776,42 @@ const T = {
     return { name: 'capability', pass };
   },
 
+  // "It read the chapter title and then stopped." A gap because the engine is
+  // grinding and a gap because it died are the same silence, and nothing in
+  // the app measured the difference until this.
+  async testGenerationSpeed() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const held = ne.speed;
+    try {
+      ne.speed = null;
+      pass = ok(VT().neuralCapabilityLine().indexOf('last group') === -1,
+        'nothing is claimed before a group has been generated') && pass;
+
+      // Slower than realtime: 8 s of compute for 2 s of speech.
+      ne.noteSpeed({ ms: 8000, seconds: 2, chars: 300 });
+      pass = ok(ne.speed.ratio === 0.25, 'the ratio is audio seconds per compute second',
+        String(ne.speed.ratio)) && pass;
+      pass = ok(ne.speed.ratio < 1, 'and below 1 means the reader outruns the engine') && pass;
+      let line = VT().neuralCapabilityLine();
+      pass = ok(line.indexOf('300 chars') !== -1, 'the line names the group size', line) && pass;
+      pass = ok(line.indexOf('8.0s compute for 2.0s audio') !== -1,
+        'and states both costs, not a single opaque number', line) && pass;
+      pass = ok(line.indexOf('0.25× realtime') !== -1, 'and the ratio itself', line) && pass;
+
+      // Faster than realtime: the healthy case.
+      ne.noteSpeed({ ms: 1000, seconds: 5, chars: 120 });
+      pass = ok(ne.speed.ratio === 5, 'a fast engine reports above 1', String(ne.speed.ratio)) && pass;
+
+      // A generation that reported no timing must not invent one.
+      ne.noteSpeed({ seconds: 3 });
+      pass = ok(ne.speed.ratio === 5, 'a message with no timing leaves the last reading alone') && pass;
+    } finally {
+      ne.speed = held;
+    }
+    return { name: 'generation speed', pass };
+  },
+
   // Weights shipped inside the app: the phone must never be told to download
   // something it already has, and the probe has to work over the custom URL
   // scheme the native shell serves from.
@@ -1078,7 +1115,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testCapability, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

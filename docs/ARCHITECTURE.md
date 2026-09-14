@@ -990,44 +990,41 @@ file absent (or a browser with neither `speechSynthesis` nor `Worker`,
 in which case the module leaves `window.NovelVoice` undefined), the reader
 renders no Listen button and behaves exactly as before.
 
-Two engines behind one controller:
+**One engine, by design.** Narration is Kokoro-82M through the vendored
+`vendor/tts/kokoro.web.js` (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a
+module worker, WASM and the q8 weights. The device engine (`speechSynthesis`,
+and `Platform.tts` on native) was removed: it sounded like what it was, and
+keeping it as a silent fallback meant a natural voice that could not run
+looked like an app that worked. When the engine cannot run, the session ends
+and says so. `Platform.tts` (§2.3) survives as an unused facade with its own
+tests; nothing in the reader calls it.
 
-- **Device** — `speechSynthesis`, zero download — routed through
-  `Platform.tts` (§2.3) instead whenever that facade reports available:
-  Android's System WebView ships no `speechSynthesis`, so in the native app
-  the same engine speaks through the Capacitor TTS plugin (same ranking,
-  same queue, same watchdog; the silent media-session keep-alive loop is
-  web-only — the plugin holds its own audio session). Voices are *ranked*:
-  name
-  markers (`Natural`, `Neural`, `Premium`, `Enhanced`, `Siri`, `Google`) rise,
-  the eSpeak/compact/novelty set sinks, wrong-language voices go last. `''`
-  (auto) means "highest-ranked for the page language"; the picker still lists
-  everything. One utterance per sentence — long utterances are where engines
-  flatten and where Chrome's stops entirely.
-- **Neural** — Kokoro-82M through the vendored `vendor/tts/kokoro.web.js`
-  (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a module worker, WASM and
-  the q8 weights, full stop. The WebGPU path was removed: it needed the fp32
-  weights, four times the size, never bundled, and on a phone it did not make
-  generation faster, it made the web content process die. A toggle whose only
-  outcome is a killed app is worse than no toggle. Engine code is self-hosted (ONNX Runtime's
-  `wasmPaths` points at `vendor/tts/`, never a CDN); the ~90 MB weights come
-  from huggingface.co once, live in the runtime's own Cache API buckets
-  (`transformers-cache`, `kokoro-voices`), and work offline thereafter.
-  Nothing — worker, bundle, wasm, weights — is fetched until a reader enables
-  the Natural voice. Init failure falls back to the device engine for the
-  session and leaves the stored pref alone. Generation is by GROUP —
-  adjacent same-block sentences merged to ~160–300 chars — not per sentence:
-  the model gets whole-clause context (continuous prosody instead of choppy
-  per-sentence delivery) and per-call overhead is paid once per group, which
-  is what keeps slower-than-realtime devices ahead of playback, with two
-  groups always generating ahead. The worker is NOT torn down on reader
-  close: it idles out after last use on a **memory-class schedule** (§2.3 —
-  high: 2 min, mid: 30 s, low: immediately; half a gigabyte of idle model on
-  a 3 GB phone is an OOM kill waiting to happen), and opening a book with
-  the Natural voice selected pre-warms it in the background on
-  **high-memory devices only** — and only when the weights are already on
-  disk, bundled or downloaded; prewarm never starts a download, and never
-  runs at all after a `model`-phase crash.
+Weights are **bundled when the build has them and downloaded when it does
+not**: the worker points transformers.js's `localModelPath` at
+`vendor/tts/models/`, and transformers.js tries local before the network, so
+the native app (whose build ran `scripts/fetch-voice-model.mjs`) never reaches
+huggingface.co and the plain web app downloads as before. Voice embeddings
+need one extra move — kokoro-js hardcodes their URL with no env hook but checks
+the Cache API first, so the worker seeds the bundled `.bin` files into
+`kokoro-voices` under the URL kokoro-js will ask for rather than patching
+vendored code.
+
+**`neuralCapability()` is asked before anything loads.** The ONNX Runtime
+binary imports a SHARED WebAssembly memory, which needs a cross-origin-isolated
+page. Chrome grants it anyway; WebKit does not, and the native shell's custom
+URL scheme sets no COOP/COEP, so there the allocation throws inside
+emscripten's init where nothing reports it. The check runs in microseconds and
+turns that permanent "Preparing…" into a sentence naming the cause.
+
+Generation is by GROUP — adjacent same-block sentences merged to ~160–300
+chars — not per sentence: the model gets whole-clause context and per-call
+overhead is paid once per group, which keeps slower-than-realtime devices ahead
+of playback, with two groups always generating ahead. A sentence long enough
+that `splitLong` cut it is put back together for this engine. Generation is
+deduplicated **in flight**, not just by `wavCache` — the lookahead and the
+cursor otherwise race for the same group and the serial worker renders it
+twice. The worker is NOT torn down on reader close: it idles out on a
+**memory-class schedule** (§2.3 — high: 2 min, mid: 30 s, low: immediately).
 
 Narration also carries a **crash-loop breaker** (`or.voiceGuard`, §3.3):
 some platforms can take the whole page down when speech starts (WebKit has

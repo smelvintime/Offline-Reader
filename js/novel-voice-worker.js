@@ -15,6 +15,7 @@
 //   in:  { type:'cancel' }                  — drop everything not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'stage', stage:string }     — where init has got to
+//   out: { type:'note', stage, message }    — something escaped; NOT a verdict
 //   out: { type:'progress', file, loaded, total }   — model download
 //   out: { type:'ready', heapPages } | { type:'init-error', message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds, ms, chars }  (wav transferred)
@@ -109,14 +110,28 @@ mark('worker alive');
 // An exception that escapes init's try/catch — thrown from a wasm callback, an
 // unawaited promise, an emscripten abort handler — used to leave the UI on
 // "Preparing the narrator" with nothing said. These two make it speak.
+//
+// They report and they do NOT decide. An earlier version posted 'init-error'
+// from here, which the main thread treats as fatal, and that killed sessions
+// whose engine was working: the vendored bundle rejects a promise or two in
+// the background that it handles perfectly well itself, and a listener has no
+// way to tell those from a real failure. It also mislabelled them, because
+// `stage` is wherever init happens to have got to when an unrelated background
+// rejection surfaces — "at looking for bundled weights: undefined is not a
+// function" came from a step whose only fetch is inside a try/catch that
+// cannot throw.
+//
+// Init's own try/catch is what fails a load, because it is the only thing here
+// that knows the load actually failed. These leave a note.
+function note(what) {
+  post({ type: 'note', stage: stage, message: String(what).slice(0, 160) });
+}
 self.addEventListener('error', function (e) {
-  post({ type: 'init-error', message: 'at ' + stage + ': '
-    + ((e && (e.message || (e.error && e.error.message))) || 'worker error') });
+  note((e && (e.message || (e.error && e.error.message))) || 'worker error');
 });
 self.addEventListener('unhandledrejection', function (e) {
   const r = e && e.reason;
-  post({ type: 'init-error', message: 'at ' + stage + ': '
-    + ((r && (r.message || r)) || 'unhandled rejection') });
+  note((r && (r.message || r)) || 'unhandled rejection');
 });
 
 // Where bundled weights live, if the build has them (scripts/fetch-voice-model.mjs).

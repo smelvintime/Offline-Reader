@@ -36,6 +36,7 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testEscapedErrorIsNotFatal().then(T.report)">escaped error</button>
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
@@ -677,6 +678,56 @@ const T = {
     return { name: 'init stall', pass };
   },
 
+  // A background rejection is not a verdict on the session.
+  //
+  // An earlier version posted 'init-error' from the worker's global error and
+  // unhandledrejection listeners, which the main thread treats as fatal. The
+  // vendored bundle rejects a promise or two in the background and handles them
+  // itself, so that killed working sessions -- and mislabelled them, since the
+  // stage is wherever init had got to when the unrelated rejection surfaced.
+  async testEscapedErrorIsNotFatal() {
+    let pass = true;
+    neuralStub.restore();
+    const ne = VT().neuralEngine;
+    const origWorker = window.Worker;
+    try {
+      // A worker that notes something escaping, then comes up perfectly fine.
+      window.Worker = function () {
+        const w = this;
+        this.postMessage = function () {
+          setTimeout(() => {
+            w.onmessage && w.onmessage({ data: { type: 'stage', stage: 'looking for bundled weights' } });
+            w.onmessage && w.onmessage({ data: { type: 'note', stage: 'looking for bundled weights',
+              message: "undefined is not a function (near '...e of A...')" } });
+            w.onmessage && w.onmessage({ data: { type: 'ready' } });
+          }, 0);
+        };
+        this.terminate = function () {};
+      };
+      ne.dispose();
+      let failed = null;
+      await ne.ensureReady('wasm').catch(function (e) { failed = e; });
+      pass = ok(failed === null, 'a noted rejection does not fail the load',
+        failed && failed.message) && pass;
+      pass = ok(ne.ready === true, 'and the engine comes up ready') && pass;
+      pass = ok(/undefined is not a function/.test(ne.note),
+        'the note is kept for the reader to report', ne.note) && pass;
+      pass = ok(/during looking for bundled weights/.test(ne.note),
+        'with the step it surfaced during, not the step that caused it', ne.note) && pass;
+      pass = ok(VT().neuralCapabilityLine().indexOf('note:') !== -1,
+        'and it reaches the line a reader can screenshot', VT().neuralCapabilityLine()) && pass;
+      ne.dispose();
+      pass = ok(ne.note === '', 'disposing clears it with the rest of the state') && pass;
+      await pause(50);
+    } finally {
+      neuralStub.resume();
+      window.Worker = origWorker;
+      localStorage.removeItem('or.voiceGuard');
+      ne.ready = false; ne.readyPromise = null; ne.worker = null; ne.note = '';
+    }
+    return { name: 'escaped error is not fatal', pass };
+  },
+
   // The engine cannot run without shared wasm memory, and asking costs nothing.
   // Finding out after loading 88 MB is what "Preparing…" forever was.
   async testCapability() {
@@ -1149,7 +1200,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

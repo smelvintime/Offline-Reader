@@ -45,16 +45,19 @@
 (function () {
   'use strict';
 
-  // A browser with neither speechSynthesis nor workers cannot narrate at all.
-  // Leaving window.NovelVoice undefined makes novel-reader.js skip the Listen
-  // button entirely (§2.14) — the honest UI for "this cannot work here".
-  if (!window.speechSynthesis && !window.Worker) return;
+  // Without Workers or WebAssembly there is no narrator at all. Leaving
+  // window.NovelVoice undefined makes novel-reader.js skip the Listen button
+  // entirely (§2.14) — the honest UI for "this cannot work here".
+  if (!window.Worker || typeof WebAssembly === 'undefined') return;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Constants
   // ─────────────────────────────────────────────────────────────────────────
 
-  const ENGINES = ['device', 'neural'];
+  // One narrator. The device voice is gone: it was the platform's own
+  // speech synthesiser, it sounded like one, and having it as a silent
+  // fallback meant a broken natural voice could masquerade as a working app.
+  // When the natural voice cannot run, that is now said, not papered over.
   // One path only. The GPU path needed the fp32 weights — four times the size,
   // never bundled, and on a phone a dead process rather than a faster one. It
   // was a 330 MB download sitting behind a toggle that read as an upgrade.
@@ -212,7 +215,6 @@
 
   const PREF = {
     engine:       'voice.engine',
-    deviceVoice:  'voice.deviceVoice',
     rate:         'voice.rate',
     pitch:        'voice.pitch',
     neuralVoice:  'voice.neuralVoice',
@@ -223,7 +225,6 @@
 
   const DEFAULTS = {
     engine: 'device',
-    deviceVoice: '',          // '' = auto: highest-ranked voice for the page language
     rate: 1,
     pitch: 1,
     neuralVoice: 'af_heart',
@@ -272,8 +273,6 @@
   // door stays closed until someone actually asks for it.
   function readPrefs() {
     return {
-      engine:       oneOf(prefGet(PREF.engine, DEFAULTS.engine), ENGINES, DEFAULTS.engine),
-      deviceVoice:  String(prefGet(PREF.deviceVoice, DEFAULTS.deviceVoice) || ''),
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
       pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
       neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
@@ -592,54 +591,6 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Device voice ranking
-  //
-  // Every platform ships several voices and defaults to a poor one. The names
-  // are the only quality signal there is, and they are worth reading: the
-  // genuinely neural voices advertise themselves ("Natural", "Neural",
-  // "Premium", "Enhanced", "Siri"), and the novelty/compact voices are a
-  // known, finite set. This ranking is a heuristic and the picker shows every
-  // voice — auto just has to beat the default, which is a low bar.
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const VOICE_GOOD = [
-    [/\bnatural\b/i, 60], [/\bneural\b/i, 55], [/\bpremium\b/i, 45],
-    [/\benhanced\b/i, 40], [/\bsiri\b/i, 35],
-    // Chrome's hosted voices; clearly better than the local eSpeak/Android picos.
-    [/^google\b/i, 25],
-    [/\bonline\b/i, 10],
-  ];
-  const VOICE_BAD = [
-    // eSpeak and its packagings — the "super robotic stuff".
-    [/espeak|e-speak/i, -100],
-    [/\bcompact\b/i, -60],
-    // macOS novelty voices, all of them deliberately cartoonish.
-    [/albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|kathy|ralph|fred/i, -80],
-  ];
-
-  function scoreVoice(v, pageLang) {
-    let score = 0;
-    const name = String(v.name || '');
-    for (let i = 0; i < VOICE_GOOD.length; i++) if (VOICE_GOOD[i][0].test(name)) score += VOICE_GOOD[i][1];
-    for (let i = 0; i < VOICE_BAD.length; i++) if (VOICE_BAD[i][0].test(name)) score += VOICE_BAD[i][1];
-    const lang = String(v.lang || '').toLowerCase();
-    const want = String(pageLang || 'en').toLowerCase();
-    if (lang === want) score += 22;
-    else if (lang.split('-')[0] === want.split('-')[0]) score += 18;
-    else score -= 40;                       // wrong language beats nothing else
-    if (v.default) score += 2;
-    if (v.localService) score += 1;         // tie-break: no network round-trip
-    return score;
-  }
-
-  function rankVoices(voices, pageLang) {
-    const list = (voices || []).slice();
-    const scored = list.map(function (v, i) { return { v: v, i: i, score: scoreVoice(v, pageLang) }; });
-    scored.sort(function (a, b) { return b.score - a.score || a.i - b.i; });
-    return scored.map(function (s) { return s.v; });
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   // WAV encoding — Float32 PCM from the worker → a Blob an <audio> can play.
   // 16-bit is half the bytes of the raw floats and indistinguishable here.
   // ─────────────────────────────────────────────────────────────────────────
@@ -666,10 +617,9 @@
     return buf;
   }
 
-  // Half a second of silence, generated rather than shipped. Played (looped)
-  // while the device engine speaks: speechSynthesis is invisible to the media
-  // session, and an actually-playing <audio> is what puts play/pause on the
-  // lock screen and keeps the audio session alive with the screen off.
+  // Half a second of silence, generated rather than shipped. Played once on the
+  // first tap so the <audio> element is blessed for autoplay while the user
+  // gesture is still live — every later clip inherits that permission.
   let silentUrl = null;
   function silentWavUrl() {
     if (!silentUrl) {
@@ -746,9 +696,15 @@
       if (this.url && this.url !== url) { try { URL.revokeObjectURL(this.url); } catch (e) {} }
       this.url = o.revoke ? url : null;
       a.loop = !!o.loop;
-      a.playbackRate = o.rate || 1;
       if (a.src !== url) a.src = url;
       else a.currentTime = 0;
+      // AFTER src, not before. Assigning src runs the media load algorithm,
+      // which resets playbackRate to defaultPlaybackRate — so a rate set first
+      // is thrown away on every clip, and the Speed control silently did
+      // nothing for the whole session. Setting the default too keeps it
+      // through any later load this element does.
+      a.defaultPlaybackRate = o.rate || 1;
+      a.playbackRate = o.rate || 1;
       let p;
       try { p = a.play(); } catch (e) { p = Promise.reject(e); }
       return p && typeof p.catch === 'function' ? p : Promise.resolve();
@@ -812,143 +768,6 @@
     try { ms.metadata = null; ms.playbackState = 'none'; } catch (e) {}
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Device engine — speechSynthesis, one sentence per utterance.
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const deviceEngine = {
-    voicesCache: null,
-    nativeVoicesCache: null,
-
-    // The native app's WebView may have no speechSynthesis at all (Android's
-    // never wired it). When platform.js offers its TTS facade (§2.3), every
-    // call below routes through it instead; ranking, the queue and the
-    // watchdog neither know nor care which backend spoke.
-    native: function () {
-      try { return !!(window.Platform && window.Platform.tts && window.Platform.tts.available()); }
-      catch (e) { return false; }
-    },
-
-    available: function () { return this.native() || !!window.speechSynthesis; },
-
-    voices: function () {
-      if (this.native()) {
-        if (this.nativeVoicesCache) return this.nativeVoicesCache;
-        const self = this;
-        // Kick the async fetch; the sheet re-syncs when the list lands. Until
-        // then speak() runs with the engine's default voice, which is right.
-        window.Platform.tts.voices().then(function (list) {
-          if (list && list.length && !self.nativeVoicesCache) {
-            self.nativeVoicesCache = list;
-            syncSheet();
-          }
-        });
-        return this.nativeVoicesCache || [];
-      }
-      if (!window.speechSynthesis) return [];
-      let v = [];
-      try { v = window.speechSynthesis.getVoices() || []; } catch (e) {}
-      if (v.length) this.voicesCache = v;
-      return this.voicesCache || v;
-    },
-
-    ranked: function () { return rankVoices(this.voices(), docLang()); },
-
-    pick: function (voiceURI) {
-      const all = this.voices();
-      if (voiceURI) {
-        for (let i = 0; i < all.length; i++) if (all[i].voiceURI === voiceURI) return all[i];
-      }
-      const ranked = this.ranked();
-      return ranked.length ? ranked[0] : null;
-    },
-
-    speak: function (text, opts) {
-      // opts: { voiceURI, rate, pitch, onend, onerror }
-      if (this.native()) { this.speakNative(text, opts); return; }
-      const synth = window.speechSynthesis;
-      const u = new SpeechSynthesisUtterance(text);
-      const voice = this.pick(opts.voiceURI);
-      // Guarded: a voice object that is not a real SpeechSynthesisVoice (an
-      // odd platform, a test double) throws on assignment, and speaking in
-      // the default voice beats not speaking.
-      if (voice) {
-        try { u.voice = voice; } catch (e) {}
-        u.lang = voice.lang || docLang();
-      }
-      u.rate = opts.rate || 1;
-      u.pitch = opts.pitch || 1;
-      let settled = false;
-      let watchdog = 0;
-      const settle = function (fn, arg) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(watchdog);
-        if (fn) fn(arg);
-      };
-      u.onend = function () { settle(opts.onend); };
-      u.onerror = function (e) {
-        // 'canceled'/'interrupted' are our own cancel() coming back around,
-        // never a device failure — surfacing them as errors would count our
-        // own pause taps toward the stop-after-3 fuse.
-        if (e && (e.error === 'canceled' || e.error === 'interrupted')) { settle(null); return; }
-        settle(opts.onerror, e);
-      };
-      // A platform with no speech backend (Linux without speech-dispatcher,
-      // kiosk builds) accepts the utterance and then fires NOTHING — no end,
-      // no error. Without a watchdog that hangs the queue forever on a bar
-      // that says "playing". Budget: generous reading time for the text plus
-      // grace, then treat it as the engine failure it is.
-      const seconds = clamp(text.length / 12, 4, 40) / (u.rate || 1) + 8;
-      watchdog = setTimeout(function () {
-        settle(opts.onerror, new Error('speech engine produced no audio'));
-      }, seconds * 1000);
-      state.utterance = u;   // must outlive speak(): GC'd utterances go silent on Chrome
-      try { synth.speak(u); } catch (e) { settle(opts.onerror, e); }
-    },
-
-    // Same utterance contract over Platform.tts: the facade's speak() promise
-    // resolves at utterance END, rejects on failure. Our own stop() may make
-    // an in-flight promise settle late or oddly — the speakToken guard in the
-    // caller already ignores stale settlements, so no special-casing here.
-    speakNative: function (text, opts) {
-      let settled = false;
-      let watchdog = 0;
-      const settle = function (fn, arg) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(watchdog);
-        if (fn) fn(arg);
-      };
-      const seconds = clamp(text.length / 12, 4, 40) / (opts.rate || 1) + 8;
-      watchdog = setTimeout(function () {
-        settle(opts.onerror, new Error('speech engine produced no audio'));
-      }, seconds * 1000);
-      try {
-        window.Platform.tts.speak(text, { voiceURI: opts.voiceURI, rate: opts.rate, pitch: opts.pitch })
-          .then(function (spoke) {
-            // false = the facade's expected-condition fallback (plugin gone
-            // between available() and here) — nothing was said, so it is a
-            // failure to the queue, not a completed sentence.
-            if (spoke === false) settle(opts.onerror, new Error('native speech unavailable'));
-            else settle(opts.onend);
-          })
-          .catch(function (e) { settle(opts.onerror, e); });
-      } catch (e) { settle(opts.onerror, e); }
-    },
-
-    cancel: function () {
-      if (this.native()) {
-        try { window.Platform.tts.stop(); } catch (e) {}
-        state.utterance = null;
-        return;
-      }
-      if (!window.speechSynthesis) return;
-      try { window.speechSynthesis.cancel(); } catch (e) {}
-      state.utterance = null;
-    },
-  };
-
   // The language narration should be IN. The open book's own tag wins — an
   // imported Japanese light novel read by an English voice is noise, and the
   // app shell's <html lang> says nothing about what is on the page. Falls back
@@ -981,19 +800,6 @@
   try {
     window.addEventListener('pagehide', function () { guardClear(); });
   } catch (e) {}
-
-  // Voice lists arrive asynchronously on some platforms; refresh the sheet
-  // when they do. Wired once, globally — the listener is cheap and the event
-  // fires a handful of times per page load at most.
-  if (window.speechSynthesis && typeof window.speechSynthesis.addEventListener === 'function') {
-    try {
-      window.speechSynthesis.addEventListener('voiceschanged', function () {
-        deviceEngine.voicesCache = null;
-        deviceEngine.voices();
-        syncSheet();
-      });
-    } catch (e) {}
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Neural engine — the vendored Kokoro bundle in a module worker.
@@ -1356,28 +1162,7 @@
       advance(1);
     };
 
-    if (state.prefs.engine === 'neural') speakNeural(s, token, done, fail);
-    else speakDevice(s, token, done, fail);
-  }
-
-  function speakDevice(s, token, done, fail) {
-    // A beat between cancel() and speak(): several engines (Android, older
-    // Chrome) drop an utterance queued in the same tick as a cancel.
-    setTimeout(function () {
-      if (token !== state.speakToken || !state.playing) return;
-      deviceEngine.speak(normalizeForSpeech(s.text, 'device'), {
-        voiceURI: state.prefs.deviceVoice,
-        rate: state.prefs.rate,
-        pitch: state.prefs.pitch,
-        onend: done,
-        onerror: fail,
-      });
-    }, 40);
-    // Keep the media session honest while an inaudible <audio> loop carries
-    // it — web only: the native TTS plugin holds a real audio session of its
-    // own (`category: playback`), and a competing loop would just duck it.
-    if (!deviceEngine.native()) channel.play(silentWavUrl(), { loop: true }).catch(function () {});
-    mediaSessionUpdate();
+    speakNeural(s, token, done, fail);
   }
 
   // A neural group: sentences[from..to] of ONE block, merged for one
@@ -1455,7 +1240,7 @@
   // Keep the next groups in flight while this one plays. The worker is a
   // serial queue, so this is "top the queue up to depth 2", not a stampede.
   function prefetchNeural(currentGroup) {
-    if (state.prefs.engine !== 'neural' || !neuralEngine.worker) return;
+    if (!neuralEngine.worker) return;
     let from = currentGroup.to + 1;
     for (let k = 0; k < NEURAL_LOOKAHEAD; k++) {
       const g = neuralGroupAt(from);
@@ -1534,21 +1319,6 @@
     mediaSessionUpdate();
     if (!state.sentences.length) { state.emptyHops++; onChapterExhausted(); return; }
     if (!state.playing) { updateBar(); return; }
-    // A spoken chapter heading, so the ear gets the same cue the eye does.
-    // Headings in the text are announced by the text itself; this is only for
-    // the transition moment.
-    const label = chapterAnnouncement(chapter);
-    if (label && state.prefs.engine === 'device') {
-      const token = ++state.speakToken;
-      deviceEngine.speak(label, {
-        voiceURI: state.prefs.deviceVoice, rate: state.prefs.rate, pitch: state.prefs.pitch,
-        onend: function () { if (token === state.speakToken && state.playing) speakCurrent(); },
-        onerror: function () { if (token === state.speakToken && state.playing) speakCurrent(); },
-      });
-      highlighter.clear();
-      updateBar();
-      return;
-    }
     speakCurrent();
   }
 
@@ -1563,7 +1333,6 @@
   function cancelSpeech() {
     state.speakToken++;
     clearTimeout(preparingTimer); preparingTimer = 0;
-    deviceEngine.cancel();
     neuralEngine.cancelPending();
     channel.stop();
     setPreparing(false);
@@ -1585,37 +1354,27 @@
     if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
 
     // First user gesture: bless the audio element while we still have it.
-    channel.play(silentWavUrl(), { loop: state.prefs.engine === 'device' }).catch(function () {});
+    channel.play(silentWavUrl(), {}).catch(function () {});
 
-    if (state.prefs.engine === 'neural') {
-      ensureNeuralThenSpeak();
-    } else {
-      speakCurrent();
-    }
+    ensureNeuralThenSpeak();
     mediaSessionWire();
     mediaSessionUpdate();
     updateBar();
   }
 
   function ensureNeuralThenSpeak() {
-    // Can this runtime run the engine at all? Asked first, because the answer
-    // is instant and the alternative is loading 88 MB to find out.
+    // With one engine there is nothing to fall back TO, and that is the point:
+    // every exit below ends the session with a sentence saying what is wrong,
+    // instead of quietly handing the book to a voice nobody chose.
     const cap = neuralCapability();
     if (!cap.ok) {
-      state.prefs.engine = 'device';       // session only; the stored pref stands
-      toast('The natural voice cannot run here — ' + cap.reason + '. Using the device voice.');
+      finishSession('The natural voice cannot run here — ' + cap.reason + '.');
       syncSheet();
-      if (deviceEngine.available()) speakCurrent();
-      else finishSession('No voice on this device can read this book aloud.');
       return;
     }
-    // Wrong-language book: fall back BEFORE the ~90 MB download, not after.
     if (!neuralSpeaks(docLang())) {
-      state.prefs.engine = 'device';       // session only; the stored pref stands
-      toast('The natural voice only reads English. Using the device voice for this book.');
+      finishSession('The natural voice reads English, and this book is not in English.');
       syncSheet();
-      if (deviceEngine.available()) speakCurrent();
-      else finishSession('No voice on this device can read this book aloud.');
       return;
     }
     setPreparingSoon();
@@ -1629,23 +1388,13 @@
       .catch(function (e) {
         setPreparing(false);
         if (!state.active) return;
-        // The engine could not come up (download refused, wasm blocked, GPU
-        // lost). Fall back for this session rather than going mute; the pref
-        // is untouched so the sheet still shows what was chosen and why.
         neuralFallbackNote(e);
-        if (deviceEngine.available()) {
-          // Session-only: state.prefs.engine flips but the stored pref stays
-          // 'neural', so the next open tries the natural voice again.
-          state.prefs.engine = 'device';
-          if (state.playing) speakCurrent();
-        } else {
-          stopSession();
-        }
+        stopSession();
       });
   }
 
   function neuralFallbackNote(e) {
-    toast('Natural voice unavailable — using the device voice. (' + shortErr(e) + ')');
+    toast('The natural voice could not start: ' + shortErr(e));
     state.neuralError = shortErr(e);
     syncSheet();
   }
@@ -1686,16 +1435,13 @@
     const crashed = guardRead();
     if (crashed) {
       if (crashed.phase === 'model') {
-        // The app died LOADING the model, not speaking. Retrying the same load
-        // is retrying the crash, so this session uses the device voice and the
-        // natural voice waits for a deliberate tap in the sheet. The stored
-        // pref is untouched.
-        state.prefs.engine = 'device';
+        // The app died LOADING the model. Retrying that load on open is
+        // retrying the crash, and there is no other voice to hand the book to,
+        // so the session comes up paused and waits to be told twice.
         state.neuralBlocked = true;
-        toast('Loading the natural voice closed the app last time'
-          + '. Using the device voice — open the voice sheet to try it again.');
+        toast('Loading the natural voice closed the app last time. Press play to try again.');
         syncSheet();
-        play();
+        updateBar();
         return;
       }
       toast('Narration may have crashed the app last time — not starting by itself. Press play to retry, or pick another voice first.');
@@ -1772,9 +1518,6 @@
       state.bridge = bridge || state.bridge;
       state.prefs = readPrefs();
       prewarmNeural();
-      // On native, warm the voice list too — it is an async plugin call, and
-      // fetching it now means the picker is populated by the first sheet open.
-      if (deviceEngine.native()) deviceEngine.voices();
       return;
     }
     if (!state.bridge) return;
@@ -1923,54 +1666,24 @@
     const body = el('div', 'vc-sheet-body');
     sheet.appendChild(body);
 
-    // ── Narrator: device vs natural ───────────────────────────────────────
-    const engRow = el('div', 'vc-row');
-    engRow.appendChild(el('span', 'vc-row-label', 'Narrator'));
-    const seg = el('div', 'vc-seg');
-    seg.setAttribute('role', 'radiogroup');
-    const segDevice = segBtn('Device voice', 'Instant · uses this device’s voices');
-    const segNeural = segBtn('Natural voice', 'Human-sounding · one-time download');
-    seg.append(segDevice.btn, segNeural.btn);
-    engRow.appendChild(seg);
-    body.appendChild(engRow);
-
-    segDevice.btn.addEventListener('click', function () { setEngine('device'); });
-    segNeural.btn.addEventListener('click', function () { setEngine('neural'); });
-
-    // ── Device voice picker ───────────────────────────────────────────────
-    const devRow = el('div', 'vc-row vc-device-row');
-    devRow.appendChild(el('span', 'vc-row-label', 'Device voice'));
-    const devWrap = el('div', 'vc-select-wrap');
-    const select = el('select', 'vc-select');
-    select.setAttribute('aria-label', 'Device voice');
-    devWrap.appendChild(select);
-    const preview1 = previewBtn();
-    devWrap.appendChild(preview1);
-    devRow.appendChild(devWrap);
-    const devHint = el('div', 'vc-hint');
-    devRow.appendChild(devHint);
-    body.appendChild(devRow);
-
-    select.addEventListener('change', function () {
-      state.prefs.deviceVoice = select.value;
-      prefSet(PREF.deviceVoice, select.value);
-      restartCurrentIfPlaying();
-    });
-    preview1.addEventListener('click', function () { previewVoice(); });
-
     // ── Natural voice panel ───────────────────────────────────────────────
     const natRow = el('div', 'vc-row vc-neural-row');
     natRow.appendChild(el('span', 'vc-row-label', 'Natural voice'));
 
     const natStatus = el('div', 'vc-nat-status');
     const natText = el('div', 'vc-hint');
+    // Always on screen, whatever the verdict. Shown only on failure, its
+    // absence meant two different things — "the engine is fine" and "this
+    // build predates the check" — and telling those apart cost a round trip
+    // every time. A line that is always there answers both at a glance.
+    const natEngine = el('div', 'vc-hint vc-engine-line');
     const natBar = el('div', 'vc-progress');
     natBar.appendChild(el('i'));
     natBar.hidden = true;
     const natAction = el('button', 'vc-action');
     natAction.type = 'button';
     natAction.textContent = 'Download voice (~90 MB)';
-    natStatus.append(natText, natBar, natAction);
+    natStatus.append(natText, natBar, natAction, natEngine);
     natRow.appendChild(natStatus);
 
     const natVoices = el('div', 'vc-chip-rail');
@@ -2049,40 +1762,21 @@
 
     // Everything the sheet shows that can change from outside it.
     sheetSync.push(function () {
-      const engine = state.prefs.engine;
-      segDevice.btn.setAttribute('aria-checked', String(engine === 'device'));
-      segNeural.btn.setAttribute('aria-checked', String(engine === 'neural'));
-      segDevice.btn.classList.toggle('vc-on', engine === 'device');
-      segNeural.btn.classList.toggle('vc-on', engine === 'neural');
-      devRow.hidden = engine !== 'device';
-      natRow.hidden = engine !== 'neural';
-      pitchRow.hidden = engine !== 'device';
-
-      if (engine === 'device') {
-        fillVoiceSelect(select);
-        devHint.textContent = deviceVoiceHint();
-      } else {
-        const chips = natVoices.querySelectorAll('.vc-chip');
-        for (let i = 0; i < chips.length; i++) {
-          const onV = chips[i].dataset.voice === state.prefs.neuralVoice;
-          chips[i].classList.toggle('vc-on', onV);
-          chips[i].setAttribute('aria-checked', String(onV));
-        }
-        syncNeuralStatus(natText, natBar, natAction, removeBtn);
+      // Pitch was a speechSynthesis knob; Kokoro has no equivalent.
+      pitchRow.hidden = true;
+      const chips = natVoices.querySelectorAll('.vc-chip');
+      for (let i = 0; i < chips.length; i++) {
+        const onV = chips[i].dataset.voice === state.prefs.neuralVoice;
+        chips[i].classList.toggle('vc-on', onV);
+        chips[i].setAttribute('aria-checked', String(onV));
       }
+      natEngine.textContent = neuralCapabilityLine();
+      syncNeuralStatus(natText, natBar, natAction, removeBtn);
     });
 
     return sheet;
   }
 
-  function segBtn(label, note) {
-    const btn = el('button', 'vc-seg-btn');
-    btn.type = 'button';
-    btn.setAttribute('role', 'radio');
-    btn.setAttribute('aria-checked', 'false');
-    btn.append(el('span', 'vc-seg-label', label), el('span', 'vc-seg-note', note));
-    return { btn: btn };
-  }
 
   function previewBtn() {
     const b = el('button', 'vc-action');
@@ -2130,55 +1824,12 @@
     return row;
   }
 
-  function fillVoiceSelect(select) {
-    const ranked = deviceEngine.ranked();
-    // Rebuild only when the set changed; option churn resets the open picker.
-    const sig = ranked.map(function (v) { return v.voiceURI; }).join('|');
-    if (select.dataset.sig === sig) {
-      select.value = state.prefs.deviceVoice || '';
-      if (select.selectedIndex === -1) select.selectedIndex = 0;
-      return;
-    }
-    select.dataset.sig = sig;
-    select.textContent = '';
-    const auto = el('option', null, ranked.length ? 'Auto — ' + ranked[0].name : 'Auto');
-    auto.value = '';
-    select.appendChild(auto);
-    if (ranked.length) {
-      const top = el('optgroup');
-      top.label = 'Recommended';
-      const rest = el('optgroup');
-      rest.label = 'All voices';
-      for (let i = 0; i < ranked.length; i++) {
-        const v = ranked[i];
-        const o = el('option', null, v.name + ' (' + v.lang + ')');
-        o.value = v.voiceURI;
-        (i < 5 ? top : rest).appendChild(o);
-      }
-      select.appendChild(top);
-      if (rest.childNodes.length) select.appendChild(rest);
-    }
-    select.value = state.prefs.deviceVoice || '';
-    if (select.selectedIndex === -1) select.selectedIndex = 0;
-  }
-
-  function deviceVoiceHint() {
-    const n = deviceEngine.voices().length;
-    if (!n) return 'This browser reports no voices. The Natural voice works regardless.';
-    const best = deviceEngine.ranked()[0];
-    const great = best && scoreVoice(best, docLang()) >= 50;
-    return great
-      ? 'This device has high-quality voices — "' + best.name + '" is the best of them.'
-      : 'These are this device’s built-in voices. For a more human narrator, try the Natural voice.';
-  }
-
   function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
     // Before download state, before anything: if the engine cannot run on this
     // runtime, that is the whole story and the rest of the panel is noise.
     const cap = neuralCapability();
     if (!cap.ok) {
-      natText.textContent = 'Not available on this device: ' + cap.reason + '. '
-        + neuralCapabilityLine();
+      natText.textContent = 'Not available on this device: ' + cap.reason + '.';
       natBar.hidden = true;
       natAction.hidden = true;
       removeBtn.hidden = true;
@@ -2187,7 +1838,7 @@
     // Said before anything about downloads: offering a 90 MB download for a
     // book the engine cannot read would be the app wasting someone's data.
     if (state.bridge && !neuralSpeaks(docLang())) {
-      natText.textContent = 'This narrator reads English only, and this book is not in English — it will be read by the device voice above.';
+      natText.textContent = 'This narrator reads English, and this book is not in English.';
       natBar.hidden = true;
       natAction.hidden = true;
       removeBtn.hidden = !state.neuralHave;
@@ -2355,7 +2006,7 @@
 
 
   function prewarmNeural() {
-    if (state.prefs.engine !== 'neural' || !neuralEngine.available()) return;
+    if (!neuralEngine.available()) return;
     if (!neuralSpeaks(docLang())) return;   // this book will use the device voice
     // Opening a book must never be what kills the app. This path has no user
     // action behind it, so after a load-phase crash it is the first thing to
@@ -2377,13 +2028,6 @@
     });
   }
 
-  function setEngine(engine) {
-    if (state.prefs.engine === engine) return;
-    state.prefs.engine = engine;
-    prefSet(PREF.engine, engine);
-    syncSheet();
-    restartCurrentIfPlaying();
-  }
 
   function setRate(v) {
     state.prefs.rate = clamp(Math.round(v * 100) / 100, RATE_MIN, RATE_MAX);
@@ -2412,30 +2056,26 @@
     const wasPlaying = state.playing;
     if (wasPlaying) pause();
     const done = function () { if (wasPlaying) resume(); };
-    if (state.prefs.engine === 'neural') {
-      const cap = neuralCapability();
-      if (!cap.ok) { toast('The natural voice cannot run here — ' + cap.reason + '.'); done(); return; }
-      setPreparing(true);
-      neuralEngine.ensureReady()
-        .then(function () {
-          return neuralEngine.generate('preview:' + state.prefs.neuralVoice, PREVIEW_TEXT, state.prefs.neuralVoice);
-        })
-        .then(function (url) {
-          setPreparing(false);
-          syncSheet();
-          return channel.play(url, { rate: state.prefs.rate, onended: done });
-        })
-        .catch(function (e) { setPreparing(false); state.neuralError = shortErr(e); syncSheet(); done(); });
-    } else {
-      deviceEngine.cancel();
-      deviceEngine.speak(PREVIEW_TEXT, {
-        voiceURI: state.prefs.deviceVoice,
-        rate: state.prefs.rate,
-        pitch: state.prefs.pitch,
-        onend: done,
-        onerror: done,
+    const cap = neuralCapability();
+    if (!cap.ok) { toast('The natural voice cannot run here — ' + cap.reason + '.'); done(); return; }
+    setPreparing(true);
+    neuralEngine.ensureReady()
+      .then(function () {
+        return neuralEngine.generate('preview:' + state.prefs.neuralVoice, PREVIEW_TEXT, state.prefs.neuralVoice);
+      })
+      .then(function (url) {
+        setPreparing(false);
+        syncSheet();
+        return channel.play(url, { rate: state.prefs.rate, onended: done });
+      })
+      .catch(function (e) {
+        // Preview failing silently is what made it look like a dead button.
+        setPreparing(false);
+        state.neuralError = shortErr(e);
+        toast('Preview failed: ' + state.neuralError);
+        syncSheet();
+        done();
       });
-    }
   }
 
   // Same animation contract as the reader's own sheet: [hidden] keeps the
@@ -2498,7 +2138,7 @@
         active: state.active,
         playing: state.playing,
         preparing: state.preparing,
-        engine: state.prefs.engine,
+        engine: 'neural',
         chapterId: state.chapterId,
         index: state.index,
         sentenceCount: state.sentences.length,
@@ -2518,11 +2158,8 @@
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,
       normalizeForSpeech: normalizeForSpeech,
-      rankVoices: rankVoices,
-      scoreVoice: scoreVoice,
       encodeWav: encodeWav,
       readPrefs: readPrefs,
-      deviceEngine: deviceEngine,
       neuralEngine: neuralEngine,
       channel: channel,
       skip: skip,

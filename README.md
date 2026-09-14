@@ -88,26 +88,27 @@ way you want to read a breezy web serial.
 **A reader voice that doesn't sound like a robot.** Tap Listen and the book is
 narrated sentence by sentence — the spoken sentence highlighted, pages turning
 along with the voice, progress saved as if you had read it, chapters flowing
-into each other, play/pause on the lock screen. Two narrators to choose from:
+into each other, play/pause on the lock screen.
 
-- **Device voice** — instant and free. The app *ranks* your device's voices
-  and picks the best one automatically (platforms hide their good voices
-  behind terrible defaults), and it speaks one sentence at a time, which is
-  the difference between prosody and monotone.
-- **Natural voice** — an 82-million-parameter neural narrator ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M))
-  that runs **entirely on your device**, with eight narrators to pick from. In
-  the native apps the weights ship inside the app, so there is no download at
-  all; on the web it is one ~90 MB download and then it works offline forever.
-  No account, no API key,
-  no audio ever leaving the device — same as everything else here. It reads
-  English; open a book in another language and the app says so and uses the
-  device voice instead, rather than offering you a download it cannot use.
+One narrator, not a menu of them: an 82-million-parameter neural voice
+([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) that runs **entirely on
+your device**, with eight readers to pick from. In the native apps the weights
+ship inside the app, so there is no download at all; on the web it is one
+~88 MB download and then it works offline forever. No account, no API key, no
+audio ever leaving the device.
 
-Both narrators are fed the book as a person would read it: furigana and other
-ruby glosses stay above the line instead of being spoken, a sentence is never
-cut in half between two clips, and the typography translated light novels are
-full of — `……`, `――`, `「」` — becomes the pause or the quotation mark it stands
-for instead of something read out or swallowed.
+The platform's own robot voice used to sit alongside it as a fallback. It is
+gone. A fallback that nobody would choose mostly serves to disguise the real
+voice failing, and when this one cannot run the app now says why instead.
+
+It reads English. Open a book in another language and it tells you rather than
+sounding out the characters as though they were English.
+
+Both the text and the typography are prepared for reading aloud: furigana and
+other ruby glosses stay above the line instead of being spoken, a sentence is
+never cut in half between two clips, and the punctuation translated light
+novels are full of — `……`, `――`, `「」` — becomes the pause or the quotation
+mark it stands for.
 
 **Manga and manhwa** keep the existing image reader: continuous vertical scroll,
 chapter navigation, auto-scroll with speed control, and adjustable page gaps.

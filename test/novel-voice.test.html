@@ -27,7 +27,6 @@
   <button onclick="T.open()">open</button>
   <button onclick="T.testSegmentation().then(T.report)">segmentation</button>
   <button onclick="T.testNormalize().then(T.report)">normalize</button>
-  <button onclick="T.testRanking().then(T.report)">voice ranking</button>
   <button onclick="T.testWav().then(T.report)">wav encode</button>
   <button onclick="T.testPrefs().then(T.report)">prefs validate</button>
   <button onclick="T.testListenButton().then(T.report)">listen button</button>
@@ -40,11 +39,9 @@
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
-  <button onclick="T.testNativeTts().then(T.report)">native tts</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
-  <button onclick="T.testNeuralFallback().then(T.report)">neural fallback</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
 </div>
@@ -222,13 +219,69 @@ function pause(ms) { return new Promise(r => setTimeout(r, ms)); }
 const V = () => window.NovelVoice;
 const VT = () => window.NovelVoice._test;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Neural stub — the module has one engine now, so this is what every playback
+// test observes. Real generate(), real wavCache, real lookahead; only the
+// worker is fake, and it answers with a few milliseconds of silence.
+//
+// `.spoken` is the text the engine was asked to say, in order — the same
+// contract the speechSynthesis stub used to offer.
+// ─────────────────────────────────────────────────────────────────────────────
+const neuralStub = {
+  spoken: [],
+  delay: 4,
+  real: null,
+  suspended: false,
+  install() {
+    const ne = VT().neuralEngine;
+    if (!this.real) this.real = { ensureReady: ne.ensureReady };
+    const self = this;
+    const wav = VT().encodeWav(new Float32Array(240), 24000);   // 10 ms
+    ne.ensureReady = function () {
+      ne.worker = {
+        postMessage(m) {
+          if (m.type !== 'generate') return;
+          self.spoken.push(m.text);
+          setTimeout(() => ne.settle(m.id, null,
+            { type: 'audio', id: m.id, wav: wav.slice(0), seconds: 0.01 }), self.delay);
+        },
+        terminate() {},
+      };
+      ne.readyPromise = Promise.resolve();
+      ne.ready = true;
+      return ne.readyPromise;
+    };
+  },
+  reset() {
+    this.spoken = [];
+    const ne = VT().neuralEngine;
+    ne.dispose();
+    ne.bundledCache = true;      // "the weights are in the app" — no download UI
+    // A suite that has taken the engine over keeps it: freshOpen() runs inside
+    // those suites too, and reinstalling here would clobber their own stub.
+    if (!this.suspended) this.install();
+  },
+  // Suites that test ensureReady ITSELF — the stall watchdog, the crash-guard
+  // arming, in-flight dedupe — need the real one back, and their own fake
+  // worker underneath it.
+  restore() {
+    if (!this.real) return;
+    this.suspended = true;
+    const ne = VT().neuralEngine;
+    ne.ensureReady = this.real.ensureReady;
+    ne.dispose();
+  },
+  resume() {
+    this.suspended = false;
+    this.reset();
+  },
+};
+
 async function freshOpen(opts) {
   // Ensure a clean session and default prefs unless a test overrides them.
   if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
-  synthStub.reset();
+  neuralStub.reset();
   try { localStorage.removeItem('or.voiceGuard'); } catch (e) {}
-  Store.prefs.set('voice.engine', 'device');
-  Store.prefs.set('voice.deviceVoice', '');
   Store.prefs.set('voice.rate', 1);
   Store.prefs.set('voice.follow', (opts && 'follow' in opts) ? opts.follow : true);
   Store.prefs.set('voice.autoNext', (opts && 'autoNext' in opts) ? opts.autoNext : true);
@@ -318,23 +371,6 @@ const T = {
     return { name: 'normalize', pass };
   },
 
-  async testRanking() {
-    let pass = true;
-    const ranked = VT().rankVoices(STUB_VOICES, 'en');
-    const names = ranked.map(v => v.name);
-    pass = ok(/Aria Online \(Natural\)/.test(names[0]), 'a Natural voice outranks everything', names[0]) && pass;
-    pass = ok(/Enhanced/.test(names[1]), 'Enhanced beats plain and robotic', names[1]) && pass;
-    pass = ok(names.indexOf('Google US English') < names.indexOf('Daniel'),
-      'Google hosted voice beats an unmarked local one') && pass;
-    pass = ok(names.indexOf('eSpeak English') === names.length - 1 || names.indexOf('eSpeak English') === names.length - 2,
-      'eSpeak sinks to the bottom', names.join(' | ')) && pass;
-    pass = ok(names.indexOf('Amélie') > names.indexOf('Daniel'), 'wrong-language voice ranks below every English one') && pass;
-    const robo = VT().scoreVoice(STUB_VOICES[0], 'en');
-    const aria = VT().scoreVoice(STUB_VOICES[2], 'en');
-    pass = ok(aria > robo, 'scoreVoice orders pairs directly', aria + ' > ' + robo) && pass;
-    return { name: 'voice ranking', pass };
-  },
-
   async testWav() {
     let pass = true;
     const buf = VT().encodeWav(new Float32Array([0, 0.5, -0.5, 1]), 24000);
@@ -350,18 +386,14 @@ const T = {
 
   async testPrefs() {
     let pass = true;
-    Store.prefs.set('voice.engine', 'bogus');
     Store.prefs.set('voice.rate', 99);
     Store.prefs.set('voice.pitch', -3);
     Store.prefs.set('voice.neuralVoice', 'af_nonexistent');
     const p = VT().readPrefs();
-    pass = ok(p.engine === 'device', 'bad engine falls back') && pass;
     pass = ok(p.rate === 1.6, 'rate clamps to its ceiling', p.rate) && pass;
     pass = ok(p.pitch === 0.8, 'pitch clamps to its floor', p.pitch) && pass;
     pass = ok(p.neuralVoice === 'af_heart', 'unknown narrator falls back') && pass;
-    Store.prefs.set('voice.engine', 'device');
     Store.prefs.set('voice.rate', 1);
-    Store.prefs.set('voice.pitch', 1);
     return { name: 'prefs validate', pass };
   },
 
@@ -385,14 +417,12 @@ const T = {
     let pass = true;
     await freshOpen();
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 3, 4000, 'three sentences spoken');
+    await waitFor(() => neuralStub.spoken.length >= 3, 4000, 'three sentences spoken');
 
     pass = ok(V().state().active && V().state().playing, 'session active and playing') && pass;
-    pass = ok(synthStub.spoken[0].text.indexOf('Chapter 1') === 0, 'starts at the heading', synthStub.spoken[0].text) && pass;
-    pass = ok(synthStub.spoken[1].text === 'The lantern guttered against the wind of chapter 1.',
-      'sentences arrive one utterance at a time', synthStub.spoken[1].text) && pass;
-    // Auto voice pick: the stub's best voice is Aria (Natural), never the robotic default.
-    pass = ok(synthStub.spoken[0].voice === 'v:aria', 'auto-picked the highest-ranked voice', synthStub.spoken[0].voice) && pass;
+    pass = ok(neuralStub.spoken[0].indexOf('Chapter 1') === 0, 'starts at the heading', neuralStub.spoken[0]) && pass;
+    pass = ok(neuralStub.spoken[1].indexOf('The lantern guttered') === 0,
+      'and moves on through the chapter', neuralStub.spoken[1]) && pass;
 
     // The highlight tracks the live sentence — range mode or block fallback.
     const st = V().state();
@@ -410,15 +440,15 @@ const T = {
     pass = ok(V().state().errors === 0, 'our own cancel is not an engine error') && pass;
 
     // Skip while paused moves the cursor without speaking.
-    const before = synthStub.spoken.length;
+    const before = neuralStub.spoken.length;
     VT().skip(1);
     await pause(80);
     pass = ok(V().state().index === idxAtPause + 1, 'skip advances the cursor while paused') && pass;
-    pass = ok(synthStub.spoken.length === before, 'paused skip stays silent') && pass;
+    pass = ok(neuralStub.spoken.length === before, 'paused skip stays silent') && pass;
 
     // Resume picks up from the skipped-to sentence.
     VT().resume();
-    await waitFor(() => synthStub.spoken.length > before, 2000, 'resume speaks');
+    await waitFor(() => neuralStub.spoken.length > before, 2000, 'resume speaks');
     pass = ok(V().state().playing, 'resumed') && pass;
 
     // Rate pref reaches the utterance.
@@ -427,8 +457,12 @@ const T = {
     await freshOpen();
     Store.prefs.set('voice.rate', 1.3);
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'spoke at new rate');
-    pass = ok(Math.abs(synthStub.spoken[0].rate - 1.3) < 0.001, 'rate pref reaches the engine', synthStub.spoken[0].rate) && pass;
+    // The rate lands on the <audio> element when the clip starts, which is a
+    // worker round-trip after generate() is requested — so wait for the rate,
+    // not for the request.
+    await waitFor(() => VT().channel.audio && Math.abs(VT().channel.audio.playbackRate - 1.3) < 0.001,
+      3000, 'spoke at the new rate');
+    pass = ok(true, 'rate pref reaches the audio channel', VT().channel.audio.playbackRate) && pass;
     Store.prefs.set('voice.rate', 1);
     endSession();
     return { name: 'playback', pass };
@@ -438,8 +472,6 @@ const T = {
     let pass = true;
     // The long fixture: paged mode must genuinely paginate it.
     if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
-    synthStub.reset();
-    Store.prefs.set('voice.engine', 'device');
     Store.prefs.set('voice.follow', true);
     Store.prefs.set('voice.autoNext', false);
     Store.prefs.set('novel.mode', 'paged');
@@ -453,7 +485,7 @@ const T = {
       'pages=' + window.NovelReader.state().pageCount) && pass;
 
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
     VT().pause();
 
     // Walk the cursor forward until following has to turn a page.
@@ -489,21 +521,21 @@ const T = {
     let pass = true;
     await freshOpen({ mode: 'paged', autoNext: true });
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
 
     // Let it play through chapter 1 (9 short sentences) and cross into 2.
     await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 8000, 'crossed into chapter 2');
     pass = ok(true, 'auto-advanced into the next chapter') && pass;
     pass = ok(window.NovelReader.state().chapterId === CHAPTERS[1].id, 'reader navigated with the narration') && pass;
     pass = ok(V().state().playing, 'still playing after the crossing') && pass;
-    await waitFor(() => synthStub.spoken.some(u => u.text.indexOf('Chapter 2.') === 0), 2000, 'announced the chapter');
+    await waitFor(() => neuralStub.spoken.some(t => t.indexOf('Chapter 2') !== -1), 3000, 'reading chapter 2');
     pass = ok(true, 'spoke a chapter announcement') && pass;
     endSession();
 
     // autoNext off: reaching the end stops the session instead.
     await freshOpen({ mode: 'paged', autoNext: false });
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started again');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started again');
     await waitFor(() => !V().isActive(), 8000, 'stopped at end of chapter');
     pass = ok(window.NovelReader.state().chapterId === CHAPTERS[0].id, 'with auto-next off the reader stays put') && pass;
     endSession();
@@ -514,7 +546,7 @@ const T = {
     let pass = true;
     await freshOpen({ mode: 'paged' });
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
 
     // The user grabs the footer and jumps a chapter mid-narration: the voice
     // follows them and keeps reading from the new chapter's top.
@@ -524,7 +556,7 @@ const T = {
     pass = ok(V().state().index === 0, 'cursor reset to the new chapter top') && pass;
     // NB: assertions match the NORMALIZED spoken text — the device engine
     // turns the heading's em-dash into a comma pause on purpose.
-    await waitFor(() => synthStub.spoken.some(u => u.text.indexOf('Chapter 2, The Quiet Ledger') === 0), 3000, 'reading chapter 2');
+    await waitFor(() => neuralStub.spoken.some(t => t.indexOf('Chapter 2') !== -1), 3000, 'reading chapter 2');
     pass = ok(true, 'narration continued in the new chapter') && pass;
     endSession();
     return { name: 'user chapter nav', pass };
@@ -539,10 +571,10 @@ const T = {
     V().toggle();
     await pause(150);
     pass = ok(V().state().active && !V().state().playing, 'guarded session starts paused') && pass;
-    pass = ok(synthStub.spoken.length === 0, 'no utterance auto-fired under the guard') && pass;
+    pass = ok(neuralStub.spoken.length === 0, 'no utterance auto-fired under the guard') && pass;
     // An explicit play re-arms it; two completed utterances stand it down.
     VT().resume();
-    await waitFor(() => synthStub.spoken.length >= 2, 3000, 'spoke after explicit play');
+    await waitFor(() => neuralStub.spoken.length >= 2, 3000, 'spoke after explicit play');
     await waitFor(() => !localStorage.getItem('or.voiceGuard'), 2000, 'guard cleared');
     pass = ok(true, 'two completed utterances clear the guard') && pass;
     endSession();
@@ -550,7 +582,7 @@ const T = {
     // A clean pause is proof of life and clears an armed guard immediately.
     await freshOpen();
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
     VT().pause();
     pass = ok(!localStorage.getItem('or.voiceGuard'), 'pause clears the guard') && pass;
     endSession();
@@ -569,15 +601,13 @@ const T = {
     // the same load is retrying the crash, so the session drops to the device
     // voice and speaks instead of sitting there doing nothing.
     await freshOpen();
-    Store.prefs.set('voice.engine', 'neural');
     localStorage.setItem('or.voiceGuard', JSON.stringify({ t: Date.now(), phase: 'model', device: 'wasm' }));
     V().toggle();
     await pause(300);
-    pass = ok(V().state().engine === 'device', 'a load-phase crash falls back to the device voice', V().state().engine) && pass;
-    await waitFor(() => synthStub.spoken.length >= 1, 3000, 'and actually speaks');
-    pass = ok(true, 'narration still happens after a load-phase crash') && pass;
+    pass = ok(V().state().active && !V().state().playing,
+      'a load-phase crash starts paused instead of reloading the model') && pass;
+    pass = ok(neuralStub.spoken.length === 0, 'and nothing is generated until asked again') && pass;
     localStorage.removeItem('or.voiceGuard');
-    Store.prefs.set('voice.engine', 'device');
     endSession();
     return { name: 'crash guard', pass };
   },
@@ -587,6 +617,7 @@ const T = {
   // and the sheet sat on that line until the app was force-quit.
   async testInitStall() {
     let pass = true;
+    neuralStub.restore();            // this suite IS the real ensureReady
     const ne = VT().neuralEngine;
     const origWorker = window.Worker;
     try {
@@ -615,6 +646,7 @@ const T = {
       ne.dispose();
       await pause(50);
     } finally {
+      neuralStub.resume();       // hand the engine back to the shared stub
       window.Worker = origWorker;
       localStorage.removeItem('or.voiceGuard');
       ne.ready = false; ne.readyPromise = null; ne.worker = null;
@@ -640,6 +672,18 @@ const T = {
     // Memoised — WebAssembly.Memory allocation is not free to repeat.
     pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
 
+    // The line is on screen whatever the verdict. Shown only on failure, its
+    // absence meant both "the engine is fine" and "this build is old", and
+    // telling those apart cost a round trip every time.
+    await freshOpen();
+    V().toggle();
+    await pause(300);
+    const panelLine = document.querySelector('.vc-sheet .vc-engine-line');
+    pass = ok(!!panelLine, 'the sheet carries an engine line even when all is well') && pass;
+    pass = ok(panelLine && panelLine.textContent.indexOf('engine check') === 0,
+      'and it reads as the capability line', panelLine && panelLine.textContent) && pass;
+    endSession();
+
     // WebKit's answer, which is the one the native app gets: shared memory is
     // refused outside a cross-origin-isolated page. Chrome grants it anyway,
     // which is exactly why this bug was invisible in a browser.
@@ -655,13 +699,11 @@ const T = {
 
       // The session must reach the device voice and actually speak, not hang.
       await freshOpen();
-      Store.prefs.set('voice.engine', 'neural');
       V().toggle();
       await pause(300);
-      pass = ok(V().state().engine === 'device', 'the session falls back to the device voice', V().state().engine) && pass;
-      await waitFor(() => synthStub.spoken.length >= 1, 3000, 'and speaks rather than sitting on Preparing');
-      pass = ok(!V().state().preparing, 'never enters the preparing state') && pass;
-      Store.prefs.set('voice.engine', 'device');
+      pass = ok(!V().state().active, 'the session ends rather than sitting on Preparing') && pass;
+      pass = ok(!V().state().preparing, 'and never enters the preparing state') && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'nothing was generated') && pass;
       endSession();
     } finally {
       WebAssembly.Memory = realMemory;
@@ -722,6 +764,7 @@ const T = {
 
   async testMemoryTier() {
     let pass = true;
+    neuralStub.restore();            // counts real ensureReady calls
     const ne = VT().neuralEngine;
     const origDownloaded = ne.downloaded;
     const origEnsure = ne.ensureReady;
@@ -749,8 +792,11 @@ const T = {
       ne.downloaded = function () { return Promise.resolve(true); };
       ne.ensureReady = function () { warmed++; return Promise.resolve(); };
       await freshOpen();
-      Store.prefs.set('voice.engine', 'neural');
       window.Platform = { memoryClass: function () { return 'mid'; } };
+      // freshOpen() opens a book of its own, and with one engine there is no
+      // longer an engine pref to short-circuit prewarm. Count only the open
+      // that happens under the memory class being tested.
+      warmed = 0;
       await window.NovelReader.open({ series: SERIES, chapter: SERIES.chapters[0], blocks: CHAPTERS[0].blocks, resume: null });
       await pause(150);
       pass = ok(warmed === 0, 'mid memory: no background prewarm on book open') && pass;
@@ -759,54 +805,14 @@ const T = {
       await pause(150);
       pass = ok(warmed >= 1, 'high memory: book open prewarms the downloaded engine', 'warmed=' + warmed) && pass;
     } finally {
+      neuralStub.resume();       // hand the engine back to the shared stub
       ne.downloaded = origDownloaded;
       ne.ensureReady = origEnsure;
       ne.ready = false; ne.readyPromise = null; ne.worker = null;
-      Store.prefs.set('voice.engine', 'device');
       delete window.Platform;
       endSession();
     }
     return { name: 'memory tier', pass };
-  },
-
-  async testNativeTts() {
-    let pass = true;
-    // Simulate the native app: Platform.tts present. On real Android the
-    // WebView has NO speechSynthesis at all; here the stub simply must not
-    // be touched while the facade exists.
-    const spoken = [];
-    window.Platform = {
-      tts: {
-        available: function () { return true; },
-        voices: function () {
-          return Promise.resolve([
-            { name: 'Native Compact', lang: 'en-US', voiceURI: 'n:compact', localService: true, default: true },
-            { name: 'Native Neural Premium', lang: 'en-US', voiceURI: 'n:neural', localService: true, default: false },
-          ]);
-        },
-        speak: function (text, opts) { spoken.push({ text: text, opts: opts }); return new Promise(r => setTimeout(r, 5)); },
-        stop: function () { return Promise.resolve(); },
-      },
-    };
-    try {
-      await freshOpen();
-      V().toggle();
-      await waitFor(() => spoken.length >= 2, 3000, 'native tts spoke');
-      pass = ok(synthStub.spoken.length === 0, 'speechSynthesis untouched when the native facade exists') && pass;
-      pass = ok(spoken[0].text.indexOf('Chapter 1') === 0, 'sentences route through Platform.tts', spoken[0].text) && pass;
-      pass = ok(Math.abs(spoken[0].opts.rate - 1) < 0.001, 'rate passes through the facade') && pass;
-      const ranked = VT().deviceEngine.ranked();
-      pass = ok(ranked.length === 2 && /Neural Premium/.test(ranked[0].name),
-        'native voice lists rank like web ones', ranked[0] && ranked[0].name) && pass;
-      VT().pause();
-      await pause(30);
-      pass = ok(!V().state().playing && V().state().active, 'pause works over the native engine') && pass;
-    } finally {
-      delete window.Platform;
-      VT().deviceEngine.nativeVoicesCache = null;
-      endSession();
-    }
-    return { name: 'native tts', pass };
   },
 
   async testGrouping() {
@@ -889,13 +895,11 @@ const T = {
     };
     try {
       await freshOpen();
-      Store.prefs.set('voice.engine', 'neural');
       V().toggle();
       await waitFor(() => V().state().index >= 3, 8000, 'cursor advanced across groups');
       pass = ok(V().state().playing, 'still playing after group hand-offs') && pass;
       pass = ok(generated >= 2, 'lookahead generated ahead of playback', 'calls=' + generated) && pass;
       pass = ok(!V().state().preparing, 'fast generations never showed "Preparing"') && pass;
-      pass = ok(synthStub.spoken.length === 0, 'neural path never touched speechSynthesis') && pass;
       // Pausing a neural session keeps the place.
       VT().pause();
       const at = V().state().index;
@@ -905,7 +909,6 @@ const T = {
       ne.ensureReady = orig.ensureReady;
       ne.generate = orig.generate;
       ne.ready = false; ne.readyPromise = null; ne.worker = null;
-      Store.prefs.set('voice.engine', 'device');
       endSession();
     }
     return { name: 'neural pipeline', pass };
@@ -916,6 +919,7 @@ const T = {
   // every group twice on a serial queue — the stutter people hear on a phone.
   async testNeuralDedupe() {
     let pass = true;
+    neuralStub.restore();            // real generate, real cache, real lookahead
     const ne = VT().neuralEngine;
     const orig = { ensureReady: ne.ensureReady };
     const jobs = [];
@@ -940,7 +944,6 @@ const T = {
     };
     try {
       await freshOpen();
-      Store.prefs.set('voice.engine', 'neural');
       Store.prefs.set('voice.autoNext', false);
       V().toggle();
       await waitFor(() => V().state().index >= 4, 15000, 'cursor advanced across groups');
@@ -955,47 +958,21 @@ const T = {
       pass = ok(repeated.length === 0, 'no group is synthesised twice',
                 repeated.length ? 'x' + counts[repeated[0]] + ' ' + repeated[0].slice(0, 60) : jobs.length + ' jobs, all distinct') && pass;
     } finally {
+      neuralStub.resume();       // hand the engine back to the shared stub
       ne.ensureReady = orig.ensureReady;
       ne.ready = false; ne.readyPromise = null; ne.worker = null;
       ne.inFlight.clear();
-      Store.prefs.set('voice.engine', 'device');
       Store.prefs.set('voice.autoNext', true);
       endSession();
     }
     return { name: 'neural dedupe', pass };
   },
 
-  async testNeuralFallback() {
-    let pass = true;
-    // The engine boundary is stubbed to fail: this suite must never touch the
-    // network (a passing CI run that downloads 92 MB of weights is a bug).
-    const ne = VT().neuralEngine;
-    const orig = ne.ensureReady;
-    ne.ensureReady = function () { return Promise.reject(new Error('no engine in tests')); };
-    try {
-      await freshOpen();
-      Store.prefs.set('voice.engine', 'neural');
-      V().toggle();
-      // The natural voice cannot come up, so the session must fall back to the
-      // device engine and keep narrating rather than going mute.
-      await waitFor(() => synthStub.spoken.length >= 1, 3000, 'fell back to device speech');
-      pass = ok(V().state().active && V().state().playing, 'session survived the engine failure') && pass;
-      pass = ok(V().state().engine === 'device', 'session engine fell back to device') && pass;
-      pass = ok(Store.prefs.get('voice.engine', '') === 'neural',
-        'stored pref untouched — next open tries the natural voice again') && pass;
-    } finally {
-      ne.ensureReady = orig;
-      Store.prefs.set('voice.engine', 'device');
-      endSession();
-    }
-    return { name: 'neural fallback', pass };
-  },
-
   async testClose() {
     let pass = true;
     await freshOpen();
     V().toggle();
-    await waitFor(() => synthStub.spoken.length >= 1, 2000, 'started');
+    await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
     window.NovelReader.close({ navigate: false });
     pass = ok(!V().isActive(), 'closing the reader stops the session') && pass;
     if (V().state().highlightMode === 'range') {
@@ -1011,10 +988,10 @@ const T = {
 
   async all() {
     const tests = [
-      T.testSegmentation, T.testNormalize, T.testRanking, T.testWav, T.testPrefs,
+      T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
-      T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testNativeTts,
-      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testNeuralFallback,
+      T.testUserNav, T.testCrashGuard, T.testMemoryTier,
+      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
       T.testInitStall, T.testCapability, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;

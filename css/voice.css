@@ -137,26 +137,7 @@
 }
 
 /* Engine choice — two stacked radio cards. */
-#novel-screen .vc-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-#novel-screen .vc-seg-btn {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem;
-  min-height: 44px;
-  padding: 0.55rem 0.7rem;
-  background: var(--nv-surf); border: 1px solid transparent; border-radius: 10px;
-  color: var(--nv-fg); text-align: left; cursor: pointer;
-}
-#novel-screen .vc-seg-btn.vc-on { border-color: var(--nv-accent); color: var(--nv-accent); }
-#novel-screen .vc-seg-label { font-size: 0.85rem; font-weight: 700; }
-#novel-screen .vc-seg-note { font-size: 0.7rem; color: var(--nv-muted); }
 
-#novel-screen .vc-select-wrap { display: flex; gap: 0.5rem; align-items: center; }
-#novel-screen .vc-select {
-  flex: 1; min-height: 44px; min-width: 0;
-  padding: 0.4rem 0.6rem;
-  background: var(--nv-surf); color: var(--nv-fg);
-  border: 1px solid var(--nv-border); border-radius: 10px;
-  font-size: 0.85rem; font-weight: 600;
-}
 
 #novel-screen .vc-hint {
   margin-top: 0.5rem;
@@ -265,4 +246,15 @@
 #novel-screen .vc-row-disabled {
   opacity: .45;
   cursor: not-allowed;
+}
+
+/* The engine-capability line. Always present under the natural-voice panel:
+   its absence used to mean either "all well" or "this build is old", and
+   those needed telling apart. Quiet enough to ignore, findable when asked for. */
+#novel-screen .vc-engine-line {
+  margin-top: 0.4rem;
+  font-size: 0.65rem;
+  opacity: .7;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  word-break: break-word;
 }

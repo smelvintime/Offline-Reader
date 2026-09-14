@@ -1672,13 +1672,18 @@
 
     const natStatus = el('div', 'vc-nat-status');
     const natText = el('div', 'vc-hint');
+    // Always on screen, whatever the verdict. Shown only on failure, its
+    // absence meant two different things — "the engine is fine" and "this
+    // build predates the check" — and telling those apart cost a round trip
+    // every time. A line that is always there answers both at a glance.
+    const natEngine = el('div', 'vc-hint vc-engine-line');
     const natBar = el('div', 'vc-progress');
     natBar.appendChild(el('i'));
     natBar.hidden = true;
     const natAction = el('button', 'vc-action');
     natAction.type = 'button';
     natAction.textContent = 'Download voice (~90 MB)';
-    natStatus.append(natText, natBar, natAction);
+    natStatus.append(natText, natBar, natAction, natEngine);
     natRow.appendChild(natStatus);
 
     const natVoices = el('div', 'vc-chip-rail');
@@ -1765,6 +1770,7 @@
         chips[i].classList.toggle('vc-on', onV);
         chips[i].setAttribute('aria-checked', String(onV));
       }
+      natEngine.textContent = neuralCapabilityLine();
       syncNeuralStatus(natText, natBar, natAction, removeBtn);
     });
 
@@ -1823,8 +1829,7 @@
     // runtime, that is the whole story and the rest of the panel is noise.
     const cap = neuralCapability();
     if (!cap.ok) {
-      natText.textContent = 'Not available on this device: ' + cap.reason + '. '
-        + neuralCapabilityLine();
+      natText.textContent = 'Not available on this device: ' + cap.reason + '.';
       natBar.hidden = true;
       natAction.hidden = true;
       removeBtn.hidden = true;
@@ -1833,7 +1838,7 @@
     // Said before anything about downloads: offering a 90 MB download for a
     // book the engine cannot read would be the app wasting someone's data.
     if (state.bridge && !neuralSpeaks(docLang())) {
-      natText.textContent = 'This narrator reads English only, and this book is not in English — it will be read by the device voice above.';
+      natText.textContent = 'This narrator reads English, and this book is not in English.';
       natBar.hidden = true;
       natAction.hidden = true;
       removeBtn.hidden = !state.neuralHave;

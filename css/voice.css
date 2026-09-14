@@ -247,3 +247,14 @@
   opacity: .45;
   cursor: not-allowed;
 }
+
+/* The engine-capability line. Always present under the natural-voice panel:
+   its absence used to mean either "all well" or "this build is old", and
+   those needed telling apart. Quiet enough to ignore, findable when asked for. */
+#novel-screen .vc-engine-line {
+  margin-top: 0.4rem;
+  font-size: 0.65rem;
+  opacity: .7;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  word-break: break-word;
+}

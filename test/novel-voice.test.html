@@ -672,6 +672,18 @@ const T = {
     // Memoised — WebAssembly.Memory allocation is not free to repeat.
     pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
 
+    // The line is on screen whatever the verdict. Shown only on failure, its
+    // absence meant both "the engine is fine" and "this build is old", and
+    // telling those apart cost a round trip every time.
+    await freshOpen();
+    V().toggle();
+    await pause(300);
+    const panelLine = document.querySelector('.vc-sheet .vc-engine-line');
+    pass = ok(!!panelLine, 'the sheet carries an engine line even when all is well') && pass;
+    pass = ok(panelLine && panelLine.textContent.indexOf('engine check') === 0,
+      'and it reads as the capability line', panelLine && panelLine.textContent) && pass;
+    endSession();
+
     // WebKit's answer, which is the one the native app gets: shared memory is
     // refused outside a cross-origin-isolated page. Chrome grants it anyway,
     // which is exactly why this bug was invisible in a browser.

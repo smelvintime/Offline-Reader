@@ -92,7 +92,7 @@
   // device being slow. Seconds are the quantity that actually has to cover the
   // next generation, so seconds are what the lookahead counts.
   const NEURAL_LOOKAHEAD_MIN = 1;    // groups, however long they are
-  const NEURAL_LOOKAHEAD_MAX = 6;    // groups; bounded by WAV_CACHE_MAX
+  const NEURAL_LOOKAHEAD_MAX = 30;   // groups; bounded by WAV_CACHE_MAX
   // …and how many of those seconds are worth chasing depends entirely on
   // whether this device can ever get ahead. See lookaheadSeconds().
   const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds, where they are reachable
@@ -119,7 +119,28 @@
   // every message resets it — so a slow download and a slow ONNX session
   // compile each get this long with nothing to say before we call it dead.
   const NEURAL_INIT_STALL_MS = 180000;
-  const WAV_CACHE_MAX = 10;          // generated groups kept for replay/skip-back
+  // Big enough to hold a whole pre-buffer, not just a lookahead. Forty clips
+  // of seven seconds is about thirteen megabytes of PCM, which is nothing set
+  // against the model already resident.
+  const WAV_CACHE_MAX = 40;          // generated groups kept for replay/skip-back
+
+  // ── Pre-buffering ────────────────────────────────────────────────────────
+  //
+  // Below break-even the arithmetic is not a matter of scheduling. Over a
+  // chapter of D seconds the engine produces margin×D and the reader consumes
+  // D, so it ends the chapter (1 − margin)×D short however cleverly the work
+  // is ordered. There is no policy that makes 0.92 into 1.0.
+  //
+  // But that deficit is a fixed quantity, and it can be paid before the first
+  // word instead of a second at a time in the middle of sentences. A 0.92×
+  // engine on a ten-minute chapter is 48 seconds short; buy those 48 seconds
+  // up front and the rest plays through without a gap. One wait a reader can
+  // see the end of beats a stutter every few seconds, which is the actual
+  // complaint.
+  const NEURAL_PREBUFFER_MAX_SEC = 60;    // wall seconds anyone is asked to wait
+  const NEURAL_PREBUFFER_SAFETY = 1.35;   // the margin drifts, and phones throttle
+  const NEURAL_PREBUFFER_FLOOR = 1.05;    // above this there is no deficit to pay
+  const NEURAL_PREBUFFER_TICK_MS = 400;
 
   // The engine's working set is hundreds of MB, so it should not be held
   // while someone browses their shelf — but tearing it down on every chapter
@@ -858,6 +879,7 @@
 
     group: null,           // neural group currently playing (the pump's cursor)
     fastStart: false,      // next neural group is the one someone is waiting on
+    prebuffer: null,       // { target, got } while paying a chapter's deficit up front
     utterance: null,       // device engine's in-flight utterance
     speakToken: 0,         // invalidates stale onend/async callbacks
 
@@ -1665,12 +1687,14 @@
    * only exact alternative is generating the clip, which is the thing the
    * estimate exists to schedule.
    */
-  function estimateSeconds(text) {
+  function estimateSeconds(text) { return secondsForChars((text || '').length); }
+
+  function secondsForChars(chars) {
     const sp = neuralEngine.speed;
     const cps = (sp && sp.chars > 0 && sp.seconds > 0)
       ? sp.chars / sp.seconds
       : NEURAL_CHARS_PER_SEC;
-    return (text || '').length / cps;
+    return (chars || 0) / cps;
   }
 
   /**
@@ -1691,11 +1715,73 @@
    * benefit a slow device was ever going to get.
    */
   function lookaheadSeconds() {
+    // While the deficit is being paid up front, the target IS the lookahead:
+    // this is the one time a slow device should be generating flat out, because
+    // it is generating into a wait rather than into a queue it cannot keep.
+    if (state.prebuffer) return state.prebuffer.target;
     const margin = neuralMargin();
     if (!margin) return NEURAL_LOOKAHEAD_SEC;   // unmeasured: assume the good case
     if (margin >= 1.5) return NEURAL_LOOKAHEAD_SEC;
     if (margin >= 1.05) return NEURAL_LOOKAHEAD_SEC / 2;
     return 0;                                   // NEURAL_LOOKAHEAD_MIN only
+  }
+
+  /**
+   * Playback seconds of prose left in this chapter from `from`, at this rate.
+   *
+   * An estimate over unread text, so it is characters-per-second again. Good
+   * enough: it sizes a wait, and being ten per cent out makes the wait ten per
+   * cent wrong rather than the playback wrong.
+   */
+  function chapterSecondsLeft(from) {
+    const rate = state.prefs.rate || 1;
+    let chars = 0;
+    for (let i = Math.max(0, from); i < state.sentences.length; i++) chars += state.sentences[i].text.length;
+    return secondsForChars(chars) / rate;
+  }
+
+  /**
+   * Seconds of audio to have in hand before starting, so the chapter plays
+   * through without a gap.
+   *
+   * Zero whenever the engine can keep up — there is no deficit to pay, and
+   * making someone wait for a buffer they do not need is its own bug. Below
+   * that, (1 − margin) × what is left, which is exactly how far behind the
+   * engine will be by the last sentence, plus a margin of safety because the
+   * ratio drifts and a warm phone throttles.
+   *
+   * Capped by what a reader will actually sit through. A cap does not make the
+   * chapter gapless — the deficit is what it is — but it front-loads as much
+   * of it as the cap allows, and the gaps that remain come later and fewer.
+   */
+  function prebufferTargetSeconds() {
+    const margin = neuralMargin();
+    if (!margin || margin >= NEURAL_PREBUFFER_FLOOR) return 0;
+    const deficit = (1 - margin) * chapterSecondsLeft(state.index) * NEURAL_PREBUFFER_SAFETY;
+    const affordable = NEURAL_PREBUFFER_MAX_SEC * margin;   // what the cap buys
+    return Math.min(deficit, affordable);
+  }
+
+  /**
+   * Playback seconds sitting generated in an unbroken run after `group`.
+   *
+   * Unbroken is the point: a hole is a gap, however much audio is cached past
+   * it, so the count stops at the first group that is not ready.
+   */
+  function bufferedAhead(group) {
+    if (!group) return 0;
+    const rate = state.prefs.rate || 1;
+    let from = group.to + 1;
+    let got = 0;
+    for (let k = 0; k < NEURAL_LOOKAHEAD_MAX; k++) {
+      const g = neuralGroupAt(from);
+      if (!g) break;
+      const secs = neuralEngine.clipSeconds.get(neuralKey(state.chapterId, g));
+      if (!secs) break;
+      got += secs / rate;
+      from = g.to + 1;
+    }
+    return got;
   }
 
   function neuralGroupCaps() {
@@ -1747,6 +1833,42 @@
     return chapterId + ':' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + state.prefs.neuralVoice;
   }
 
+  /**
+   * Hold the first clip until enough of the chapter is generated behind it.
+   *
+   * Resolves true to go ahead and play, false when the session moved on under
+   * it. Only ever runs once per session: `state.fastStart` marks the group a
+   * reader is waiting on, and by the time the second group plays the buffer is
+   * either built or was never needed.
+   *
+   * It gives up rather than hanging. A stalled worker, a chapter with nothing
+   * left to generate, or simply a device slower than the estimate all end the
+   * wait and start the audio: a short buffer is worse than no buffer only in
+   * theory, and a reader staring at a stuck progress number is worse than both.
+   */
+  function awaitPrebuffer(group, token) {
+    const target = prebufferTargetSeconds();
+    if (target <= 0) return Promise.resolve(true);
+    const deadline = Date.now() + NEURAL_PREBUFFER_MAX_SEC * 1500;
+    state.prebuffer = { target: target, got: 0 };
+    updateBar();
+    return new Promise(function (resolve) {
+      const done = function (ok) { state.prebuffer = null; updateBar(); resolve(ok); };
+      const tick = function () {
+        if (token !== state.speakToken || !state.playing) { done(false); return; }
+        const got = bufferedAhead(group);
+        state.prebuffer.got = got;
+        updateBar();
+        if (got >= target || Date.now() > deadline) { done(true); return; }
+        // Nothing further in the chapter to wait for.
+        if (!neuralGroupAt(group.to + 1)) { done(true); return; }
+        prefetchNeural(group);
+        setTimeout(tick, NEURAL_PREBUFFER_TICK_MS);
+      };
+      tick();
+    });
+  }
+
   function speakNeural(s, token, done, fail) {
     const group = neuralGroupAt(state.index, state.fastStart ? FAST_START_CAPS : null)
       || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
@@ -1765,14 +1887,21 @@
     neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text, 'neural'), state.prefs.neuralVoice)
       .then(function (url) {
         if (token !== state.speakToken || !state.playing) return;
-        setPreparing(false);
+        const first = state.fastStart;
         state.fastStart = false;     // the wait someone sat through is over
         prefetchNeural(group);
-        primeNextClip(group);
-        return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
-          // Autoplay refusal — the chain lost its blessing (e.g. after a long
-          // background stall). Pausing is honest; a tap resumes it.
-          pause();
+        // Only the group a reader tapped for pays the deficit up front. Every
+        // group after it is playing off a buffer that is already built, or off
+        // one that was never needed.
+        return (first ? awaitPrebuffer(group, token) : Promise.resolve(true)).then(function (go) {
+          if (!go || token !== state.speakToken || !state.playing) return;
+          setPreparing(false);
+          primeNextClip(group);
+          return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
+            // Autoplay refusal — the chain lost its blessing (e.g. after a long
+            // background stall). Pausing is honest; a tap resumes it.
+            pause();
+          });
         });
       })
       .catch(function (e) {
@@ -1943,6 +2072,7 @@
     // keep synthesising for a chapter nobody is listening to any more.
     stopPrefetchPump();
     state.group = null;
+    state.prebuffer = null;
     neuralEngine.cancelPending();
     systemSpeech().stop();
     channel.stop();
@@ -2279,12 +2409,17 @@
     const sp = neuralEngine.speed;
     const tag = (neuralEngine.nativeWeights ? neuralEngine.nativeWeights + ' · ' : '')
       + (neuralMargin() ? neuralMargin().toFixed(2) + '× ahead' : 'measuring');
-    dom.statusLine.textContent = state.preparing
-      ? (sp
-          ? 'Preparing voice… (' + tag + ', last: ' + (sp.ms / 1000).toFixed(1) + 's for '
-            + sp.seconds.toFixed(1) + 's of speech)'
-          : 'Preparing voice…')
-      : (n ? at + ' / ' + n + (sp ? '  ·  ' + tag : '') : 'Nothing to read');
+    // A percentage, because "preparing" with no end in sight is the thing a
+    // reader gives up on. This one has an end and can be watched approaching it.
+    const pb = state.prebuffer;
+    dom.statusLine.textContent = pb
+      ? 'Buffering chapter… ' + Math.min(99, Math.round((pb.got / pb.target) * 100)) + '%  ·  ' + tag
+      : state.preparing
+        ? (sp
+            ? 'Preparing voice… (' + tag + ', last: ' + (sp.ms / 1000).toFixed(1) + 's for '
+              + sp.seconds.toFixed(1) + 's of speech)'
+            : 'Preparing voice…')
+        : (n ? at + ' / ' + n + (sp ? '  ·  ' + tag : '') : 'Nothing to read');
   }
 
   // The Listen button in the reader header mirrors whether a session is up.
@@ -2965,6 +3100,10 @@
       neuralMargin: neuralMargin,
       lookaheadSeconds: lookaheadSeconds,
       estimateSeconds: estimateSeconds,
+      chapterSecondsLeft: chapterSecondsLeft,
+      prebufferTargetSeconds: prebufferTargetSeconds,
+      bufferedAhead: bufferedAhead,
+      NEURAL_PREBUFFER_MAX_SEC: NEURAL_PREBUFFER_MAX_SEC,
       highlighter: highlighter,
       FAST_START_CAPS: FAST_START_CAPS,
       prefetchNeural: prefetchNeural,

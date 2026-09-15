@@ -36,6 +36,8 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testSystemNarrator().then(T.report)">system narrator</button>
+  <button onclick="T.testCompactVoiceHint().then(T.report)">compact hint</button>
   <button onclick="T.testEscapedErrorIsNotFatal().then(T.report)">escaped error</button>
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
@@ -678,6 +680,172 @@ const T = {
     return { name: 'init stall', pass };
   },
 
+  // The iPhone narrator. Added back after being removed, because the reason it
+  // was removed was that it spoke through iOS's compact voice and nobody had
+  // ever asked for a better one.
+  async testSystemNarrator() {
+    let pass = true;
+    const V_ = V(), T = VT();
+    const held = window.Platform ? window.Platform.speech : undefined;
+    const spoken = [];
+    let resolveNext = null;
+    let readyCalls = 0;
+    let origEnsureReady = null;
+    try {
+      window.Platform = window.Platform || {};
+      window.Platform.speech = {
+        available: function () { return true; },
+        voices: function () {
+          return Promise.resolve([
+            { id: 'compact.en', name: 'Samantha', lang: 'en-US', quality: 'default' },
+            { id: 'prem.en',    name: 'Ava',      lang: 'en-US', quality: 'premium' },
+            { id: 'enh.en',     name: 'Evan',     lang: 'en-US', quality: 'enhanced' },
+          ]);
+        },
+        speak: function (text, o) {
+          spoken.push({ text: text, voiceId: o.voiceId, rate: o.rate });
+          return new Promise(function (r) { resolveNext = function () { r(true); }; });
+        },
+        stop: function () { return Promise.resolve(); },
+        pause: function () { return Promise.resolve(); },
+        resume: function () { return Promise.resolve(); },
+      };
+
+      // Ranked best-first, so the good voices are not buried.
+      // Count every attempt to load the model, not just every generation.
+      readyCalls = 0;
+      const ne0 = T.neuralEngine;
+      origEnsureReady = ne0.ensureReady;
+      ne0.ensureReady = function () { readyCalls++; return origEnsureReady.apply(this, arguments); };
+
+      const ranked = T.rankSystemVoices(await window.Platform.speech.voices());
+      pass = ok(ranked[0].quality === 'premium' && ranked[1].quality === 'enhanced'
+                && ranked[2].quality === 'default',
+        'voices sort premium, then enhanced, then compact',
+        ranked.map(function (v) { return v.quality; }).join(',')) && pass;
+
+      Store.prefs.set('voice.narrator', 'iphone');
+      Store.prefs.set('voice.systemVoice', 'prem.en');
+      await freshOpen();
+      V_.toggle();
+      await waitFor(() => spoken.length > 0, 4000, 'the OS narrator was asked to speak');
+      pass = ok(spoken.length === 1, 'exactly one utterance is in flight at a time',
+        spoken.length + ' spoken') && pass;
+      pass = ok(spoken[0].voiceId === 'prem.en', 'through the chosen voice, not the default',
+        spoken[0].voiceId) && pass;
+
+      // Whole paragraphs, not sentences. Every utterance is a bridge round
+      // trip the reader has to wait out, so the unit of speech is also the
+      // unit of silence: one sentence at a time meant a gap after every
+      // sentence, for a whole chapter.
+      const firstSentence = V_.state().sentences
+        ? V_.state().sentences[0] : null;
+      pass = ok(spoken[0].text.length > 0, 'something was actually sent', String(spoken[0].text.length)) && pass;
+      if (firstSentence) {
+        pass = ok(spoken[0].text.length >= firstSentence.text.length,
+          'and it is at least a whole sentence, never a fragment',
+          spoken[0].text.length + ' vs sentence ' + firstSentence.text.length) && pass;
+      }
+      pass = ok(spoken[0].text.length <= 1600,
+        'while still bounded, so one runaway paragraph cannot become the chapter',
+        String(spoken[0].text.length)) && pass;
+
+      // The first block is the chapter title, which is one short sentence, so
+      // prove the merging directly on a paragraph shaped like real prose.
+      const para = [];
+      for (let i = 0; i < 6; i++) {
+        para.push({ text: 'Sentence number ' + i + ' of an ordinary paragraph.',
+                    blockIdx: 4, kind: 'p', start: i * 50, end: i * 50 + 49 });
+      }
+      para.push({ text: 'A sentence in the NEXT paragraph.',
+                  blockIdx: 5, kind: 'p', start: 400, end: 433 });
+      const sysG = T.groupSentences(para, 0, { target: 900, max: 1400, contMax: 1600 });
+      pass = ok(sysG.to === 5, 'a whole paragraph goes out as one utterance',
+        'merged ' + (sysG.to + 1) + ' of 6 sentences') && pass;
+      pass = ok(sysG.blockIdx === 4 && sysG.text.indexOf('NEXT paragraph') === -1,
+        'and it stops at the paragraph, so the pauses land where prose pauses') && pass;
+      // The neural caps would have chopped the same paragraph into pieces.
+      const neuG = T.groupSentences(para, 0, { target: 160, max: 300, contMax: 700 });
+      pass = ok(neuG.to < sysG.to, 'which the generation-bound caps would not have done',
+        'neural merged ' + (neuG.to + 1) + ', system merged ' + (sysG.to + 1)) && pass;
+      pass = ok(!V_.state().preparing, 'and nothing is "preparing" — there is nothing to prepare') && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'the neural engine is never generating') && pass;
+      // The bug this exists for: play() used to route every narrator through
+      // ensureNeuralThenSpeak, so picking the instant voice still waited on
+      // 88 MB of weights and still ended the session when the natural voice
+      // could not run here. Counting generate() was not enough to see it —
+      // the load is the cost, and the stub made the load free.
+      pass = ok(readyCalls === 0,
+        'and its 88 MB load is never even started', readyCalls + ' ensureReady calls') && pass;
+
+      // The selected chip has to actually look selected. css/voice.css styles
+      // `.vc-chip.vc-on`, and a plain `.on` would have been invisible.
+      // Open the sheet the way a reader does. Relying on some other code path
+      // to have called syncSheet() is how the previous version of this passed
+      // while the panels were never synced on this narrator at all.
+      const voiceBtn = document.querySelector('.vc-bar [aria-label="Voice settings"]');
+      pass = ok(!!voiceBtn, 'the listen bar has a voice button to open') && pass;
+      if (voiceBtn) voiceBtn.click();
+      await pause(300);
+      const narOn = document.querySelector('.vc-narrator-row .vc-chip.vc-on');
+      pass = ok(!!narOn, 'the chosen narrator chip carries the class the CSS styles',
+        narOn && narOn.textContent) && pass;
+      pass = ok(narOn && narOn.dataset.narrator === 'iphone',
+        'and it is the one actually selected', narOn && narOn.dataset.narrator) && pass;
+      const sysRowEl = document.querySelector('.vc-system-row');
+      pass = ok(sysRowEl && !sysRowEl.hidden, 'the iPhone voice panel is shown') && pass;
+      const natRowEl = document.querySelector('.vc-neural-row');
+      pass = ok(natRowEl && natRowEl.hidden,
+        'and the natural-voice panel is out of the way') && pass;
+
+      // The queue advances only when the utterance FINISHES, not when it starts.
+      const before = V_.state().index;
+      await pause(150);
+      pass = ok(V_.state().index === before, 'the cursor waits for the voice to finish') && pass;
+      resolveNext();
+      await waitFor(() => spoken.length > 1, 4000, 'the next sentence follows');
+      pass = ok(V_.state().index > before, 'and moves on once it has', String(V_.state().index)) && pass;
+      endSession();
+    } finally {
+      if (origEnsureReady) VT().neuralEngine.ensureReady = origEnsureReady;
+      if (held === undefined) { try { delete window.Platform.speech; } catch (e) {} }
+      else window.Platform.speech = held;
+      Store.prefs.set('voice.narrator', 'natural');
+      Store.prefs.set('voice.systemVoice', '');
+      endSession();
+    }
+    return { name: 'system narrator', pass };
+  },
+
+  // Only the compact voice installed is a settings problem with a one-minute
+  // fix, and saying so is worth more than anything we can do in code.
+  async testCompactVoiceHint() {
+    let pass = true;
+    const T = VT();
+    const held = V().state;
+    try {
+      T.setSystemVoices([{ id: 'c', name: 'Samantha', lang: 'en-US', quality: 'default' }]);
+      let hint = T.systemVoiceHint();
+      pass = ok(/compact voice/.test(hint), 'names the compact voice as the culprit', hint) && pass;
+      pass = ok(/Spoken Content/.test(hint), 'and says exactly where to fix it', hint) && pass;
+
+      T.setSystemVoices([
+        { id: 'a', name: 'Ava', lang: 'en-US', quality: 'premium' },
+        { id: 'c', name: 'Samantha', lang: 'en-US', quality: 'default' },
+      ]);
+      hint = T.systemVoiceHint();
+      pass = ok(/1 higher-quality voice\b/.test(hint), 'counts the good ones when there are some', hint) && pass;
+      pass = ok(!/compact voice/.test(hint), 'and drops the scolding once one is installed', hint) && pass;
+
+      T.setSystemVoices([]);
+      pass = ok(/No voices installed/.test(T.systemVoiceHint()),
+        'an empty list says so rather than counting zero', T.systemVoiceHint()) && pass;
+    } finally {
+      T.setSystemVoices(null);
+    }
+    return { name: 'compact voice hint', pass };
+  },
+
   // A background rejection is not a verdict on the session.
   //
   // An earlier version posted 'init-error' from the worker's global error and
@@ -1200,7 +1368,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

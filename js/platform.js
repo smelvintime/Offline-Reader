@@ -295,6 +295,91 @@
     cancelDaily: function () { return Promise.resolve(); },
   };
 
+  // ── The iPhone's own narrator (ARCHITECTURE §2.14) ────────────────────────
+  //
+  // A device voice was in this app once and was removed for sounding like a
+  // robot. It sounded like one because it was the *compact* voice: iOS ships a
+  // small default in every language and speaks through it unless asked
+  // otherwise. The Enhanced and Premium voices a reader downloads under
+  // Settings → Accessibility → Spoken Content → Voices are a different class of
+  // thing, and nothing in the old code ever asked for one.
+  //
+  // This facade asks. voices() reports iOS's own quality tier for each installed
+  // voice so the picker can lead with the good ones and say plainly when only
+  // the compact voice is there — which is a settings problem, not a bug.
+  //
+  // What it buys over the neural narrator is latency: speech starts at once,
+  // with no inference and no wait proportional to the length of the paragraph.
+
+  let speechVoicesCache = null;
+  let speechVoicesPromise = null;
+
+  const speech = {
+    available: function () { return !!plugin('OrSpeech'); },
+
+    /**
+     * → Promise<[{ id, name, lang, quality, personal }]>. Cached; never
+     * rejects; [] means "none", which on the web is always the answer.
+     * `quality` is one of 'premium' | 'enhanced' | 'default'.
+     */
+    voices: function (lang) {
+      const OrSpeech = plugin('OrSpeech');
+      if (!OrSpeech) return Promise.resolve([]);
+      if (speechVoicesCache) return Promise.resolve(speechVoicesCache);
+      if (!speechVoicesPromise) {
+        speechVoicesPromise = OrSpeech.voices({ lang: lang || 'en' })
+          .then(function (r) {
+            speechVoicesCache = (r && Array.isArray(r.voices)) ? r.voices : [];
+            return speechVoicesCache;
+          })
+          .catch(function () { speechVoicesPromise = null; return []; });
+      }
+      return speechVoicesPromise;
+    },
+
+    /**
+     * Speaks ONE utterance. Resolves `true` only when it FINISHES — the
+     * reader's queue advances on that, so resolving early would race the
+     * narration ahead of its own audio. Interruption resolves `false`, which
+     * is an ordinary outcome and not an error. A missing plugin resolves
+     * `false` per the §2.3 degrade-to-null contract.
+     */
+    speak: function (text, opts) {
+      const OrSpeech = plugin('OrSpeech');
+      if (!OrSpeech) return Promise.resolve(false);
+      const o = opts || {};
+      return OrSpeech.speak({
+        text: String(text || ''),
+        voiceId: o.voiceId || '',
+        lang: o.lang || '',
+        rate: typeof o.rate === 'number' ? o.rate : 1,
+        pitch: typeof o.pitch === 'number' ? o.pitch : 1,
+        gap: typeof o.gap === 'number' ? o.gap : 0,
+      }).then(function (r) { return !!(r && r.spoken); });
+    },
+
+    stop: function () {
+      const OrSpeech = plugin('OrSpeech');
+      if (!OrSpeech) return Promise.resolve();
+      try { return OrSpeech.stop().catch(function () {}); }
+      catch (e) { return Promise.resolve(); }
+    },
+
+    pause: function () {
+      const OrSpeech = plugin('OrSpeech');
+      if (!OrSpeech) return Promise.resolve();
+      try { return OrSpeech.pause().catch(function () {}); }
+      catch (e) { return Promise.resolve(); }
+    },
+
+    resume: function () {
+      const OrSpeech = plugin('OrSpeech');
+      if (!OrSpeech) return Promise.resolve();
+      try { return OrSpeech.resume().catch(function () {}); }
+      catch (e) { return Promise.resolve(); }
+    },
+  };
+
   // ── Native file picking (PLAN.md §6.1) ────────────────────────────────────
 
   // The picker dependency is chosen (capacitor-scaffold) for two properties
@@ -975,6 +1060,7 @@
 
     notify: notify,
 
+    speech: speech,
     pickFiles: pickFiles,
     readPickedFile: readPickedFile,
 

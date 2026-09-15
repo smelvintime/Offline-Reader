@@ -1,10 +1,19 @@
 import Foundation
 import Capacitor
 
-#if canImport(onnxruntime_objc)
-import onnxruntime_objc
-#elseif canImport(onnxruntime)
-import onnxruntime
+// The SPM package's PRODUCT is `onnxruntime`, but its TARGET — and therefore
+// the Swift module — is `OnnxRuntimeBindings`. Guessing at the product name got
+// four `Cannot find type 'ORTEnv' in scope` errors and no clue why: an
+// unmatched `#if canImport` compiles to nothing at all, so the import silently
+// vanished and every ORT type went undefined with no mention of a missing
+// module. The `#else` is the point of this block. A build that cannot find
+// ONNX Runtime now says so, in those words, instead of failing somewhere else.
+#if canImport(OnnxRuntimeBindings)
+import OnnxRuntimeBindings          // SPM: microsoft/onnxruntime-swift-package-manager
+#elseif canImport(onnxruntime_objc)
+import onnxruntime_objc             // CocoaPods: onnxruntime-objc
+#else
+#error("ONNX Runtime is not linked. SPM: add the onnxruntime-swift-package-manager dependency (module OnnxRuntimeBindings). CocoaPods: pod 'onnxruntime-objc'. Then `npm install && npm run sync`.")
 #endif
 
 /// Runs Kokoro's forward pass natively, so the voice the reader likes can keep
@@ -118,7 +127,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
                 let outputName = try self.waveformOutputName(session)
                 let outputs = try session.run(
                     withInputs: ["input_ids": idsValue, "style": styleValue, "speed": speedValue],
-                    outputNames: [outputName],
+                    outputNames: Set([outputName]),
                     runOptions: nil)
 
                 guard let waveform = outputs[outputName] else {
@@ -175,7 +184,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     /// and "the model produced no waveform" is a far better failure than a
     /// silent empty clip.
     private func waveformOutputName(_ session: ORTSession) throws -> String {
-        let names = try session.outputNames()
+        let names: [String] = try session.outputNames()
         if names.contains("waveform") { return "waveform" }
         guard let first = names.first else {
             throw NSError(domain: "OrKokoro", code: 2, userInfo: [

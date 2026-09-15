@@ -72,3 +72,23 @@ scrollable while the next paragraph renders.
 ## Dependencies
 
 `onnxruntime-objc` (CocoaPods) / `onnxruntime-swift-package-manager` (SPM).
+
+**The SPM product and the Swift module have different names**, and this costs
+an afternoon if you assume otherwise. The package declares:
+
+```swift
+.library(name: "onnxruntime", type: .static, targets: ["OnnxRuntimeBindings"])
+```
+
+So `Package.swift` depends on the **product** `onnxruntime`, while the Swift
+source imports the **module** `OnnxRuntimeBindings`. Importing `onnxruntime`
+does not work.
+
+The import sits behind `#if canImport` with an `#else` that `#error`s. That
+`#else` is not decoration: an unmatched `canImport` compiles to *nothing*, so a
+wrong module name produces a wall of `Cannot find type 'ORTEnv' in scope` and
+never once mentions a missing module. Failing loudly with the right sentence is
+the difference between a one-line fix and a guessing game.
+
+If the error does fire, Xcode may simply not have resolved packages yet:
+File → Packages → Resolve Package Versions, after `npm install && npm run sync`.

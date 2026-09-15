@@ -34,6 +34,30 @@ public class OrSpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private let synthesizer = AVSpeechSynthesizer()
     private var delegate: SpeechDelegate?
+    private var audioSessionReady = false
+
+    /// Playback, not ambient: narration must survive the screen locking and
+    /// must not be silenced by the ringer switch. A reader on a train has the
+    /// phone in a pocket.
+    ///
+    /// Once, not per utterance. Reconfiguring and re-activating the session
+    /// before every paragraph is work the OS does not need repeated, and
+    /// setActive on a session that is already active is exactly the kind of
+    /// thing that puts a click between two pieces of speech. A chapter should
+    /// sound like one session, because it is one.
+    private func configureAudioSessionOnce() {
+        if audioSessionReady { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [])
+            try session.setActive(true, options: [])
+            audioSessionReady = true
+        } catch {
+            // A session we could not configure is still worth trying to speak
+            // through, and worth retrying on the next utterance rather than
+            // latching a failure. The cost of failing is silence, not a crash.
+        }
+    }
 
     override public func load() {
         let d = SpeechDelegate(plugin: self)
@@ -95,17 +119,7 @@ public class OrSpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // Playback, not ambient: narration must survive the screen locking and
-        // must not be silenced by the ringer switch. A reader on a train has
-        // the phone in a pocket.
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [])
-            try session.setActive(true, options: [])
-        } catch {
-            // A session we could not configure is still worth trying to speak
-            // through; the failure surfaces as silence, not as a crash.
-        }
+        configureAudioSessionOnce()
 
         let utterance = AVSpeechUtterance(string: text)
         if let id = call.getString("voiceId"), !id.isEmpty,

@@ -733,6 +733,41 @@ const T = {
         spoken.length + ' spoken') && pass;
       pass = ok(spoken[0].voiceId === 'prem.en', 'through the chosen voice, not the default',
         spoken[0].voiceId) && pass;
+
+      // Whole paragraphs, not sentences. Every utterance is a bridge round
+      // trip the reader has to wait out, so the unit of speech is also the
+      // unit of silence: one sentence at a time meant a gap after every
+      // sentence, for a whole chapter.
+      const firstSentence = V_.state().sentences
+        ? V_.state().sentences[0] : null;
+      pass = ok(spoken[0].text.length > 0, 'something was actually sent', String(spoken[0].text.length)) && pass;
+      if (firstSentence) {
+        pass = ok(spoken[0].text.length >= firstSentence.text.length,
+          'and it is at least a whole sentence, never a fragment',
+          spoken[0].text.length + ' vs sentence ' + firstSentence.text.length) && pass;
+      }
+      pass = ok(spoken[0].text.length <= 1600,
+        'while still bounded, so one runaway paragraph cannot become the chapter',
+        String(spoken[0].text.length)) && pass;
+
+      // The first block is the chapter title, which is one short sentence, so
+      // prove the merging directly on a paragraph shaped like real prose.
+      const para = [];
+      for (let i = 0; i < 6; i++) {
+        para.push({ text: 'Sentence number ' + i + ' of an ordinary paragraph.',
+                    blockIdx: 4, kind: 'p', start: i * 50, end: i * 50 + 49 });
+      }
+      para.push({ text: 'A sentence in the NEXT paragraph.',
+                  blockIdx: 5, kind: 'p', start: 400, end: 433 });
+      const sysG = T.groupSentences(para, 0, { target: 900, max: 1400, contMax: 1600 });
+      pass = ok(sysG.to === 5, 'a whole paragraph goes out as one utterance',
+        'merged ' + (sysG.to + 1) + ' of 6 sentences') && pass;
+      pass = ok(sysG.blockIdx === 4 && sysG.text.indexOf('NEXT paragraph') === -1,
+        'and it stops at the paragraph, so the pauses land where prose pauses') && pass;
+      // The neural caps would have chopped the same paragraph into pieces.
+      const neuG = T.groupSentences(para, 0, { target: 160, max: 300, contMax: 700 });
+      pass = ok(neuG.to < sysG.to, 'which the generation-bound caps would not have done',
+        'neural merged ' + (neuG.to + 1) + ', system merged ' + (sysG.to + 1)) && pass;
       pass = ok(!V_.state().preparing, 'and nothing is "preparing" — there is nothing to prepare') && pass;
       pass = ok(neuralStub.spoken.length === 0, 'the neural engine is never generating') && pass;
       // The bug this exists for: play() used to route every narrator through

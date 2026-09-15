@@ -1393,10 +1393,33 @@
    * prepare and nothing to cache, so the whole of speakNeural's machinery —
    * lookahead, wav cache, stall watchdog — is simply absent here.
    */
+  /**
+   * Whole paragraphs, not sentences.
+   *
+   * Every utterance costs a round trip across the Capacitor bridge and a fresh
+   * AVSpeechUtterance, and the reader cannot ask for the next one until the
+   * last has finished — so the unit of speech is also the unit of silence. A
+   * sentence at a time meant a gap after every sentence for a whole chapter.
+   *
+   * The neural engine's caps exist to bound generation cost. This path has no
+   * generation cost, so the only reason to stop growing a group is the one
+   * groupSentences enforces for free: it never crosses a paragraph. These caps
+   * are set high enough that a paragraph is what comes back, which puts the
+   * remaining gaps exactly where prose already pauses.
+   */
+  const SYSTEM_GROUP_CAPS = { target: 900, max: 1400, contMax: 1600 };
+
   function speakSystem(s, token, done, fail) {
-    highlighter.apply(s);
+    const group = groupSentences(state.sentences, state.index, SYSTEM_GROUP_CAPS)
+      || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
+    highlighter.apply(group);
     setPreparing(false);
-    systemSpeech().speak(normalizeForSpeech(s.text, 'device'), {
+    const groupDone = function () {
+      if (token !== state.speakToken || !state.playing) return;
+      state.index = group.to;      // land on the group's last sentence…
+      done();                      // …then done() advances past it as usual
+    };
+    systemSpeech().speak(normalizeForSpeech(group.text, 'device'), {
       voiceId: state.prefs.systemVoice,
       lang: docLang(),
       rate: state.prefs.rate,
@@ -1406,7 +1429,7 @@
       // utterance resolving false afterwards is that cancellation arriving, not
       // a failure, and must not be counted as one.
       if (token !== state.speakToken || !state.playing) return;
-      if (spoken) done(); else fail();
+      if (spoken) groupDone(); else fail();
     }).catch(function () {
       if (token !== state.speakToken || !state.playing) return;
       fail();

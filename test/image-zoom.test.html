@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Image zoom test harness</title>
+  <style>
+    body { margin: 0; padding: 12px; background: #0a0a0a; color: #f0f0f0;
+           font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    #reader-pages { width: 200px; touch-action: pan-y; }
+    .page-wrapper { width: 200px; height: 300px; overflow: hidden; touch-action: pan-y; }
+    .page-wrapper.image-zoomed { touch-action: none; }
+    .comic-page { display: block; width: 100%; height: 100%; }
+    #fixture { background: linear-gradient(135deg, #6366f1, #111827); }
+    #log { margin-top: 12px; white-space: pre-wrap; }
+    .pass { color: #34d399; }
+    .fail { color: #f0616d; }
+  </style>
+</head>
+<body>
+  <div id="reader-pages">
+    <div class="page-wrapper"><img id="fixture" class="comic-page" alt="Test page"></div>
+  </div>
+  <div id="log"></div>
+  <div id="summary"></div>
+
+  <script src="../js/image-zoom.js"></script>
+  <script>
+    'use strict';
+    const results = { passed: 0, failed: 0, lines: [] };
+    window.__results = results;
+    const fixture = document.getElementById('fixture');
+
+    function report(ok, label, detail) {
+      const row = document.createElement('div');
+      row.className = ok ? 'pass' : 'fail';
+      row.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label + (ok || !detail ? '' : '  ' + detail);
+      document.getElementById('log').appendChild(row);
+      results[ok ? 'passed' : 'failed']++;
+      results.lines.push(row.textContent);
+    }
+    function assert(value, label, detail) { report(!!value, label, detail); }
+    function assertEq(actual, expected, label) {
+      report(Object.is(actual, expected), label, 'got ' + JSON.stringify(actual) + ', wanted ' + JSON.stringify(expected));
+    }
+
+    function pointer(type, id, x, y) {
+      fixture.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', clientX: x, clientY: y
+      }));
+    }
+
+    window.__done = (async function () {
+      let taps = 0;
+      const root = document.getElementById('reader-pages');
+      const wrap = document.querySelector('.page-wrapper');
+      const zoom = ImageZoom.create(root, { onTap: function () { taps++; } });
+
+      assert(zoom, 'controller is created');
+      assertEq(zoom.scale(), 1, 'starts at scale 1');
+
+      zoom.zoomAt(fixture, 100, 150, 2.5);
+      assertEq(zoom.scale(), 2.5, 'programmatic zoom is scoped to the image');
+      assert(wrap.classList.contains('image-zoomed'), 'zoomed wrapper claims its gestures');
+      assert(root.classList.contains('image-zoom-active'), 'reader records active image zoom');
+      assert(fixture.style.transform.includes('scale(2.5)'), 'only the image receives a scale transform');
+      assertEq(document.documentElement.style.transform, '', 'document viewport is never transformed');
+
+      pointer('pointerdown', 1, 100, 150);
+      pointer('pointermove', 1, 500, 500);
+      pointer('pointerup', 1, 500, 500);
+      const translated = fixture.style.transform.match(/translate3d\(([-\d.]+)px,([-\d.]+)px/);
+      assert(translated && Number(translated[1]) <= 0 && Number(translated[2]) <= 0,
+        'pan is clamped at the top and left edges', fixture.style.transform);
+
+      zoom.reset();
+      assertEq(zoom.scale(), 1, 'reset restores scale 1');
+      assertEq(fixture.style.transform, '', 'reset removes the image transform');
+      assert(!wrap.classList.contains('image-zoomed'), 'reset releases custom pan gestures');
+
+      // Two quick taps magnify without leaking either tap to the reader chrome.
+      pointer('pointerdown', 2, 80, 100);
+      pointer('pointerup', 2, 80, 100);
+      pointer('pointerdown', 3, 80, 100);
+      pointer('pointerup', 3, 80, 100);
+      await new Promise(function (resolve) { setTimeout(resolve, 330); });
+      assertEq(zoom.scale(), 2.5, 'double tap zooms the selected page');
+      assertEq(taps, 0, 'double tap does not toggle reader chrome');
+
+      // A later single tap is still delivered, deliberately after the double-
+      // tap window so controls cannot flash between the two taps.
+      pointer('pointerdown', 4, 40, 40);
+      pointer('pointerup', 4, 40, 40);
+      await new Promise(function (resolve) { setTimeout(resolve, 330); });
+      assertEq(taps, 1, 'single image tap reaches the reader callback');
+
+      zoom.reset();
+      pointer('pointerdown', 5, 60, 100);
+      pointer('pointerdown', 6, 140, 100);
+      pointer('pointermove', 6, 180, 100);
+      assert(zoom.scale() > 1, 'two-pointer pinch magnifies the page');
+      pointer('pointerup', 5, 60, 100);
+      pointer('pointerup', 6, 180, 100);
+
+      zoom.destroy();
+      assertEq(fixture.style.transform, '', 'destroy removes transform state');
+
+      const summary = document.getElementById('summary');
+      summary.textContent = results.failed === 0
+        ? 'ALL GREEN — ' + results.passed + ' assertions'
+        : results.failed + ' FAILED / ' + results.passed + ' passed';
+      summary.className = results.failed === 0 ? 'pass' : 'fail';
+      document.title = (results.failed === 0 ? 'PASS' : 'FAIL') + ' — Image zoom test harness';
+      return results;
+    })();
+  </script>
+</body>
+</html>

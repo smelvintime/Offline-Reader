@@ -158,6 +158,22 @@ const csOverlay      = document.getElementById('cs-overlay');
 const csList         = document.getElementById('cs-list');
 const csClose        = document.getElementById('cs-close');
 
+function toggleImageReaderChrome() {
+  if (autoRunning) { stopAutoScroll(); uiHidden = false; updateUI(); resetIdle(); return; }
+  uiHidden = !uiHidden;
+  updateUI();
+  if (!uiHidden) resetIdle();
+  else clearTimeout(idleTimer);
+}
+
+// Image magnification is deliberately element-scoped: the app viewport is
+// fixed, while a manga/manhwa page can still pinch, pan and double-tap zoom.
+// The delayed single-tap callback lets a double tap zoom without flashing the
+// reader chrome between its two taps.
+const imageZoom = window.ImageZoom && window.ImageZoom.create(readerPages, {
+  onTap: toggleImageReaderChrome
+});
+
 // --- Session persistence ---
 // ── Reading library: up to 5 most-recently-read series ─────────────────────
 function loadLibrary() {
@@ -844,6 +860,7 @@ window.addEventListener('scroll', () => {
 // Revoke all loaded images, clear the slot, reset chapter DOM refs, and
 // invalidate any in-flight blob loads via the generation counter.
 function teardownAll() {
+  if (imageZoom) imageZoom.reset();
   pages.forEach(p => {
     p.gen++; // invalidate any in-flight loadPage calls for this page
     if (p.url && !p.directUrl) {
@@ -878,6 +895,7 @@ function teardownAll() {
 // must call this instead of resetting fields by hand, so the paths can never
 // drift apart (stale chapterDisplayShift/readerOrigin bugs came from exactly that).
 function resetReaderState() {
+  if (imageZoom) imageZoom.reset();
   applyTuning(); // both entry paths pass through here, so this IS session start
   pages.forEach(p => { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
   pages = []; chapters = [];
@@ -2151,12 +2169,11 @@ function updateSpeedLabel() {
   }
 }
 
-readerPages.addEventListener('click', () => {
-  if (autoRunning) { stopAutoScroll(); uiHidden = false; updateUI(); resetIdle(); return; }
-  uiHidden = !uiHidden;
-  updateUI();
-  if (!uiHidden) resetIdle();
-  else clearTimeout(idleTimer);
+// Image taps are delayed by ImageZoom so it can distinguish one tap from a
+// double tap. Empty reader space and decorations still respond immediately.
+readerPages.addEventListener('click', (e) => {
+  if (imageZoom && e.target.closest && e.target.closest('.comic-page')) return;
+  toggleImageReaderChrome();
 });
 
 document.getElementById('close-btn').addEventListener('click', () => {

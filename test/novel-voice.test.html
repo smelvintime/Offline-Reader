@@ -44,6 +44,7 @@
   <button onclick="T.testEscapedErrorIsNotFatal().then(T.report)">escaped error</button>
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
+  <button onclick="T.testLookaheadBuffer().then(T.report)">lookahead buffer</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
@@ -1289,6 +1290,130 @@ const T = {
     return { name: 'generation speed', pass };
   },
 
+  // How far ahead the generator has to stay, and against what.
+  //
+  // Two bugs met here and produced one symptom. The speed check compared the
+  // raw generation ratio against a fixed threshold, but the ratio is measured
+  // at speed 1 while the reader drains the audio at their chosen rate — so a
+  // 1.34x engine looked healthy to a reader running 2x, who was really being
+  // served by a 0.67x one. And the lookahead was counted in GROUPS while the
+  // caps shrink groups on slow devices, so the cushion got shorter exactly
+  // where it needed to get longer. Both make the same sound: a clip, a breath,
+  // a clip.
+  async testLookaheadBuffer() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const st = VT().state;
+    const held = {
+      speed: ne.speed, generate: ne.generate, worker: ne.worker,
+      sentences: st.sentences, chapterId: st.chapterId, rate: st.prefs.rate,
+    };
+    try {
+      // ── the margin ──────────────────────────────────────────────────────
+      // The phone's own numbers, off the engine-check line: 11.5 s of compute
+      // for 15.4 s of audio.
+      ne.noteSpeed({ ms: 11500, seconds: 15.4, chars: 300 });
+      st.prefs.rate = 1;
+      pass = ok(Math.abs(VT().neuralMargin() - 1.339) < 0.01,
+        'at 1x the margin is the measured ratio', VT().neuralMargin().toFixed(3)) && pass;
+      st.prefs.rate = 2;
+      pass = ok(Math.abs(VT().neuralMargin() - 0.669) < 0.01,
+        'at 2x the same engine is only half as far ahead', VT().neuralMargin().toFixed(3)) && pass;
+      ne.speed = null;
+      pass = ok(VT().neuralMargin() === 0, 'and unmeasured is 0, not a guess') && pass;
+
+      // The caps follow the margin, not the ratio. Comparing the ratio alone
+      // kept handing 160-character groups to a reader the engine could not
+      // keep up with, which is the case that most needed them short.
+      ne.noteSpeed({ ms: 11500, seconds: 15.4, chars: 300 });
+      pass = ok(VT().neuralGroupCaps().max === 90,
+        'a reader at 2x gets the caps a 0.67x engine needs',
+        JSON.stringify(VT().neuralGroupCaps())) && pass;
+      st.prefs.rate = 1;
+      pass = ok(VT().neuralGroupCaps().max === 160,
+        'and the same engine at 1x does not', JSON.stringify(VT().neuralGroupCaps())) && pass;
+
+      // ── the estimate ────────────────────────────────────────────────────
+      // 300 characters produced 15.4 s, so 150 is about 7.7 s.
+      pass = ok(Math.abs(VT().estimateSeconds('x'.repeat(150)) - 7.7) < 0.1,
+        'an ungenerated group is sized from what this voice actually produced',
+        VT().estimateSeconds('x'.repeat(150)).toFixed(2)) && pass;
+      ne.speed = null;
+      pass = ok(VT().estimateSeconds('x'.repeat(150)) === 10,
+        'and from a plain default before any group has been generated',
+        String(VT().estimateSeconds('x'.repeat(150)))) && pass;
+
+      // ── the buffer ──────────────────────────────────────────────────────
+      // 10 characters per second of audio, break-even on compute. Sentences of
+      // 100 characters each, so one sentence is one group and one group is ten
+      // seconds — arithmetic a reader of this test can do in their head.
+      ne.noteSpeed({ ms: 1000, seconds: 1, chars: 10 });
+      const list = [];
+      for (let i = 0; i < 12; i++) {
+        list.push({ text: 'S'.repeat(100), blockIdx: 0, kind: 'p', start: i * 100, end: (i + 1) * 100 });
+      }
+      st.sentences = list;
+      st.chapterId = 'lookahead-test';
+      ne.worker = {};                 // prefetchNeural only checks it is there
+      const asked = [];
+      ne.generate = function (key) { asked.push(key); return new Promise(function () {}); };
+
+      const first = VT().groupSentences(list, 0);
+      pass = ok(first.to === 0, 'one 100-character sentence is one group', JSON.stringify(first.to)) && pass;
+
+      st.prefs.rate = 1;
+      asked.length = 0;
+      VT().prefetchNeural(first);
+      // 40 s of cushion at 10 s a group. A group-counted lookahead stopped at
+      // two here, which is 20 s — less than the 11.5 s generation plus its own
+      // queueing, and so a breath every other clip.
+      pass = ok(asked.length === 4,
+        'the queue is filled to NEURAL_LOOKAHEAD_SEC of playback, not to a group count',
+        asked.length + ' groups for ' + VT().NEURAL_LOOKAHEAD_SEC + 's') && pass;
+
+      // Same audio, drained twice as fast: the same 40 s of playback now takes
+      // twice as many groups, and the cap is what stops it.
+      st.prefs.rate = 2;
+      asked.length = 0;
+      VT().prefetchNeural(first);
+      pass = ok(asked.length === VT().NEURAL_LOOKAHEAD_MAX,
+        'a faster reader needs more of them, bounded by the cache',
+        asked.length + ' groups') && pass;
+
+      // Already generated, or already queued: counted toward the cushion,
+      // never asked for again. The worker is a serial queue, so a duplicate
+      // does not just waste time, it renders in front of audio that is waiting.
+      st.prefs.rate = 1;
+      asked.length = 0;
+      VT().prefetchNeural(first);
+      const repeat = asked.slice();
+      ne.wavCache.set(repeat[0], 'blob:already-generated');
+      ne.clipSeconds.set(repeat[0], 10);
+      asked.length = 0;
+      VT().prefetchNeural(first);
+      pass = ok(asked.indexOf(repeat[0]) === -1, 'a cached group is not generated twice') && pass;
+      pass = ok(asked.length === 3,
+        'and it still counts toward the cushion, so the queue does not overfill',
+        asked.length + ' new groups') && pass;
+      ne.wavCache.delete(repeat[0]);
+      ne.clipSeconds.delete(repeat[0]);
+
+      // The end of the chapter is not a reason to spin.
+      const last = VT().groupSentences(list, 11);
+      asked.length = 0;
+      VT().prefetchNeural(last);
+      pass = ok(asked.length === 0, 'nothing is queued past the last sentence') && pass;
+    } finally {
+      ne.speed = held.speed;
+      ne.generate = held.generate;
+      ne.worker = held.worker;
+      st.sentences = held.sentences;
+      st.chapterId = held.chapterId;
+      st.prefs.rate = held.rate;
+    }
+    return { name: 'lookahead buffer', pass };
+  },
+
   // Weights shipped inside the app: the phone must never be told to download
   // something it already has, and the probe has to work over the custom URL
   // scheme the native shell serves from.
@@ -1592,7 +1717,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

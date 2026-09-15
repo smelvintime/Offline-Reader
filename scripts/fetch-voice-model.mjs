@@ -9,15 +9,30 @@
 // So for the native build the weights ship in the bundle, and this is what puts
 // them there.
 //
-//   node scripts/fetch-voice-model.mjs             # q8 (~88 MB) — what the app loads
+//   node scripts/fetch-voice-model.mjs             # q8 + fp32 (~414 MB)
+//   node scripts/fetch-voice-model.mjs --dtype q8  # q8 only (web, or a small build)
 //   node scripts/fetch-voice-model.mjs --list      # what the repo offers, with sizes
 //
-// q8 is the only dtype the app loads. --dtype still takes the others so their
-// sizes can be compared against a phone's budget, but fetching one does not
-// make the app use it.
+// TWO dtypes by default, because the app runs two engines and they want
+// opposite files:
+//
+//   q8    kokoro-js builds its ONNX Runtime *wasm* session from this, in every
+//         build. On the web it is the engine. In the native app it is built,
+//         immediately superseded by the plugin, and disposed — but it still has
+//         to be present, or from_pretrained goes to the network for it.
+//
+//   fp32  what native/or-kokoro opens. q8 here is DYNAMIC quantisation: int8
+//         matmuls wrapped in quantise/dequantise pairs, with Kokoro's convs and
+//         its iSTFT decoder's LSTMs left in float, so the graph pays conversion
+//         at every boundary between the two. Smaller file, slower forward pass.
+//         In a browser that trade buys a download nobody waits 326 MB for; in an
+//         app bundle that ships the file either way it buys nothing at all.
+//
+// A build that only has q8 still works — native/or-kokoro falls back to it, and
+// says "q8" in the engine line. Re-running this is what upgrades it.
 //
 // Output lands in vendor/tts/models/ and vendor/tts/voices/, both gitignored:
-// ~90 MB is a download, not a commit (vendor/tts/README.md). scripts/sync-www.sh
+// this is a download, not a commit (vendor/tts/README.md). scripts/sync-www.sh
 // carries whatever is there into www/, and `cap sync` into the app.
 //
 // Nothing here is needed to serve the web app. Skip it and the runtime falls
@@ -61,7 +76,9 @@ const flag = (name, fallback) => {
   const i = args.indexOf('--' + name);
   return i === -1 ? fallback : (args[i + 1] || fallback);
 };
-const dtype = flag('dtype', 'q8');
+// Comma-separated: the app wants q8 for the wasm session and fp32 for the
+// native one, and asking for both in one run is the common case.
+const dtypes = flag('dtype', 'q8,fp32').split(',').map((d) => d.trim()).filter(Boolean);
 const listOnly = args.includes('--list');
 
 function die(msg) {
@@ -97,8 +114,9 @@ async function list() {
   for (const [name, file, size] of rows) {
     console.log('  ' + name.padEnd(w) + '  ' + size.padStart(10) + '  ' + file);
   }
-  console.log('\n  q8 is the default and the only one the app loads.');
-  console.log('  A bigger file is a bigger memory footprint on the phone, not just a bigger download.');
+  console.log('\n  Default: q8 + fp32. q8 builds the wasm session every build makes;');
+  console.log('  fp32 is what the native plugin opens, and is the faster forward pass');
+  console.log('  despite the larger file. Only one session is resident at a time.');
 }
 
 /** Stream to a .part file and rename on success: a killed run leaves no half-file. */
@@ -128,22 +146,26 @@ if (listOnly) {
   process.exit(0);
 }
 
-const file = DTYPE_FILE[dtype];
-if (!file) die('unknown --dtype "' + dtype + '". One of: ' + Object.keys(DTYPE_FILE).join(', '));
+for (const d of dtypes) {
+  if (!DTYPE_FILE[d]) die('unknown --dtype "' + d + '". One of: ' + Object.keys(DTYPE_FILE).join(', '));
+}
 
 const modelDir = join(root, 'vendor/tts/models', MODEL_ID);
 const voiceDir = join(root, 'vendor/tts/voices');
 
-console.log('fetch-voice-model: ' + MODEL_ID + ' (' + dtype + ') → vendor/tts/');
+console.log('fetch-voice-model: ' + MODEL_ID + ' (' + dtypes.join(' + ') + ') → vendor/tts/');
 
 for (const name of SUPPORT_FILES) {
   await download(`${HOST}/${MODEL_ID}/resolve/main/${name}`, join(modelDir, name), name);
 }
-await download(
-  `${HOST}/${MODEL_ID}/resolve/main/onnx/${file}`,
-  join(modelDir, 'onnx', file),
-  'onnx/' + file,
-);
+for (const d of dtypes) {
+  const file = DTYPE_FILE[d];
+  await download(
+    `${HOST}/${MODEL_ID}/resolve/main/onnx/${file}`,
+    join(modelDir, 'onnx', file),
+    'onnx/' + file,
+  );
+}
 for (const voice of VOICES) {
   await download(
     `${HOST}/${MODEL_ID}/resolve/main/voices/${voice}.bin`,

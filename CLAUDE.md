@@ -24,7 +24,10 @@ Learned the hard way; each of these has cost a cycle at least once.
 
 - **The natural voice needs `node scripts/fetch-voice-model.mjs` before
   `npm run sync`.** The weights are gitignored, so it is per-machine, not
-  per-clone. `npm run sync` prints which build you have.
+  per-clone. `npm run sync` prints which build you have. It fetches two dtypes
+  (~414 MB): q8 for the wasm session kokoro-js always builds, fp32 for the
+  native plugin. A build with only q8 still runs, just slower — the engine line
+  under NATURAL VOICE says which one opened.
 
 - **`ios/` and `android/` are disposable.** Delete and regenerate freely;
   `npm run sync` re-applies the Info.plist and manifest edits through

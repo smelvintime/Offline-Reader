@@ -19,17 +19,24 @@ import onnxruntime_objc             // CocoaPods: onnxruntime-objc
 /// Runs Kokoro's forward pass natively, so the voice the reader likes can keep
 /// up with them.
 ///
-/// The model was never the problem. Kokoro-82M at q8 is 88 MB and already sits
-/// in the app bundle; making it bigger would make it slower, not faster. What
-/// was slow is *where* it ran: WebAssembly, single-threaded, inside a WebView
-/// sandbox. Apple's own voices are the same class of thing executed as native
-/// ARM code, which is most of why they sound effortless and ours did not.
+/// The first problem was *where* the model ran: WebAssembly, single-threaded,
+/// inside a WebView sandbox. Apple's own voices are the same class of thing
+/// executed as native ARM code, which is most of why they sound effortless and
+/// ours did not. ONNX Runtime rather than a hand-converted Core ML model,
+/// because coremltools no longer converts ONNX directly and the PyTorch round
+/// trip is several chances for the voice to come out subtly wrong.
 ///
-/// So this changes the execution path and nothing else. Same weights, same
-/// voices, same `model_quantized.onnx` the web build loads — ONNX Runtime
-/// rather than a hand-converted Core ML model, because coremltools no longer
-/// converts ONNX directly and the PyTorch round trip is several chances for the
-/// voice to come out subtly wrong.
+/// The second problem was *which* weights. This originally loaded the same
+/// `model_quantized.onnx` as the web build, on the reasoning that a smaller
+/// model is a faster one. That is true of a download and false of this graph.
+/// q8 here is dynamic quantisation: it rewrites the matmuls to int8 and wraps
+/// them in DynamicQuantizeLinear/DequantizeLinear, leaves Kokoro's convolutions
+/// and its iSTFT decoder's LSTMs in float, and so pays conversion at every
+/// boundary between the two. It exists to make an 88 MB download instead of a
+/// 326 MB one, which is the right trade in a browser and the wrong one in an
+/// app bundle that ships the file anyway. `bundledWeights` therefore prefers
+/// fp32 and falls back, so an existing build keeps working unchanged and
+/// re-running fetch-voice-model.mjs is what upgrades it.
 ///
 /// The surface is deliberately tiny. Phonemisation, tokenisation, voice style
 /// vectors and the sentence queue all stay in JavaScript exactly as they are;
@@ -52,16 +59,39 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     private var env: ORTEnv?
     private var session: ORTSession?
     private var provider = "cpu"
+    private var weightsName = ""
 
-    /// Where scripts/sync-www.sh + `cap sync` leave the weights.
-    private var bundledModelPath: String? {
+    private struct Weights {
+        let path: String
+        let name: String
+        let quantized: Bool
+    }
+
+    /// Which weights this build actually has, where scripts/sync-www.sh +
+    /// `cap sync` leave them.
+    ///
+    /// Fastest first, not smallest first. A build that only ran
+    /// fetch-voice-model.mjs with its old default still finds q8 at the bottom
+    /// of the list and runs exactly as it did before — the upgrade is a
+    /// re-fetch, never a broken build.
+    private var bundledWeights: Weights? {
         guard let root = Bundle.main.resourceURL else { return nil }
-        let path = root
+        let dir = root
             .appendingPathComponent("public/vendor/tts/models")
             .appendingPathComponent("onnx-community/Kokoro-82M-v1.0-ONNX")
-            .appendingPathComponent("onnx/model_quantized.onnx")
-            .path
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+            .appendingPathComponent("onnx")
+        let candidates: [(file: String, name: String, quantized: Bool)] = [
+            ("model.onnx", "fp32", false),
+            ("model_fp16.onnx", "fp16", false),
+            ("model_quantized.onnx", "q8", true)
+        ]
+        for c in candidates {
+            let path = dir.appendingPathComponent(c.file).path
+            if FileManager.default.fileExists(atPath: path) {
+                return Weights(path: path, name: c.name, quantized: c.quantized)
+            }
+        }
+        return nil
     }
 
     /// Reports whether this build can actually do the work, not merely whether
@@ -69,9 +99,11 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     /// the plugin and no weights, and that is a different problem with a
     /// different fix — so it is a different answer.
     @objc func available(_ call: CAPPluginCall) {
+        let weights = bundledWeights
         call.resolve([
-            "available": bundledModelPath != nil,
+            "available": weights != nil,
             "provider": provider,
+            "weights": weightsName.isEmpty ? (weights?.name ?? "") : weightsName,
             "loaded": session != nil
         ])
     }
@@ -141,6 +173,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
                     "pcm": pcm,
                     "sampleRate": 24000,
                     "provider": self.provider,
+                    "weights": self.weightsName,
                     "ms": Int(Date().timeIntervalSince(started) * 1000)
                 ])
             } catch {
@@ -153,28 +186,53 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func ensureSession() throws -> ORTSession {
         if let session = session { return session }
-        guard let path = bundledModelPath else {
+        guard let weights = bundledWeights else {
             throw NSError(domain: "OrKokoro", code: 1, userInfo: [
                 NSLocalizedDescriptionKey:
                     "the weights are not in this build — run scripts/fetch-voice-model.mjs, then npm run sync"
             ])
         }
+        weightsName = weights.name
+
         let env = try ORTEnv(loggingLevel: ORTLoggingLevel.warning)
         let options = try ORTSessionOptions()
 
-        // Core ML where it will take the graph, CPU where it will not. A
-        // quantised model often falls back, and that is fine: native ARM with
-        // NEON is already a different universe from single-threaded wasm, which
-        // is the gap that made this voice unusable. Reported either way so the
-        // engine line can say which one actually ran.
-        do {
-            try options.appendCoreMLExecutionProvider(with: ORTCoreMLExecutionProviderOptions())
-            provider = "coreml"
-        } catch {
-            provider = "cpu"
-        }
+        // Not setting this leaves the graph unfused. Kokoro is full of the
+        // patterns the extended passes collapse, and it costs nothing at run
+        // time — the work happens once, while the session is being built.
+        try? options.setGraphOptimizationLevel(ORTGraphOptimizationLevel.all)
 
-        let session = try ORTSession(env: env, modelPath: path, sessionOptions: options)
+        // Left unset, a session can end up running the forward pass on one
+        // core, which is what a ratio barely above realtime looks like from the
+        // outside. Half the logical cores, because the other half are Apple's
+        // efficiency cores: handing them matmuls makes the fast cores wait on
+        // the slow ones at every join, so counting them in makes this slower,
+        // not faster.
+        let threads = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
+        try? options.setIntraOpNumThreads(Int32(threads))
+
+        // No Core ML execution provider, deliberately.
+        //
+        // This used to append one unconditionally, on the assumption that a
+        // provider which can decline is free to offer. It is not, for two
+        // reasons that both apply here. On the quantised graph Core ML cannot
+        // run int8 nodes at all, so it claims a few float islands and the
+        // partition boundaries cost more than the islands save. On any graph it
+        // specialises per input shape — and every group is a different number
+        // of phoneme tokens, so a chapter is a fresh compile per sentence,
+        // which is the opposite of the problem being solved.
+        //
+        // Restoring it is three lines (appendCoreMLExecutionProvider before the
+        // session is built); what would justify them is a measurement, and the
+        // engine line prints the one to beat. Meanwhile "cpu" here is native
+        // ARM with NEON across the performance cores, which is the gap that
+        // mattered against single-threaded wasm.
+        //
+        // Assigned, never appended: release() can drop the session and a later
+        // infer() rebuilds it, and appending would report "cpu ×3 ×3".
+        provider = "cpu ×\(threads)"
+
+        let session = try ORTSession(env: env, modelPath: weights.path, sessionOptions: options)
         self.env = env
         self.session = session
         return session

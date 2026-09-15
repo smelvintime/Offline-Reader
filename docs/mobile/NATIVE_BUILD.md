@@ -253,12 +253,19 @@ Nothing extra to generate — the pieces arrive mechanically — but three thing
 are worth knowing, and one is a manual iOS step:
 
 - **The natural voice runs natively through `native/or-kokoro`.** A local
-  Capacitor plugin over ONNX Runtime, loading the same
-  `model_quantized.onnx` that `scripts/fetch-voice-model.mjs` already puts in
-  the bundle. No extra download and no model conversion. `npm install` +
+  Capacitor plugin over ONNX Runtime on the CPU execution provider, opening
+  whichever weights
+  `scripts/fetch-voice-model.mjs` put in the bundle — fp32 for preference,
+  falling back through fp16 to q8. No model conversion. `npm install` +
   `npm run sync` wires it like any plugin. Without it the natural voice still
   works, in WebAssembly, at a speed a real iPhone measured in minutes per
   paragraph.
+
+  Which one it opened is in the engine line under NATURAL VOICE, next to the
+  execution provider: `inference: native/cpu ×3 fp32`. q8 there means the
+  build predates the fp32 default and a re-fetch will speed it up — dynamic
+  quantisation makes a smaller file and a slower forward pass, which is a good
+  trade for a download and a bad one for a bundle.
 
 - **The iPhone voice is `native/or-speech`.** A local Capacitor plugin over
   `AVSpeechSynthesizer`, wired like any other (`npm install` + `npm run sync`,
@@ -297,8 +304,13 @@ are worth knowing, and one is a manual iOS step:
   voice.** Run this once before your first `npm run sync`:
 
   ```bash
-  node scripts/fetch-voice-model.mjs     # ~90 MB into vendor/tts/ (gitignored)
+  node scripts/fetch-voice-model.mjs     # ~414 MB into vendor/tts/ (gitignored)
   ```
+
+  Two dtypes, because the app runs two engines: q8 is what kokoro-js builds its
+  wasm session from in every build (and is the engine on the web), fp32 is what
+  the native plugin opens. `--dtype q8` fetches only the smaller one, for a web
+  deploy or a build where size matters more than the voice keeping up.
 
   Without it the app downloads the model on the device the first time someone
   enables the Natural voice. On the web that is a reasonable trade; in an
@@ -308,7 +320,7 @@ are worth knowing, and one is a manual iOS step:
   says which build you have:
 
   ```
-    natural voice: weights bundled (86M) — the app will not download them
+    natural voice: weights bundled (400M) — the app will not download them
     natural voice: NO weights bundled — the app will download ~90 MB on first use.
   ```
 

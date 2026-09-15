@@ -277,6 +277,13 @@ function pcmFromBase64(b64) {
  */
 function useNativeModel(tts) {
   if (!tts || typeof tts.model !== 'function') return false;
+  // from_pretrained has already built an ONNX Runtime *wasm* session by the
+  // time we get here, and once the forward pass goes native that session is
+  // several hundred megabytes of resident memory doing nothing. Holding it
+  // alongside the native one is how a phone gets its web content process
+  // killed mid-chapter. transformers.js models are Callables with a dispose(),
+  // so the old one can be released the moment the new one is in place.
+  const superseded = tts.model;
   tts.model = async function (inputs) {
     // input_ids arrives as int64, so its data is a BigInt64Array; the bridge
     // carries numbers. Phoneme ids are small — nothing is lost narrowing them.
@@ -286,6 +293,11 @@ function useNativeModel(tts) {
     const res = await nativeInfer(ids, style, speed);
     return { waveform: { data: pcmFromBase64(res.pcm) } };
   };
+  try {
+    if (superseded && typeof superseded.dispose === 'function') superseded.dispose();
+  } catch (e) {
+    note('could not release the superseded wasm session: ' + (e && e.message));
+  }
   return true;
 }
 

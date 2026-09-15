@@ -1020,13 +1020,28 @@ against `ratio / rate` — a 1.34× engine is a 0.67× one to a reader at 2×.
 timer tops it up mid-clip, because a boundary-only top-up leaves the queue
 unattended for precisely the window there was spare capacity to generate in.
 
-**How deep that queue goes depends on whether the device can get ahead at all.**
-Below break-even a cushion is unreachable by definition: there is no spare
-capacity to fill it with, so chasing one holds the CPU at a hundred per cent for
-the chapter, heats the phone, and gets throttled for its trouble — which makes
-the generation it was trying to outrun slower still. `lookaheadSeconds()`
-returns the full target above 1.5×, half of it above 1.05×, and zero below,
-where zero means `NEURAL_LOOKAHEAD_MIN`: generate the next group, and stop.
+**How deep that queue goes depends on whether the device can get ahead at all,
+and the two cases want opposite things.** Below break-even the generator never
+idles: there is always a next group and it is always needed, so the CPU is at a
+hundred per cent whatever the depth. Depth there does not change how much work
+is done, only *which* clips are ready — so it is free, and what it buys is the
+variance. The same phone measures 0.92× and 1.28× minutes apart; a deep queue
+spends the good stretches covering the bad ones instead of discarding them, and
+that is the whole difference between occasional mid-chapter stalls and none.
+Above break-even the generator genuinely will idle, and that idle is worth
+protecting because it is most of the difference between a warm phone and a hot
+one; a cushion there only has to absorb wobble, so the further ahead the engine
+is the less of one it needs. `lookaheadSeconds()` therefore returns
+`NEURAL_LOOKAHEAD_DEEP` below 1.05×, the full cushion between 1.05× and 1.5×,
+and half of it above.
+
+**The wav cache is FIFO by generation order, deliberately not LRU.** For a
+reader going forwards, insertion order is exactly "furthest behind first",
+which is the right thing to drop. Refreshing an entry on a cache hit inverted
+that: playing a group moved it to the newest end, leaving the group *about to
+play* as the oldest entry and therefore first evicted. A shallow queue never
+reached the bound; a deep one evicts the next clip and stalls inside audio that
+had already been generated.
 
 **The first group after a tap gets its own caps** (`FAST_START_CAPS`): one
 sentence, because nothing is generated behind it and its whole length is a wait

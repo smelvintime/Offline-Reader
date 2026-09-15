@@ -978,6 +978,12 @@ file absent (or a browser with neither `speechSynthesis` nor `Worker`,
 in which case the module leaves `window.NovelVoice` undefined), the reader
 renders no Listen button and behaves exactly as before.
 
+The floating transport is temporary chrome. While narration is playing it
+retires after three seconds without interaction; paused controls and an open
+voice sheet remain visible. A centre/prose tap recalls the transport and the
+reader header/footer together, so the bottom page rail never needs a second
+tap. Hidden controls are also `inert` and `aria-hidden`, not merely transparent.
+
 **Two narrators, named rather than ranked.** The iPhone's own voice
 (`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
 immediately and costs nothing to run. The natural voice sounds better and has to

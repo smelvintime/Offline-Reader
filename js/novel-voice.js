@@ -168,6 +168,7 @@
   // "Preparing voice…" only appears when the wait is real. Cache hits and
   // fast generations stay visually seamless instead of strobing the bar.
   const PREPARING_DELAY_MS = 350;
+  const BAR_AUTO_HIDE_MS = 3000;
 
   // After this many consecutive per-sentence engine failures we stop instead
   // of narrating silence sentence by sentence.
@@ -904,6 +905,7 @@
   // The last error a sheet control threw while syncing. See syncSheet().
   let syncError = '';
   let sheetOpen = false;
+  let barHideTimer = 0;
   const sheetSync = [];    // fn() → refresh a control from prefs/session
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2125,6 +2127,7 @@
     if (!state.bridge) return;
     if (state.playing) return;
     state.playing = true;
+    revealControls();
     state.errors = 0;
     // Whatever is about to be spoken, someone is waiting on it right now.
     state.fastStart = true;
@@ -2208,6 +2211,9 @@
   function pause() {
     if (!state.playing) return;
     state.playing = false;
+    clearTimeout(barHideTimer);
+    barHideTimer = 0;
+    setBarHidden(false);
     guardClear();    // we are demonstrably alive — no crash to guard against
     cancelSpeech();
     const s = currentSentence();
@@ -2220,6 +2226,44 @@
 
   function togglePlay() { state.playing ? pause() : play(); }
 
+  function setBarHidden(hidden) {
+    if (!dom.bar || dom.bar.hidden) return;
+    const on = !!hidden;
+    dom.bar.classList.toggle('vc-bar-hidden', on);
+    if (on) {
+      dom.bar.setAttribute('aria-hidden', 'true');
+      dom.bar.inert = true;
+      const active = document.activeElement;
+      if (active && dom.bar.contains(active) && typeof active.blur === 'function') active.blur();
+    } else {
+      dom.bar.removeAttribute('aria-hidden');
+      dom.bar.inert = false;
+    }
+  }
+
+  function scheduleBarHide() {
+    clearTimeout(barHideTimer);
+    barHideTimer = 0;
+    if (!state.active || !state.playing || sheetOpen || !dom.bar || dom.bar.hidden) return;
+    barHideTimer = setTimeout(function () {
+      barHideTimer = 0;
+      if (state.active && state.playing && !sheetOpen) setBarHidden(true);
+    }, BAR_AUTO_HIDE_MS);
+  }
+
+  /**
+   * Bring an idle transport back without stealing the tap from the book.
+   * Returns whether it was hidden so the reader can restore its own chrome on
+   * the same gesture instead of making the page rail need a second tap.
+   */
+  function revealControls() {
+    if (!state.active || !dom.bar || dom.bar.hidden) return false;
+    const wasHidden = dom.bar.classList.contains('vc-bar-hidden');
+    setBarHidden(false);
+    scheduleBarHide();
+    return wasHidden;
+  }
+
   function startSession() {
     if (state.active) { openSheet(); return; }
     state.active = true;
@@ -2228,6 +2272,7 @@
     ensureDom();
     seedFromReader();
     dom.bar.hidden = false;
+    revealControls();
     updateBar();
     updateListenBtn();
     // Crash-loop breaker: a fresh guard flag means the last narration attempt
@@ -2262,6 +2307,8 @@
 
   function stopSession() {
     if (!state.active) return;
+    clearTimeout(barHideTimer);
+    barHideTimer = 0;
     state.playing = false;
     state.active = false;
     guardClear();    // a clean stop is proof of life, same as pause
@@ -2271,7 +2318,10 @@
     // while the settings sheet was up, yanking the sheet away also yanks the
     // error message the reader needs. The sheet has its own X and scrim; the
     // reader-close and new-book paths close it explicitly.
-    if (dom.bar) dom.bar.hidden = true;
+    if (dom.bar) {
+      setBarHidden(false);
+      dom.bar.hidden = true;
+    }
     state.sentences = [];
     state.index = 0;
     state.chapterId = null;
@@ -2408,6 +2458,7 @@
     status.appendChild(statusLine);
 
     bar.append(voiceBtn, prevBtn, playBtn, nextBtn, closeBtn, status);
+    bar.addEventListener('click', function () { revealControls(); });
 
     voiceBtn.addEventListener('click', function () { sheetOpen ? closeSheet() : openSheet(); });
     prevBtn.addEventListener('click', function () { skip(-1); });
@@ -3080,6 +3131,9 @@
   // slide, and `inert` is what actually removes it from the tab order.
   function openSheet() {
     if (!dom.sheet) return;
+    clearTimeout(barHideTimer);
+    barHideTimer = 0;
+    setBarHidden(false);
     // One sheet at a time: ours replaces the reader's Aa sheet rather than
     // stacking on it (both dock right on wide viewports).
     if (state.bridge && state.bridge.closeSettingsSheet) {
@@ -3124,6 +3178,7 @@
     if (state.bridge && state.bridge.syncBackdrop) {
       try { state.bridge.syncBackdrop(); } catch (e) {}
     }
+    scheduleBarHide();
   }
 
   /**
@@ -3170,6 +3225,9 @@
 
     isActive: function () { return !!state.active; },
 
+    /** A centre/prose tap uses this to recall an idle transport. */
+    revealControls: revealControls,
+
     /** novel-reader closes our sheet when its own settings sheet opens —
         the mirror of the closeSettingsSheet call we make through the bridge. */
     closeSheet: function () { closeSheet(); },
@@ -3207,6 +3265,9 @@
       prebufferTargetSeconds: prebufferTargetSeconds,
       bufferedAhead: bufferedAhead,
       NEURAL_PREBUFFER_MAX_SEC: NEURAL_PREBUFFER_MAX_SEC,
+      BAR_AUTO_HIDE_MS: BAR_AUTO_HIDE_MS,
+      hideControls: function () { setBarHidden(true); },
+      scheduleBarHide: scheduleBarHide,
       highlighter: highlighter,
       FAST_START_CAPS: FAST_START_CAPS,
       prefetchNeural: prefetchNeural,

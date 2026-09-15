@@ -2642,7 +2642,11 @@
     // Tap zones (paged). The zones sit above the prose only in paged mode.
     on(dom.zPrev, 'click', function () { if (!swallowClick()) prevPage(); });
     on(dom.zNext, 'click', function () { if (!swallowClick()) nextPage(); });
-    on(dom.zMid,  'click', function () { if (!swallowClick()) toggleChrome(); });
+    on(dom.zMid,  'click', function () {
+      if (swallowClick()) return;
+      if (revealVoiceControls()) toggleChrome(false);
+      else toggleChrome();
+    });
 
     // Tapping the prose in the scroll modes toggles chrome, but only when it is
     // really a tap: not a text selection, not a control, not a link.
@@ -2651,7 +2655,8 @@
       if (e.target.closest('button, a, input, select, textarea')) return;
       const sel = window.getSelection && window.getSelection();
       if (sel && String(sel).length > 0) return;
-      toggleChrome();
+      if (revealVoiceControls()) toggleChrome(false);
+      else toggleChrome();
     });
 
     on(dom.back, 'click', function () { api.close(); });
@@ -3018,6 +3023,17 @@
         window.NovelVoice.readerEvent(kind, info || null, voiceBridge());
       }
     } catch (e) { /* narration is an accessory, reading is the product */ }
+  }
+
+  // A narration transport that retired after its idle delay gets first claim
+  // on a centre/prose tap. Restore the reader chrome with it so the quiet page
+  // rail and the voice controls never require two separate taps to recall.
+  function revealVoiceControls() {
+    try {
+      return !!(window.NovelVoice
+        && typeof window.NovelVoice.revealControls === 'function'
+        && window.NovelVoice.revealControls());
+    } catch (e) { return false; }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

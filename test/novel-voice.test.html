@@ -432,6 +432,45 @@ const T = {
     return { name: 'listen button', pass };
   },
 
+  async testTransportAutoHide() {
+    let pass = true;
+    await freshOpen();
+    V().toggle();
+    await waitFor(() => V().state().playing, 1500, 'narration starts');
+
+    const bar = document.querySelector('#novel-screen .vc-bar');
+    const root = document.getElementById('novel-screen');
+    pass = ok(!!bar && !bar.classList.contains('vc-bar-hidden'),
+      'transport starts visible') && pass;
+
+    // The harness speaks ten milliseconds of silence per clip, so its whole
+    // tiny chapter finishes before a human-scale idle delay. Hold the UI in
+    // the playing state after cancelling that synthetic audio, then exercise
+    // the real timer rather than weakening the production delay for a test.
+    VT().pause();
+    VT().state.playing = true;
+    VT().scheduleBarHide();
+
+    await pause(VT().BAR_AUTO_HIDE_MS + 150);
+    pass = ok(bar.classList.contains('vc-bar-hidden') && bar.getAttribute('aria-hidden') === 'true',
+      'playing transport retires after the idle delay') && pass;
+
+    root.classList.add('nv-chrome-hidden');
+    document.querySelector('#novel-screen .nv-zone-mid').click();
+    await pause(30);
+    pass = ok(!bar.classList.contains('vc-bar-hidden') && !bar.hasAttribute('aria-hidden'),
+      'a centre tap recalls the transport') && pass;
+    pass = ok(!root.classList.contains('nv-chrome-hidden'),
+      'the same tap recalls the reader chrome and page rail') && pass;
+
+    VT().hideControls();
+    VT().pause();
+    pass = ok(!bar.classList.contains('vc-bar-hidden'),
+      'paused controls stay visible') && pass;
+    endSession();
+    return { name: 'transport auto-hide', pass };
+  },
+
   async testPlayback() {
     let pass = true;
     await freshOpen();
@@ -2019,7 +2058,7 @@ const T = {
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
-      T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
+      T.testListenButton, T.testTransportAutoHide, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
       T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,

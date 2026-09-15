@@ -24,10 +24,10 @@
 }
 
 /* ── Listen bar ────────────────────────────────────────────────────────────
-   A floating transport dock, centred above the reader's footer. It does NOT
-   ride the chrome away: pause must stay reachable while the prose has the
-   screen — it only drops to the footer's vacated slot. z-index sits above
-   header/footer (30) and below the scrim (40), so sheets cover it. */
+   A floating transport dock, centred above the reader's footer. During
+   playback it retires after a short idle delay, then returns with the reader
+   chrome on the next centre/prose tap. Paused controls stay put. z-index sits
+   above header/footer (30) and below the scrim (40), so sheets cover it. */
 
 #novel-screen .vc-bar {
   position: absolute;
@@ -43,13 +43,24 @@
   border: 1px solid var(--nv-border);
   border-radius: 999px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-  transition: bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.22s ease,
+              transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 #novel-screen.nv-chrome-hidden .vc-bar {
   bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
 }
+#novel-screen .vc-bar.vc-bar-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, calc(100% + 1rem));
+}
 #novel-screen .vc-bar[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #novel-screen .vc-bar { transition: none; }
+}
 
 #novel-screen .vc-btn {
   min-width: 40px; min-height: 40px;

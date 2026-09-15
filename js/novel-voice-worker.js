@@ -10,14 +10,16 @@
 //
 // Protocol (all messages are plain objects with a `type`):
 //   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[],
-//                        heapPages:number[] }
+//                        heapPages:number[], native:boolean }
 //   in:  { type:'generate', id, text, voice }
 //   in:  { type:'cancel' }                  — drop everything not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'stage', stage:string }     — where init has got to
 //   out: { type:'note', stage, message }    — something escaped; NOT a verdict
 //   out: { type:'progress', file, loaded, total }   — model download
-//   out: { type:'ready', heapPages } | { type:'init-error', message }
+//   out: { type:'ready', heapPages, native } | { type:'init-error', message }
+//   out: { type:'infer', id, ids, style, speed }   — native forward pass
+//   in:  { type:'infer-result', id, pcm } | { type:'infer-error', id, message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds, ms, chars }  (wav transferred)
 //   out: { type:'error', id, message }
 //
@@ -222,6 +224,71 @@ async function haveLocalWeights(model) {
   } catch (e) { return false; }
 }
 
+// ── Native inference, when the app can do it ─────────────────────────────────
+//
+// A worker cannot reach a Capacitor plugin, so the call goes out to the main
+// thread and comes back. That round trip costs a millisecond against an
+// inference measured in seconds, which is the whole reason this is worth doing.
+let nativeSeq = 0;
+const nativePending = new Map();
+
+function nativeInfer(ids, style, speed) {
+  return new Promise(function (resolve, reject) {
+    const id = ++nativeSeq;
+    nativePending.set(id, { resolve: resolve, reject: reject });
+    post({ type: 'infer', id: id, ids: ids, style: style, speed: speed });
+  });
+}
+
+function settleNative(msg) {
+  const p = nativePending.get(msg.id);
+  if (!p) return;
+  nativePending.delete(msg.id);
+  if (msg.type === 'infer-result') p.resolve(msg);
+  else p.reject(new Error(msg.message || 'native inference failed'));
+}
+
+/** base64 little-endian Int16 → Float32Array in [-1, 1]. */
+function pcmFromBase64(b64) {
+  const bin = atob(b64);
+  const n = bin.length >> 1;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const lo = bin.charCodeAt(i * 2);
+    const hi = bin.charCodeAt(i * 2 + 1);
+    let v = (hi << 8) | lo;
+    if (v >= 0x8000) v -= 0x10000;
+    out[i] = v / 32768;
+  }
+  return out;
+}
+
+/**
+ * Point the engine's forward pass at the native plugin.
+ *
+ * `tts.model` is a plain property the engine calls as
+ * `const { waveform } = await this.model({ input_ids, style, speed })`, which
+ * makes it the one seam worth taking: everything before it — phonemisation,
+ * tokenisation, the voice style slice, the text splitter — stays exactly as the
+ * vendored code wrote it, and only the tensor maths moves.
+ *
+ * Returns false when nothing was swapped, so the caller can say plainly that
+ * this session is running the slow path.
+ */
+function useNativeModel(tts) {
+  if (!tts || typeof tts.model !== 'function') return false;
+  tts.model = async function (inputs) {
+    // input_ids arrives as int64, so its data is a BigInt64Array; the bridge
+    // carries numbers. Phoneme ids are small — nothing is lost narrowing them.
+    const ids = Array.prototype.map.call(inputs.input_ids.data, Number);
+    const style = Array.prototype.slice.call(inputs.style.data);
+    const speed = Number(inputs.speed.data[0]) || 1;
+    const res = await nativeInfer(ids, style, speed);
+    return { waveform: { data: pcmFromBase64(res.pcm) } };
+  };
+  return true;
+}
+
 async function init(msg) {
   try {
     const heapGranted = capWasmMemory(
@@ -269,7 +336,12 @@ async function init(msg) {
     });
     // Says which rung the reservation actually landed on, so the reader-facing
     // engine line reports what the engine got rather than what it asked for.
-    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0 });
+    // Native inference if the app offers it, wasm if it does not. Announced
+    // either way: "which engine am I actually hearing" is the first question
+    // when a voice is too slow, and it should never need a rebuild to answer.
+    const native = msg.native ? useNativeModel(tts) : false;
+    mark(native ? 'ready (native inference)' : 'ready (wasm inference)');
+    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0, native: native });
     pump();
   } catch (e) {
     // Name the step. "init failed" sends someone back to the logs; "at
@@ -347,6 +419,7 @@ self.onmessage = function (ev) {
     pump();
     return;
   }
+  if (msg.type === 'infer-result' || msg.type === 'infer-error') { settleNative(msg); return; }
   if (msg.type === 'cancel') {
     // The job mid-generate cannot be aborted (ONNX Runtime runs to
     // completion); its result is discarded by id on the main thread.

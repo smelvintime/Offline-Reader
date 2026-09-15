@@ -230,11 +230,14 @@
   /**
    * One line, safe to show a reader, describing what was found.
    *
-   * Every field here was added because its absence cost a rebuild. `native`
-   * and `weights` in particular: a screenshot once showed "Download voice
+   * Every field here was added because its absence cost a rebuild. `app` and
+   * `weights` in particular: a screenshot once showed "Download voice
    * (~90 MB)" on a native build, which syncNeuralStatus only renders on the
    * WEB branch, while the line reported no weights failure at all. Those two
    * facts cannot both be true, and neither one alone said which was lying.
+   *
+   * `app` rather than `native` because `inference` is also native or not, and
+   * a line carrying the same word for two unrelated things answers neither.
    */
   function neuralCapabilityLine() {
     const c = neuralCapability();
@@ -245,10 +248,13 @@
     return 'engine check — shared wasm heap: '
       + (c.sharedMemory ? Math.round(c.heapPages / 16) + ' MB' : 'NONE')
       + ' · SharedArrayBuffer: ' + (c.sab ? 'yes' : 'no')
-      + ' · native: ' + (isNativeApp() ? 'yes' : 'NO')
+      + ' · app: ' + (isNativeApp() ? 'native' : 'web')
       + ' · ' + weights
       + (neuralEngine.stage ? ' · stage: ' + neuralEngine.stage : '')
       + (neuralEngine.note ? ' · note: ' + neuralEngine.note : '')
+      + ' · inference: ' + (neuralEngine.native
+          ? 'native' + (neuralEngine.provider ? '/' + neuralEngine.provider : '')
+          : 'wasm')
       + (neuralEngine.speed
           ? ' · last group: ' + neuralEngine.speed.chars + ' chars, '
             + (neuralEngine.speed.ms / 1000).toFixed(1) + 's compute for '
@@ -364,6 +370,19 @@
     const stored = prefGet(PREF.narrator, null);
     if (NARRATORS.indexOf(stored) !== -1) return stored;
     return systemSpeech().available() ? 'iphone' : 'natural';
+  }
+
+  /** Platform.kokoro, or a web-shaped stand-in so callers need no guards. */
+  function nativeKokoro() {
+    try {
+      if (window.Platform && window.Platform.kokoro) return window.Platform.kokoro;
+    } catch (e) { /* fall through */ }
+    return {
+      available: function () { return false; },
+      probe: function () { return Promise.resolve(null); },
+      infer: function () { return Promise.resolve(null); },
+      release: function () { return Promise.resolve(); },
+    };
   }
 
   /** Platform.speech, or a web-shaped stand-in so callers need no guards. */
@@ -973,6 +992,8 @@
     stage: '',             // the worker's last announced init step
     note: '',              // something the worker saw escape; diagnostic only
     speed: null,           // { ms, seconds, chars, ratio } for the last group
+    native: false,         // true once a load proved the forward pass is native
+    provider: '',          // 'coreml' | 'cpu', as the plugin reported it
     device: null,          // device the live worker was initialised with
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
@@ -1047,6 +1068,19 @@
           if (!settled) bump();
           if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
           else if (m.type === 'stage') { self.stage = m.stage; if (self.onprogress) self.onprogress(m); }
+          // The worker cannot reach a Capacitor plugin, so its forward pass
+          // comes here and goes back. One bridge hop against an inference
+          // measured in seconds.
+          else if (m.type === 'infer') {
+            nativeKokoro().infer(m.ids, m.style, m.speed).then(function (r) {
+              if (!r || !r.pcm) throw new Error('native inference returned nothing');
+              self.provider = r.provider || '';
+              w.postMessage({ type: 'infer-result', id: m.id, pcm: r.pcm });
+            }).catch(function (e) {
+              w.postMessage({ type: 'infer-error', id: m.id,
+                              message: (e && e.message) || 'native inference failed' });
+            });
+          }
           // Recorded, never acted on. See the worker's note() for why an
           // escaped rejection is not allowed to end a session that is working.
           else if (m.type === 'note') { self.note = m.message + ' (during ' + m.stage + ')'; }
@@ -1054,6 +1088,7 @@
             // The worker's realm is the one that had to succeed, so its number
             // supersedes the main thread's guess in the line a reader reads.
             if (m.heapPages) noteHeapPages(m.heapPages);
+            self.native = !!m.native;
             self.stage = '';       // init is over; the step it ended on is stale
             finish(null);
             if (self.onprogress) self.onprogress({ type: 'ready' });
@@ -1072,6 +1107,9 @@
           // copies in the bundle. Only the voices this app offers — the pack
           // has fifty-odd and nobody is served by shipping the rest.
           voices: NEURAL_VOICES.map(function (v) { return v.id; }),
+          // Whether to swap the forward pass for the native plugin. Asked here
+          // rather than in the worker because a worker cannot see Capacitor.
+          native: nativeKokoro().available(),
           // The reservations to try, biggest first. The probe already walked
           // this list on the main thread; the worker walks it again because a
           // worker is a separate JS realm with its own address space, and the
@@ -1191,6 +1229,8 @@
       this.device = null;
       this.stage = '';       // no worker, no step it is on
       this.note = '';
+      this.native = false;
+      this.provider = '';
       const self = this;
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();
@@ -2642,6 +2682,7 @@
       neuralCapability: neuralCapability,
       resetCapability: function () { neuralCapabilityCache = null; },
       neuralCapabilityLine: neuralCapabilityLine,
+      nativeKokoro: nativeKokoro,
       rankSystemVoices: rankSystemVoices,
       systemVoiceHint: systemVoiceHint,
       setSystemVoices: function (list) { state.systemVoices = list; },

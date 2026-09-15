@@ -380,6 +380,62 @@
     },
   };
 
+  // ── Kokoro's forward pass, natively (ARCHITECTURE §2.14) ──────────────────
+  //
+  // The model was never the problem. Kokoro-82M at q8 is 88 MB and already
+  // ships in the bundle; a bigger one would be slower, not faster. What was
+  // slow is where it ran — WebAssembly, single-threaded, inside a WebView.
+  // Apple's own voices are the same class of thing executed as native ARM
+  // code, which is most of why theirs sound effortless and ours did not.
+  //
+  // So this facade changes the execution path and nothing else. Phonemisation,
+  // tokenisation, voice styles and the sentence queue stay in JS exactly as
+  // they are (js/novel-voice-worker.js swaps only the engine's `model`
+  // property). Same weights, same voices.
+
+  const kokoro = {
+    available: function () { return !!plugin('OrKokoro'); },
+
+    /**
+     * → Promise<{ available, provider, loaded }|null>.
+     *
+     * `available: false` from a present plugin means the build shipped no
+     * weights — a different problem from the plugin missing, with a different
+     * fix, so it gets a different answer rather than a shared falsy one.
+     */
+    probe: function () {
+      const OrKokoro = plugin('OrKokoro');
+      if (!OrKokoro) return Promise.resolve(null);
+      return OrKokoro.available().catch(function () { return null; });
+    },
+
+    /**
+     * One forward pass. `ids` are phoneme tokens, `style` the 256-float voice
+     * vector, `speed` a multiplier. Resolves { pcm, sampleRate, provider, ms }
+     * where pcm is base64 little-endian Int16.
+     *
+     * Int16 rather than float32 because the app encodes a 16-bit WAV from this
+     * anyway; sending floats would double the bridge traffic to be truncated
+     * at the other end.
+     */
+    infer: function (ids, style, speed) {
+      const OrKokoro = plugin('OrKokoro');
+      if (!OrKokoro) return Promise.resolve(null);
+      return OrKokoro.infer({
+        ids: ids,
+        style: style,
+        speed: typeof speed === 'number' ? speed : 1,
+      });
+    },
+
+    release: function () {
+      const OrKokoro = plugin('OrKokoro');
+      if (!OrKokoro) return Promise.resolve();
+      try { return OrKokoro.release().catch(function () {}); }
+      catch (e) { return Promise.resolve(); }
+    },
+  };
+
   // ── Native file picking (PLAN.md §6.1) ────────────────────────────────────
 
   // The picker dependency is chosen (capacitor-scaffold) for two properties
@@ -1061,6 +1117,7 @@
     notify: notify,
 
     speech: speech,
+    kokoro: kokoro,
     pickFiles: pickFiles,
     readPickedFile: readPickedFile,
 

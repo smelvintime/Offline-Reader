@@ -36,6 +36,7 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testNativeInference().then(T.report)">native inference</button>
   <button onclick="T.testSystemNarrator().then(T.report)">system narrator</button>
   <button onclick="T.testCompactVoiceHint().then(T.report)">compact hint</button>
   <button onclick="T.testEscapedErrorIsNotFatal().then(T.report)">escaped error</button>
@@ -846,6 +847,87 @@ const T = {
     return { name: 'compact voice hint', pass };
   },
 
+  // Kokoro's forward pass, run natively.
+  //
+  // The model was never the problem — 88 MB of weights already ship, and a
+  // bigger one would be slower. What was slow is where it ran. This proves the
+  // swap happens, that the audio survives the bridge, and that a build without
+  // the plugin is untouched.
+  async testNativeInference() {
+    let pass = true;
+    const T = VT();
+    const ne = T.neuralEngine;
+    const held = window.Platform ? window.Platform.kokoro : undefined;
+    try {
+      // The exact encoding the Swift produces: clamped, rounded, little-endian
+      // Int16, base64. If these two ever disagree the voice comes back as noise.
+      const encode = function (floats) {
+        let bin = '';
+        for (let i = 0; i < floats.length; i++) {
+          const c = Math.max(-1, Math.min(1, floats[i]));
+          let v = Math.round(c * 32767);
+          if (v < 0) v += 0x10000;
+          bin += String.fromCharCode(v & 0xff, (v >> 8) & 0xff);
+        }
+        return btoa(bin);
+      };
+      const source = [0, 1, -1, 0.5, -0.5, 0.123456, 2, -2];
+      const asked = [];
+      window.Platform = window.Platform || {};
+      window.Platform.kokoro = {
+        available: function () { return true; },
+        probe: function () { return Promise.resolve({ available: true, provider: 'coreml' }); },
+        infer: function (ids, style, speed) {
+          asked.push({ ids: ids, style: style, speed: speed });
+          return Promise.resolve({ pcm: encode(source), sampleRate: 24000,
+                                   provider: 'coreml', ms: 42 });
+        },
+        release: function () { return Promise.resolve(); },
+      };
+
+      pass = ok(T.nativeKokoro().available() === true,
+        'the reader sees the native plugin when it is installed') && pass;
+
+      // The decoder the worker uses, mirrored here. Clipping must clamp, and
+      // the error must sit at one 16-bit step, not somewhere worse.
+      const decode = function (b64) {
+        const bin = atob(b64);
+        const n = bin.length >> 1;
+        const out = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+          let v = (bin.charCodeAt(i * 2 + 1) << 8) | bin.charCodeAt(i * 2);
+          if (v >= 0x8000) v -= 0x10000;
+          out[i] = v / 32768;
+        }
+        return out;
+      };
+      const back = decode(encode(source));
+      let worst = 0;
+      for (let i = 0; i < source.length; i++) {
+        worst = Math.max(worst, Math.abs(Math.max(-1, Math.min(1, source[i])) - back[i]));
+      }
+      pass = ok(worst < 1 / 16384, 'audio survives the bridge within one 16-bit step',
+        'max error ' + worst.toExponential(2)) && pass;
+      pass = ok(Math.abs(back[6] - back[1]) < 1e-6 && Math.abs(back[7] - back[2]) < 1e-6,
+        'and samples past full scale clamp rather than wrapping',
+        back[6].toFixed(5) + ' / ' + back[7].toFixed(5)) && pass;
+
+      // The engine line has to name which one ran. "Why is this slow" should
+      // never need a rebuild to answer.
+      ne.native = true; ne.provider = 'coreml';
+      pass = ok(T.neuralCapabilityLine().indexOf('inference: native/coreml') !== -1,
+        'the line says the forward pass went native', T.neuralCapabilityLine()) && pass;
+      ne.native = false; ne.provider = '';
+      pass = ok(T.neuralCapabilityLine().indexOf('inference: wasm') !== -1,
+        'and says wasm when it did not', T.neuralCapabilityLine()) && pass;
+    } finally {
+      if (held === undefined) { try { delete window.Platform.kokoro; } catch (e) {} }
+      else window.Platform.kokoro = held;
+      ne.native = false; ne.provider = '';
+    }
+    return { name: 'native inference', pass };
+  },
+
   // A background rejection is not a verdict on the session.
   //
   // An earlier version posted 'init-error' from the worker's global error and
@@ -912,13 +994,18 @@ const T = {
     pass = ok(cap.heapPages >= 4096, 'the granted heap is recorded in pages', 'heapPages=' + cap.heapPages) && pass;
     // The line a reader sees names all three facts, so a screenshot is a bug report.
     const line = T.neuralCapabilityLine();
-    for (const bit of ['shared wasm heap', 'SharedArrayBuffer', 'native:', 'weights']) {
+    for (const bit of ['shared wasm heap', 'SharedArrayBuffer', 'app:', 'weights']) {
       pass = ok(line.indexOf(bit) !== -1, 'the readable line names ' + bit, line) && pass;
     }
     // The screenshot that cost a rebuild showed a web-only download button on a
     // native build, with nothing in the line to say which of the two was wrong.
-    pass = ok(line.indexOf('native: NO') !== -1,
+    pass = ok(line.indexOf('app: web') !== -1,
       'the line says whether the app thinks it is native', line) && pass;
+    // Two different things were both called "native" here: whether this is the
+    // native app, and whether the forward pass runs natively. One word for two
+    // unrelated facts answers neither question.
+    pass = ok(line.indexOf('inference:') !== -1 && line.indexOf('app:') !== -1,
+      'and keeps the app and the inference as separate questions', line) && pass;
     // Stated, not inherited: this asserts the state-to-text mapping, and an
     // earlier suite's leftovers are not the state under test.
     const ne0 = T.neuralEngine;
@@ -1368,7 +1455,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

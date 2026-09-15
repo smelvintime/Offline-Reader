@@ -239,6 +239,15 @@ window.__done = (async function main() {
   catch (e) { speechThrew = true; }
   assert(!speechThrew, 'speech stop/pause/resume resolve without throwing on web');
 
+  // ── Kokoro's forward pass, natively (§2.14) ───────────────────────────────
+  assertEq(P.kokoro.available(), false, 'kokoro.available() is false on web');
+  assertEq(await P.kokoro.probe(), null, 'kokoro.probe() resolves null on web');
+  assertEq(await P.kokoro.infer([1, 2], [0.5], 1), null,
+    'kokoro.infer resolves null on web (expected condition, no rejection)');
+  let kokoroThrew = false;
+  try { await P.kokoro.release(); } catch (e) { kokoroThrew = true; }
+  assert(!kokoroThrew, 'kokoro.release() resolves without throwing on web');
+
   // ── Behavioral guarantees ─────────────────────────────────────────────────
   // The bridge never registers a service worker; on this harness page nothing
   // else does either, so any registration would be the bridge's doing.

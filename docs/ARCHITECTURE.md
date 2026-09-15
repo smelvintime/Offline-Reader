@@ -1016,9 +1016,40 @@ shrink groups on a slow device, so a group-counted cushion gets shorter exactly
 where it needs to get longer. And the generation ratio is measured at speed 1
 while the reader drains the audio at their chosen rate, so it is compared
 against `ratio / rate` — a 1.34× engine is a 0.67× one to a reader at 2×.
-`prefetchNeural` fills the queue to `NEURAL_LOOKAHEAD_SEC` of playback and a
+`prefetchNeural` fills the queue to `lookaheadSeconds()` of playback and a
 timer tops it up mid-clip, because a boundary-only top-up leaves the queue
 unattended for precisely the window there was spare capacity to generate in.
+
+**How deep that queue goes depends on whether the device can get ahead at all.**
+Below break-even a cushion is unreachable by definition: there is no spare
+capacity to fill it with, so chasing one holds the CPU at a hundred per cent for
+the chapter, heats the phone, and gets throttled for its trouble — which makes
+the generation it was trying to outrun slower still. `lookaheadSeconds()`
+returns the full target above 1.5×, half of it above 1.05×, and zero below,
+where zero means `NEURAL_LOOKAHEAD_MIN`: generate the next group, and stop.
+
+**The first group after a tap gets its own caps** (`FAST_START_CAPS`): one
+sentence, because nothing is generated behind it and its whole length is a wait
+someone is sitting through. The lookahead behind it keeps the real caps, so
+nothing rendered during that wait is keyed to boundaries that stop existing
+when the caps go back to normal.
+
+**Clips are trimmed of Kokoro's padding at generation.** Every clip comes back
+with near-silence at each end; played back to back that is two paddings nose to
+tail at every group boundary, which is the seam a reader hears as a breath and
+which no amount of buffering touches. Trimmed in the worker rather than at
+playback, so the cache, the duration the lookahead plans with, and the sound all
+agree on how long a clip is.
+
+**The highlight is a range on the web and a block in the app.** The Custom
+Highlight API paints into the same tiles as the text, and the native WebView
+does not reliably invalidate those tiles when the registry entry is replaced: in
+a columnated, hyphenated reader it leaves the previous ranges lit where they
+were, so a reader sees several disconnected patches at once, some ahead of the
+voice. The range itself is correct — `apply` clears before it sets, and a
+`Highlight` holds one range — the paint is stale. A class on the block
+invalidates the way every other background does, so `highlighter.rangeOk()`
+picks the precise range only where it repaints.
 
 **One neural engine, by design.** Narration is Kokoro-82M through the vendored
 `vendor/tts/kokoro.web.js` (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a

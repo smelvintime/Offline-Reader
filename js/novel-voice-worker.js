@@ -364,6 +364,30 @@ async function init(msg) {
   }
 }
 
+// Kokoro pads. Every clip comes back with a stretch of near-silence at each
+// end — inaudible by itself, and the reason a group boundary sounds like a
+// breath rather than a join: two clips played back to back is two paddings
+// nose to tail, on top of whatever the element swap costs. At a group every
+// few seconds that is the most audible seam in the whole chapter, and no
+// amount of buffering touches it, because the silence IS the audio.
+//
+// Trimmed here rather than at playback so that the cache, the duration the
+// lookahead plans with and the sound all agree on how long a clip is.
+const TRIM_FLOOR = 0.003;    // below this is padding, not speech
+const TRIM_KEEP_MS = 20;     // left at each end so nothing is clipped short
+
+function trimSilence(f32, sampleRate) {
+  let a = 0;
+  let b = f32.length;
+  while (a < b && Math.abs(f32[a]) < TRIM_FLOOR) a++;
+  while (b > a && Math.abs(f32[b - 1]) < TRIM_FLOOR) b--;
+  if (b <= a) return f32;    // all padding: not ours to second-guess
+  const keep = Math.round((TRIM_KEEP_MS / 1000) * sampleRate);
+  a = Math.max(0, a - keep);
+  b = Math.min(f32.length, b + keep);
+  return (a === 0 && b === f32.length) ? f32 : f32.subarray(a, b);
+}
+
 // Float32 PCM → 16-bit WAV. Same encoder as the main thread's, duplicated
 // because a worker cannot import a classic script and 30 lines is cheaper
 // than restructuring the module for sharing.
@@ -404,8 +428,8 @@ async function pump() {
     const t0 = (self.performance || Date).now();
     try {
       const audio = await tts.generate(job.text, { voice: job.voice, speed: 1 });
-      const pcm = audio.audio || audio.data;
       const rate = audio.sampling_rate || 24000;
+      const pcm = trimSilence(audio.audio || audio.data, rate);
       const wav = encodeWav(pcm, rate);
       post({ type: 'audio', id: job.id, wav: wav, seconds: pcm.length / rate,
              ms: Math.round((self.performance || Date).now() - t0),

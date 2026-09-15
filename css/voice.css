@@ -94,15 +94,22 @@
    Same construction as the reader's settings sheet, including the [hidden]
    slide and the ≥720px right dock. */
 
+/* Above the reader's settings sheet (scrim 40, sheet 50), below its toast (60).
+   Both sheets used to sit at exactly 40 and 50, so when they were ever open at
+   once — the JS keeps them apart, but only by cooperating flags — which one
+   won was decided by DOM insertion order. Worse, the voice sheet's own scrim
+   was then BELOW the reader's sheet, so tapping outside the voice sheet could
+   not dismiss it and the reader was stuck with a sheet they could not close.
+   Distinct layers make the stacking a decision rather than an accident. */
 #novel-screen .vc-scrim {
-  position: absolute; inset: 0; z-index: 40;
+  position: absolute; inset: 0; z-index: 55;
   background: rgba(0, 0, 0, 0.5);
   transition: opacity 0.28s ease;
 }
 #novel-screen .vc-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
 
 #novel-screen .vc-sheet {
-  position: absolute; z-index: 50;
+  position: absolute; z-index: 56;
   left: 0; right: 0; bottom: 0;
   max-height: 86%;
   display: flex; flex-direction: column;

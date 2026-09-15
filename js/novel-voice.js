@@ -845,33 +845,105 @@
   // .play() — from an onended chain or a worker callback — inherits that.
   // ─────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Playback for generated clips, double-buffered.
+   *
+   * One <audio> element reused for every clip is why the voice took a breath
+   * between groups. Assigning `src` runs the media load algorithm — fetch,
+   * parse, decode, buffer — and every millisecond of that happens AFTER the
+   * previous clip has already gone silent. At roughly three sentences per
+   * group that is a gasp every three sentences, for a whole chapter.
+   *
+   * So there are two elements. While one plays, the next clip is loaded into
+   * the other and left primed. When the current one ends, the spare is already
+   * decoded and `play()` is the only thing left to do, which is an event-loop
+   * hop rather than a media load.
+   *
+   * Still <audio> rather than Web Audio: these elements are what keeps
+   * narration alive with the screen off and wired to the lock-screen
+   * transport. Sample-accurate scheduling would be smoother still and would
+   * put all of that at risk, which is a bad trade for a reader on a train.
+   */
   const channel = {
-    audio: null,
+    pool: [],              // two elements, alternating
+    slot: 0,
     onended: null,
-    url: null,             // blob URL to revoke when replaced
+    primed: null,          // url sitting decoded in the spare
+    revokeUrl: null,
 
     ensure: function () {
-      if (this.audio) return this.audio;
-      const a = new Audio();
-      a.preload = 'auto';
-      try { a.preservesPitch = true; } catch (e) {}
+      if (this.pool.length) return this.pool[this.slot];
       const self = this;
-      a.addEventListener('ended', function () {
-        const fn = self.onended;
-        if (fn) fn();
-      });
-      this.audio = a;
-      return a;
+      for (let i = 0; i < 2; i++) {
+        const a = new Audio();
+        a.preload = 'auto';
+        try { a.preservesPitch = true; } catch (e) {}
+        a.addEventListener('ended', function () {
+          // Only the element actually playing ends a clip. The spare can fire
+          // this too — it is primed with real audio and a stray play() or a
+          // torn-down session would otherwise advance the reader twice.
+          if (self.pool[self.slot] !== a) return;
+          const fn = self.onended;
+          if (fn) fn();
+        });
+        this.pool.push(a);
+      }
+      return this.pool[this.slot];
+    },
+
+    /** The element actually playing. Callers should not index the pool. */
+    current: function () { return this.pool[this.slot] || null; },
+
+    /**
+     * iOS blesses ELEMENTS, not the page: audio may only start from a user
+     * gesture, and that permission attaches to the element it was granted on.
+     * Two elements means two blessings, and missing the second one shows up
+     * as every other clip refusing to play.
+     */
+    bless: function (silentUrl) {
+      this.ensure();
+      for (let i = 0; i < this.pool.length; i++) {
+        const a = this.pool[i];
+        try {
+          a.src = silentUrl;
+          const p = a.play();
+          if (p && p.catch) p.catch(function () {});
+        } catch (e) { /* the gesture may already be spent; the other may take */ }
+      }
+    },
+
+    /** Load the next clip into the spare so its decode is already paid for. */
+    prime: function (url) {
+      if (!url || this.primed === url) return;
+      this.ensure();
+      const spare = this.pool[1 - this.slot];
+      try {
+        spare.src = url;
+        spare.load();
+        this.primed = url;
+      } catch (e) { this.primed = null; }
     },
 
     // Swap in a source and play. Returns the play() promise (may reject on
     // autoplay policy; callers decide whether that is fatal).
     play: function (url, opts) {
-      const a = this.ensure();
+      this.ensure();
       const o = opts || {};
       this.onended = o.onended || null;
-      if (this.url && this.url !== url) { try { URL.revokeObjectURL(this.url); } catch (e) {} }
-      this.url = o.revoke ? url : null;
+
+      // The spare already holds this clip, decoded. Taking it is the whole
+      // reason for keeping two elements.
+      if (this.primed === url && this.pool[1 - this.slot].src === url) {
+        try { this.pool[this.slot].pause(); } catch (e) {}
+        this.slot = 1 - this.slot;
+        this.primed = null;
+      }
+
+      const a = this.pool[this.slot];
+      if (this.revokeUrl && this.revokeUrl !== url) {
+        try { URL.revokeObjectURL(this.revokeUrl); } catch (e) {}
+      }
+      this.revokeUrl = o.revoke ? url : null;
       a.loop = !!o.loop;
       if (a.src !== url) a.src = url;
       else a.currentTime = 0;
@@ -887,15 +959,26 @@
       return p && typeof p.catch === 'function' ? p : Promise.resolve();
     },
 
-    setRate: function (rate) { if (this.audio) this.audio.playbackRate = rate; },
+    setRate: function (rate) {
+      for (let i = 0; i < this.pool.length; i++) {
+        // Both, so a primed clip does not start at last chapter's speed.
+        this.pool[i].defaultPlaybackRate = rate;
+        this.pool[i].playbackRate = rate;
+      }
+    },
 
     stop: function () {
       this.onended = null;
-      if (this.audio) {
-        try { this.audio.pause(); } catch (e) {}
-        try { this.audio.removeAttribute('src'); this.audio.load(); } catch (e) {}
+      this.primed = null;
+      for (let i = 0; i < this.pool.length; i++) {
+        const a = this.pool[i];
+        try { a.pause(); } catch (e) {}
+        try { a.removeAttribute('src'); a.load(); } catch (e) {}
       }
-      if (this.url) { try { URL.revokeObjectURL(this.url); } catch (e) {} this.url = null; }
+      if (this.revokeUrl) {
+        try { URL.revokeObjectURL(this.revokeUrl); } catch (e) {}
+        this.revokeUrl = null;
+      }
     },
   };
 
@@ -1560,6 +1643,7 @@
         if (token !== state.speakToken || !state.playing) return;
         setPreparing(false);
         prefetchNeural(group);
+        primeNextClip(group);
         return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
           // Autoplay refusal — the chain lost its blessing (e.g. after a long
           // background stall). Pausing is honest; a tap resumes it.
@@ -1586,10 +1670,29 @@
       const key = neuralKey(state.chapterId, g);
       if (!neuralEngine.wavCache.has(key)) {
         neuralEngine.generate(key, normalizeForSpeech(g.text, 'neural'), state.prefs.neuralVoice)
+          // Generated is not the same as ready to play. The clip still has to
+          // be decoded, and paying for that while the current one plays is the
+          // difference between a seam and a breath.
+          .then(function () { primeNextClip(currentGroup); })
           .catch(function () { /* the on-cursor attempt will retry and report */ });
       }
       from = g.to + 1;
     }
+  }
+
+  /**
+   * Load the clip after this one into the spare audio element.
+   *
+   * Only the immediate next group: priming further ahead would just overwrite
+   * itself, since there is one spare and the one that matters is the one about
+   * to play.
+   */
+  function primeNextClip(currentGroup) {
+    if (!currentGroup) return;
+    const g = neuralGroupAt(currentGroup.to + 1);
+    if (!g) return;
+    const url = neuralEngine.wavCache.get(neuralKey(state.chapterId, g));
+    if (url) channel.prime(url);
   }
 
   function advance(delta) {
@@ -1693,7 +1796,7 @@
     if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
 
     // First user gesture: bless the audio element while we still have it.
-    channel.play(silentWavUrl(), {}).catch(function () {});
+    channel.bless(silentWavUrl());
 
     ensureEngineThenSpeak();
     mediaSessionWire();
@@ -2609,8 +2712,19 @@
     if (first) { try { first.focus({ preventScroll: true }); } catch (e) {} }
   }
 
+  /**
+   * Closes when EITHER the flag or the DOM says open.
+   *
+   * `if (!sheetOpen) return` trusted a boolean to describe the screen. The two
+   * sheets keep out of each other's way by calling each other's close, so one
+   * stale flag anywhere leaves a sheet on screen that nothing will take off
+   * again — which is exactly "both settings popped up and I can't close the
+   * voice one". Hiding something already hidden costs nothing; refusing to
+   * hide something visible costs the reader their app.
+   */
   function closeSheet() {
-    if (!sheetOpen || !dom.sheet) return;
+    if (!dom.sheet) return;
+    if (!sheetOpen && dom.sheet.hidden) return;
     sheetOpen = false;
     dom.sheet.hidden = true;
     dom.sheet.inert = true;
@@ -2675,6 +2789,7 @@
       readPrefs: readPrefs,
       neuralEngine: neuralEngine,
       channel: channel,
+      forceSheetFlag: function (v) { sheetOpen = !!v; },
       skip: skip,
       pause: pause,
       resume: resume,
@@ -2683,6 +2798,8 @@
       resetCapability: function () { neuralCapabilityCache = null; },
       neuralCapabilityLine: neuralCapabilityLine,
       nativeKokoro: nativeKokoro,
+      channel: channel,
+      silentWavUrl: silentWavUrl,
       rankSystemVoices: rankSystemVoices,
       systemVoiceHint: systemVoiceHint,
       setSystemVoices: function (list) { state.systemVoices = list; },

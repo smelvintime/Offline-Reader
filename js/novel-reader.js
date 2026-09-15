@@ -1172,8 +1172,13 @@
     if (first) first.focus();
   }
 
+  /**
+   * Closes when EITHER the flag or the DOM says open. The voice sheet (§2.14)
+   * calls this to get out of its way, so a stale flag here strands a settings
+   * sheet on screen behind one that is trying to replace it.
+   */
   function closeSheet() {
-    if (!sheetOpen) return;
+    if (!sheetOpen && (!dom.sheet || dom.sheet.hidden)) return;
     sheetOpen = false;
     dom.scrim.hidden = true;
     dom.sheet.hidden = true;

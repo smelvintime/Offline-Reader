@@ -168,6 +168,7 @@ js/platform.js      window.Platform  (the ONLY Capacitor module) — agent: plat
 js/store.js         window.Store                              — owned by integrator
 js/covers.js        window.Covers    (pure SVG cover generator, no screen) — agent: catalogue
 jszip.min.js
+js/image-zoom.js    window.ImageZoom (scoped manga/manhwa pinch + pan)
 js/reader.js        image reader (CBZ + online image chapters) — pre-existing
 js/novel-voice.js   window.NovelVoice (optional — reader voice, §2.14) — agent: novel-voice
 js/novel-reader.js  window.NovelReader                        — agent: novel-reader
@@ -615,6 +616,14 @@ key-gate (settings re-applies the theme only for `app.*`/null keys; goals
 itself short-circuits `goals.lifetime` to a cheap adopt).
 
 ### 2.6 reader.js — image reader amendments
+
+**Zoom belongs to a page, never the application viewport.** `index.html`
+disables browser page scaling so rapid control taps cannot enlarge the whole
+shell. `js/image-zoom.js` restores magnification only for `.comic-page`: a
+two-pointer pinch or double tap transforms that page inside its wrapper, and a
+one-pointer drag pans it while magnified. Returning to scale 1 restores native
+vertical scrolling. The controller resets before reader teardown so transformed
+images cannot retain a composited layer or gesture capture across chapters.
 
 reader.js keeps its historical shape (classic script, NO IIFE, NO
 `'use strict'`; its file-scope globals are the API catalogue.js pokes) — the

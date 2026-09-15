@@ -27,6 +27,12 @@
     min-height: 100vh;
   }
 
+  /* The app viewport is fixed. Rapid taps are controls, not an invitation to
+     zoom the whole WebView; the image reader supplies its own scoped zoom. */
+  button, a, [role='button'], input, select, textarea {
+    touch-action: manipulation;
+  }
+
   /* ── Upload Screen ── */
   #upload-screen {
     display: flex;
@@ -197,9 +203,10 @@
   #reader-pages {
     width: 100%;
     background: var(--bg);
-    /* PLAN7 §2.11-C: vertical pan + pinch only — no horizontal pan gestures
-       for the page column to start, so nothing competes with edge-swipes. */
-    touch-action: pan-y pinch-zoom;
+    /* The application viewport never pinches. At scale 1 the page column owns
+       only vertical scrolling; image-zoom.js claims gestures after magnifying
+       one page, without moving the header, footer or surrounding application. */
+    touch-action: pan-y;
   }
 
   .reader-decor {
@@ -236,6 +243,12 @@
     display: block;
     position: relative;
     aspect-ratio: 2 / 3;
+    overflow: hidden;
+    touch-action: pan-y;
+    contain: paint;
+  }
+  .page-wrapper.image-zoomed {
+    touch-action: none;
   }
 
   .comic-page {
@@ -245,6 +258,12 @@
     object-fit: contain;
     margin: 0;
     padding: 0;
+    -webkit-user-drag: none;
+    user-select: none;
+    transition: transform 160ms ease-out;
+  }
+  .image-zoom-active .comic-page {
+    transition: none;
   }
   .comic-page.placeholder {
     background: #080808;

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -227,12 +227,13 @@
   </div>
 
   <!-- Load order is part of the contract — see docs/ARCHITECTURE.md §2:
-       config → platform → store → covers → jszip → reader → novel-reader →
+       config → platform → store → covers → jszip → image-zoom → reader → novel-reader →
        importer → goals → thoughts → sources → settings → catalogue. platform
        sits before store because it is the only file allowed to touch
        Capacitor and everything after it may probe window.Platform at parse
        time; covers is dependency-free (no screen, no registerScreen) so it
-       loads before the readers; then the image reader, the feature modules,
+       loads before the readers; image-zoom supplies the image reader's scoped
+       gestures; then the image reader, the feature modules,
        and the catalogue, which boots the app. -->
   <script src="./js/config.js"></script>
   <script src="./js/platform.js"></script>
@@ -240,6 +241,7 @@
   <script src="./js/identity.js"></script>
   <script src="./js/covers.js"></script>
   <script src="./jszip.min.js"></script>
+  <script src="./js/image-zoom.js"></script>
   <script src="./js/reader.js"></script>
   <!-- novel-reader, importer, goals, thoughts, sources and settings each
        register their own screen, so they must load after reader.js (which

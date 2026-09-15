@@ -36,6 +36,7 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testSheetsNeverStack().then(T.report)">sheets</button>
   <button onclick="T.testGaplessPlayback().then(T.report)">gapless</button>
   <button onclick="T.testNativeInference().then(T.report)">native inference</button>
   <button onclick="T.testSystemNarrator().then(T.report)">system narrator</button>
@@ -850,6 +851,70 @@ const T = {
     return { name: 'compact voice hint', pass };
   },
 
+  // Two settings sheets must never be on screen at once, and a sheet must
+  // always be closable.
+  //
+  // Reported from a phone: pressing the reader's Aa button put both sheets up
+  // and the voice one could not be dismissed. Two things made that possible.
+  // Both sheets sat at exactly the same z-index (scrim 40, sheet 50), so which
+  // won was DOM insertion order and the voice scrim landed BELOW the reader's
+  // sheet — tapping outside it could not dismiss it. And each close() trusted
+  // a boolean rather than the screen, so one stale flag stranded a sheet that
+  // nothing would take down again.
+  async testSheetsNeverStack() {
+    let pass = true;
+    const V_ = V(), T = VT();
+    try {
+      await freshOpen();
+      V_.toggle();                       // listen bar up
+      await pause(250);
+
+      const voiceSheet = document.querySelector('.vc-sheet');
+      const voiceScrim = document.querySelector('.vc-scrim');
+      const readerSheet = document.querySelector('#novel-screen .nv-sheet');
+      const readerScrim = document.querySelector('#novel-screen .nv-scrim');
+      pass = ok(!!(voiceSheet && voiceScrim && readerSheet), 'both sheets exist to compare') && pass;
+
+      // The layering is a decision now, not DOM order.
+      const z = function (n) { return parseInt(getComputedStyle(n).zIndex, 10); };
+      pass = ok(z(voiceSheet) > z(readerSheet),
+        'the voice sheet sits above the reader sheet',
+        z(voiceSheet) + ' vs ' + z(readerSheet)) && pass;
+      if (readerScrim) {
+        pass = ok(z(voiceScrim) > z(readerSheet),
+          'and its scrim covers the reader sheet, so tapping away dismisses it',
+          z(voiceScrim) + ' vs ' + z(readerSheet)) && pass;
+      }
+      pass = ok(z(voiceScrim) < z(voiceSheet),
+        'while staying under its own sheet', z(voiceScrim) + ' vs ' + z(voiceSheet)) && pass;
+
+      // Opening one closes the other, in both orders.
+      const aa = document.querySelector('#novel-screen [aria-label*="ettings"]');
+      const vb = document.querySelector('.vc-bar [aria-label="Voice settings"]');
+      pass = ok(!!(aa && vb), 'both buttons are reachable') && pass;
+
+      vb.click(); await pause(300);
+      pass = ok(!voiceSheet.hidden, 'voice opens') && pass;
+      aa.click(); await pause(350);
+      pass = ok(voiceSheet.hidden && !readerSheet.hidden,
+        'pressing Aa replaces the voice sheet rather than stacking on it') && pass;
+      vb.click(); await pause(350);
+      pass = ok(!voiceSheet.hidden && readerSheet.hidden,
+        'and pressing Voice replaces the Aa sheet the same way') && pass;
+
+      // The condition that stranded a sheet: the flag says closed, the screen
+      // says open. Closing has to believe the screen.
+      T.forceSheetFlag(false);
+      V_.closeSheet();
+      pass = ok(voiceSheet.hidden,
+        'a stale "already closed" flag cannot strand a visible sheet') && pass;
+      endSession();
+    } finally {
+      endSession();
+    }
+    return { name: 'sheets never stack', pass };
+  },
+
   // Gapless playback across group boundaries.
   //
   // One <audio> element reused for every clip meant every group boundary ran
@@ -1527,7 +1592,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

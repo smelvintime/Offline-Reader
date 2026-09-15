@@ -2712,8 +2712,19 @@
     if (first) { try { first.focus({ preventScroll: true }); } catch (e) {} }
   }
 
+  /**
+   * Closes when EITHER the flag or the DOM says open.
+   *
+   * `if (!sheetOpen) return` trusted a boolean to describe the screen. The two
+   * sheets keep out of each other's way by calling each other's close, so one
+   * stale flag anywhere leaves a sheet on screen that nothing will take off
+   * again — which is exactly "both settings popped up and I can't close the
+   * voice one". Hiding something already hidden costs nothing; refusing to
+   * hide something visible costs the reader their app.
+   */
   function closeSheet() {
-    if (!sheetOpen || !dom.sheet) return;
+    if (!dom.sheet) return;
+    if (!sheetOpen && dom.sheet.hidden) return;
     sheetOpen = false;
     dom.sheet.hidden = true;
     dom.sheet.inert = true;
@@ -2778,6 +2789,7 @@
       readPrefs: readPrefs,
       neuralEngine: neuralEngine,
       channel: channel,
+      forceSheetFlag: function (v) { sheetOpen = !!v; },
       skip: skip,
       pause: pause,
       resume: resume,

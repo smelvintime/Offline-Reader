@@ -369,7 +369,28 @@ const T = {
 
     // Light-novel typography (§2.14): shapes an engine chokes on rather than
     // stylistic choices it can interpret.
-    pass = ok(n('Wait…… what?', 'neural') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'neural')) && pass;
+    pass = ok(n('Wait…… what?', 'device') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'device')) && pass;
+
+    // An ellipsis is a beat the model does not take on its own. "…" reaches the
+    // tokens intact -- it is in kokoro-js's punctuation set and the model's
+    // vocabulary -- it just carries almost no learned duration, being rare in
+    // read-speech corpora. A comma carries the most certain duration there is,
+    // so the pair keeps the ellipsis and borrows the comma's pause.
+    pass = ok(n('Wait…… what?', 'neural') === 'Wait…, what?',
+      'neural: an ellipsis mid-sentence borrows a comma for its beat',
+      n('Wait…… what?', 'neural')) && pass;
+    pass = ok(n('He stopped…', 'neural') === 'He stopped…',
+      'but a sentence ending on one is left alone: the stop is already there',
+      n('He stopped…', 'neural')) && pass;
+    pass = ok(n('Well… “no.”', 'neural') === 'Well…, “no.”',
+      'a quotation counts as something starting, so the beat lands before it',
+      n('Well… “no.”', 'neural')) && pass;
+    pass = ok(n('Wait…?', 'neural') === 'Wait…?',
+      'and no comma is ever wedged into the middle of a run of punctuation',
+      n('Wait…?', 'neural')) && pass;
+    pass = ok(n('Wait… what?', 'device') === 'Wait… what?',
+      'the device engine is untouched: this is a Kokoro duration, not a reading',
+      n('Wait… what?', 'device')) && pass;
     pass = ok(n('Well...... no', 'device') === 'Well… no', 'a run of dots is one ellipsis too', n('Well...... no', 'device')) && pass;
     pass = ok(n('He said――then stopped', 'neural') === 'He said—then stopped', 'a dash RUN becomes one em dash', n('He said――then stopped', 'neural')) && pass;
     pass = ok(n('He said――then stopped', 'device') === 'He said, then stopped', 'device turns the same run into a pause') && pass;
@@ -904,6 +925,45 @@ const T = {
       pass = ok(!voiceSheet.hidden && readerSheet.hidden,
         'and pressing Voice replaces the Aa sheet the same way') && pass;
 
+      // ── the dead screen ─────────────────────────────────────────────────
+      //
+      // Reported from a phone and never reproduced here: with narration
+      // running, one tap on Aa put BOTH sheets up and left nothing that
+      // answered a tap. Static analysis says one tap cannot open both, so the
+      // trigger is still unknown — which is the reason to stop defending the
+      // trigger and defend the OUTCOME. The reader's sheet makes the header
+      // inert and the voice sheet layers above it, so between them they can
+      // take every control off the screen; these force that state directly and
+      // require the app to climb out of it.
+      const header = document.querySelector('#novel-screen .nv-header')
+        || document.querySelector('#novel-screen header');
+      const inert = function () { return !!(header && header.inert); };
+
+      voiceSheet.hidden = false; readerSheet.hidden = false;
+      aa.click(); await pause(300);
+      pass = ok(voiceSheet.hidden && !readerSheet.hidden,
+        'Aa sweeps a stranded voice sheet rather than stacking under it') && pass;
+
+      T.forceSheetFlag(false);                  // and now every flag lies
+      voiceSheet.hidden = false; readerSheet.hidden = false;
+      vb.click(); await pause(300);
+      pass = ok(!voiceSheet.hidden && readerSheet.hidden,
+        'and Voice recovers even when both flags disagree with the screen') && pass;
+
+      V_.closeSheet(); await pause(150);
+      if (readerScrim) { readerScrim.click(); await pause(150); }
+      pass = ok(voiceSheet.hidden && readerSheet.hidden,
+        'closing everything leaves nothing on screen') && pass;
+      pass = ok(!inert(),
+        'and the header answers taps again: an inert backdrop outliving the '
+        + 'sheet that asked for it is the whole of "the screen will not move"') && pass;
+
+      // The reader makes the backdrop inert for its own sheet, and must not
+      // still be doing it while the voice sheet is the one on screen.
+      vb.click(); await pause(250);
+      pass = ok(!inert(), 'the voice sheet never leaves the header inert') && pass;
+      V_.closeSheet(); await pause(150);
+
       // The condition that stranded a sheet: the flag says closed, the screen
       // says open. Closing has to believe the screen.
       T.forceSheetFlag(false);
@@ -1161,16 +1221,36 @@ const T = {
     // Memoised — WebAssembly.Memory allocation is not free to repeat.
     pass = ok(T.neuralCapability() === cap, 'the probe is memoised') && pass;
 
-    // The line is on screen whatever the verdict. Shown only on failure, its
-    // absence meant both "the engine is fine" and "this build is old", and
-    // telling those apart cost a round trip every time.
+    // The line exists in the sheet but shows only when something is wrong.
+    //
+    // It used to be on screen whatever the verdict, because its absence was
+    // ambiguous — "the engine is fine" and "this build predates the check"
+    // looked identical, and telling them apart cost a round trip. That was
+    // worth a wall of numbers over a settings panel while the engine was
+    // failing every other run. It is not worth it on a build that works, and
+    // the numbers are only ever read in the case where this still appears.
     await freshOpen();
     V().toggle();
     await pause(300);
     const panelLine = document.querySelector('.vc-sheet .vc-engine-line');
-    pass = ok(!!panelLine, 'the sheet carries an engine line even when all is well') && pass;
-    pass = ok(panelLine && panelLine.textContent.indexOf('engine check') === 0,
-      'and it reads as the capability line', panelLine && panelLine.textContent) && pass;
+    pass = ok(!!panelLine, 'the sheet still carries an engine line') && pass;
+    pass = ok(panelLine && panelLine.hidden,
+      'hidden while the engine is healthy: a reader listening to a book is not '
+      + 'reading heap sizes', panelLine && panelLine.textContent) && pass;
+
+    // …and back the moment there is something to diagnose.
+    const heldErr = VT().state.neuralError;
+    try {
+      VT().state.neuralError = 'forced for the test';
+      V().openSheet ? V().openSheet() : document.querySelector('.vc-bar [aria-label="Voice settings"]').click();
+      await pause(250);
+      pass = ok(!panelLine.hidden, 'and shown again as soon as something fails') && pass;
+      pass = ok(panelLine.textContent.indexOf('engine check') === 0,
+        'still reading as the capability line, with every field it ever had',
+        panelLine.textContent) && pass;
+    } finally {
+      VT().state.neuralError = heldErr;
+    }
     endSession();
 
     // WebKit's answer, which is the one the native app gets: shared memory is

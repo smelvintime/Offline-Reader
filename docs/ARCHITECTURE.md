@@ -1069,6 +1069,18 @@ which no amount of buffering touches. Trimmed in the worker rather than at
 playback, so the cache, the duration the lookahead plans with, and the sound all
 agree on how long a clip is.
 
+**Neither sheet trusts the other to have closed.** The reader's Aa sheet and the
+voice sheet keep out of each other's way by calling each other's close, which
+makes single-sheet-at-a-time a promise across two modules. When that promise is
+not kept the result is the worst state in the app: the reader's sheet makes the
+header and viewport inert, the voice sheet layers above it, and between them
+every control is off the screen. So each `openSheet` now also sweeps the other's
+elements hidden by class — the check that does not depend on the other module
+answering — and the backdrop's inertness is *derived* from whether the reader's
+sheet is actually visible (`syncBackdropInert`) rather than set and unset in
+pairs that only balance if every path is matched. An inert backdrop outliving
+the sheet that asked for it is the whole of "the screen will not move".
+
 **The highlight is a range on the web and a block in the app.** The Custom
 Highlight API paints into the same tiles as the text, and the native WebView
 does not reliably invalidate those tiles when the registry entry is replaced: in

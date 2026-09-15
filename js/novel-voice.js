@@ -817,6 +817,20 @@
       // one em dash — the shape the model was trained on. "―――" is not a
       // punctuation mark it has ever seen.
       s = s.replace(DASH_RUN, '—');
+      // An ellipsis is a beat, and Kokoro does not take one for it.
+      //
+      // Not because the character is lost: "…" is in kokoro-js's punctuation
+      // set and in the model's own vocabulary, so it survives all the way to
+      // the tokens. It simply carries almost no learned duration, being rare
+      // in the read-speech corpora the model was trained on. A comma is the
+      // opposite — the most common pause mark there is, with a duration the
+      // model is certain about. Pairing them keeps whatever shape the ellipsis
+      // has and borrows the comma's beat.
+      //
+      // Only before something that starts a word or a quote, so a sentence
+      // ending on an ellipsis is left alone and no run of punctuation gets a
+      // comma wedged into the middle of it.
+      s = s.replace(/…(?=\s*[A-Za-z0-9“"‘'(])/g, '…,');
     }
     return s.trim();
   }
@@ -2429,25 +2443,24 @@
     // unreadable: a gap because the engine is grinding and a gap because it
     // died look the same. The last group's cost says which, in the place a
     // reader is already staring at while waiting.
-    // Which weights ran and how far ahead of the reader they are, in the one
-    // place a reader photographs. The full engine line has carried the margin
-    // for a while and has never once made it into a screenshot; this is the
-    // text someone is already staring at while they wait, and the two numbers
-    // decide everything about what to do next.
-    const sp = neuralEngine.speed;
-    const tag = (neuralEngine.nativeWeights ? neuralEngine.nativeWeights + ' · ' : '')
-      + (neuralMargin() ? neuralMargin().toFixed(2) + '× ahead' : 'measuring');
-    // A percentage, because "preparing" with no end in sight is the thing a
-    // reader gives up on. This one has an end and can be watched approaching it.
+    // The bar says what a reader can act on, and nothing else.
+    //
+    // The passage counter, the dtype and the margin were instrumentation. They
+    // earned their place when a stutter had to be diagnosable from a
+    // photograph, and they did that job — the margin is what finally settled
+    // that this was arithmetic rather than scheduling. But the job is done,
+    // and what is left is three numbers moving on a page someone is trying to
+    // listen to. The engine line still carries all of it, on the one screen
+    // where it is wanted: a build that is failing.
+    //
+    // The percentage stays. "Preparing" with no end in sight is the thing a
+    // reader gives up on; this one has an end and can be watched approaching it.
     const pb = state.prebuffer;
     dom.statusLine.textContent = pb
-      ? 'Buffering chapter… ' + Math.min(99, Math.round((pb.got / pb.target) * 100)) + '%  ·  ' + tag
-      : state.preparing
-        ? (sp
-            ? 'Preparing voice… (' + tag + ', last: ' + (sp.ms / 1000).toFixed(1) + 's for '
-              + sp.seconds.toFixed(1) + 's of speech)'
-            : 'Preparing voice…')
-        : (n ? at + ' / ' + n + (sp ? '  ·  ' + tag : '') : 'Nothing to read');
+      ? 'Buffering chapter… ' + Math.min(99, Math.round((pb.got / pb.target) * 100)) + '%'
+      : state.preparing ? 'Preparing voice…'
+      : n ? ''
+      : 'Nothing to read';
   }
 
   // The Listen button in the reader header mirrors whether a session is up.
@@ -2600,11 +2613,17 @@
 
     const natStatus = el('div', 'vc-nat-status');
     const natText = el('div', 'vc-hint');
-    // Always on screen, whatever the verdict. Shown only on failure, its
-    // absence meant two different things — "the engine is fine" and "this
-    // build predates the check" — and telling those apart cost a round trip
-    // every time. A line that is always there answers both at a glance.
+    // Shown only when something is actually wrong.
+    //
+    // It was always on screen for a while, because its absence used to be
+    // ambiguous: "the engine is fine" and "this build predates the check"
+    // looked identical, and telling them apart cost a round trip every time.
+    // That ambiguity belonged to a period when the engine failed every other
+    // run. On a build that works it is a wall of numbers over the top of a
+    // settings panel, and the numbers it carries are only ever read when the
+    // voice is misbehaving — which is exactly when this still appears.
     const natEngine = el('div', 'vc-hint vc-engine-line');
+    natEngine.hidden = true;
     const natBar = el('div', 'vc-progress');
     natBar.appendChild(el('i'));
     natBar.hidden = true;
@@ -2698,7 +2717,9 @@
         chips[i].classList.toggle('vc-on', onV);
         chips[i].setAttribute('aria-checked', String(onV));
       }
-      natEngine.textContent = neuralCapabilityLine();
+      const trouble = !neuralCapability().ok || !!state.neuralError;
+      natEngine.hidden = !trouble;
+      natEngine.textContent = trouble ? neuralCapabilityLine() : '';
       syncNeuralStatus(natText, natBar, natAction, removeBtn);
     });
 
@@ -2770,6 +2791,7 @@
       natBar.hidden = true;
       natAction.hidden = true;
       removeBtn.hidden = !state.neuralHave;
+      inAppHasNoFileToManage(natAction, removeBtn);
       return;
     }
     const initInFlight = !!(neuralEngine.readyPromise && !neuralEngine.ready);
@@ -2802,11 +2824,14 @@
       return;
     }
     if (neuralEngine.ready) {
-      natText.textContent = 'Ready — running on this device ('
-        + ')'
-        + (state.neuralBundled ? ', included with the app' : '') + '. Works offline.';
+      // The empty parentheses here used to hold the execution device, removed
+      // when the engine line took that over. Nobody reads their own UI strings.
+      natText.textContent = state.neuralBundled
+        ? 'Ready — included with the app. Works offline.'
+        : 'Ready — running on this device. Works offline.';
       natAction.hidden = true;
-      removeBtn.hidden = false;
+      removeBtn.hidden = !!state.neuralBundled;
+      inAppHasNoFileToManage(natAction, removeBtn);
       return;
     }
     // Not loaded, nothing in flight: answer from the cached probe. The probe
@@ -2843,6 +2868,23 @@
       natAction.textContent = 'Download voice (~90 MB)';
       removeBtn.hidden = true;
     }
+    inAppHasNoFileToManage(natAction, removeBtn);
+  }
+
+  /**
+   * In the app, the weights ARE the app.
+   *
+   * There is nothing to download and nothing to remove that the next launch
+   * would not restore, so both buttons are web-only. Applied as a last pass
+   * over every branch above rather than repeated inside each of them: the
+   * branch that let "Remove download" through was the one where the engine had
+   * already loaded, which is to say the state a reader is actually in, and a
+   * rule stated once cannot be forgotten in a branch added later.
+   */
+  function inAppHasNoFileToManage(natAction, removeBtn) {
+    if (!isNativeApp()) return;
+    natAction.hidden = true;
+    removeBtn.hidden = true;
   }
 
   function downloadNeural() {
@@ -3044,6 +3086,13 @@
     if (state.bridge && state.bridge.closeSettingsSheet) {
       try { state.bridge.closeSettingsSheet(); } catch (e) {}
     }
+    // …and then check the screen rather than trusting that call, which can
+    // fail in ways nothing here can see: no bridge yet, an exception swallowed
+    // above, a flag over there that says closed about a sheet that is not.
+    // Our sheet layers above the reader's and its sheet makes the header
+    // inert, so two of them open at once can between them leave nothing on
+    // screen that answers a tap.
+    hideStrandedReaderSheet();
     sheetOpen = true;
     syncSheet();
     dom.sheet.hidden = false;
@@ -3070,6 +3119,23 @@
     dom.sheet.hidden = true;
     dom.sheet.inert = true;
     dom.scrim.hidden = true;
+    // Whatever the reader made inert to show a sheet of its own has to come
+    // back now that no sheet is up. It derives that from what is visible, so
+    // all this has to do is ask at the right moment.
+    if (state.bridge && state.bridge.syncBackdrop) {
+      try { state.bridge.syncBackdrop(); } catch (e) {}
+    }
+  }
+
+  /**
+   * Hide a reader settings sheet that is still on screen after being asked to
+   * leave. By class, because the point is to be the check that does not depend
+   * on the other module answering; its own close is what restores focus and
+   * the backdrop, and has already been called.
+   */
+  function hideStrandedReaderSheet() {
+    const nodes = document.querySelectorAll('#novel-screen .nv-sheet, #novel-screen .nv-scrim');
+    for (let i = 0; i < nodes.length; i++) nodes[i].hidden = true;
   }
 
   function syncSheet() {

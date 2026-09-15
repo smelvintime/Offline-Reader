@@ -126,6 +126,19 @@ public class OrSpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         utterance.pitchMultiplier = Float(call.getDouble("pitch") ?? 1.0)
         utterance.postUtteranceDelay = call.getDouble("gap") ?? 0
 
+        // Order matters. AVSpeechSynthesizer.speak() QUEUES rather than
+        // replaces, so a second utterance arriving mid-sentence would leave two
+        // in the queue behind a single tracked call. Stopping first empties the
+        // queue and fires didCancel, which settles the previous call — and it
+        // has to happen BEFORE the new call is recorded, or that cancellation
+        // would settle the new one instead of the old.
+        //
+        // The reader never does this: it waits for each promise before asking
+        // for the next sentence. This is for everything that is not the reader
+        // — a preview tapped mid-playback, a double tap, a future caller.
+        if synthesizer.isSpeaking || synthesizer.isPaused {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
         call.keepAlive = true
         delegate?.begin(call: call, utterance: utterance)
         synthesizer.speak(utterance)
@@ -167,6 +180,13 @@ final class SpeechDelegate: NSObject, AVSpeechSynthesizerDelegate {
         super.init()
     }
 
+    /// Records the call to settle when this utterance ends.
+    ///
+    /// The settleAll here is belt and braces: speak() stops the synthesiser
+    /// first, so didCancel has normally already cleared the previous call. It
+    /// stays for the case where the synthesiser was idle but a call somehow
+    /// outlived its utterance, because a pending call that is never settled is
+    /// a reader stuck on a sentence forever.
     func begin(call: CAPPluginCall, utterance: AVSpeechUtterance) {
         settleAll(spoken: false)
         pending = call

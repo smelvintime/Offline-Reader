@@ -432,7 +432,7 @@ const T = {
     return { name: 'listen button', pass };
   },
 
-  async testTransportAutoHide() {
+  async testTransportChromeSync() {
     let pass = true;
     await freshOpen();
     V().toggle();
@@ -443,32 +443,25 @@ const T = {
     pass = ok(!!bar && !bar.classList.contains('vc-bar-hidden'),
       'transport starts visible') && pass;
 
-    // The harness speaks ten milliseconds of silence per clip, so its whole
-    // tiny chapter finishes before a human-scale idle delay. Hold the UI in
-    // the playing state after cancelling that synthetic audio, then exercise
-    // the real timer rather than weakening the production delay for a test.
-    VT().pause();
-    VT().state.playing = true;
-    VT().scheduleBarHide();
-
-    await pause(VT().BAR_AUTO_HIDE_MS + 150);
+    document.querySelector('#novel-screen .nv-zone-mid').click();
+    await pause(30);
+    pass = ok(root.classList.contains('nv-chrome-hidden'),
+      'centre tap dismisses the reader chrome') && pass;
     pass = ok(bar.classList.contains('vc-bar-hidden') && bar.getAttribute('aria-hidden') === 'true',
-      'playing transport retires after the idle delay') && pass;
+      'the same tap dismisses the transport') && pass;
 
-    root.classList.add('nv-chrome-hidden');
     document.querySelector('#novel-screen .nv-zone-mid').click();
     await pause(30);
     pass = ok(!bar.classList.contains('vc-bar-hidden') && !bar.hasAttribute('aria-hidden'),
-      'a centre tap recalls the transport') && pass;
+      'the next tap recalls the transport') && pass;
     pass = ok(!root.classList.contains('nv-chrome-hidden'),
-      'the same tap recalls the reader chrome and page rail') && pass;
+      'with the reader chrome and page rail') && pass;
 
-    VT().hideControls();
-    VT().pause();
+    await pause(3300);
     pass = ok(!bar.classList.contains('vc-bar-hidden'),
-      'paused controls stay visible') && pass;
+      'the transport has no independent early-dismiss timer') && pass;
     endSession();
-    return { name: 'transport auto-hide', pass };
+    return { name: 'transport chrome sync', pass };
   },
 
   async testPlayback() {
@@ -1418,7 +1411,7 @@ const T = {
     const held = {
       speed: ne.speed, generate: ne.generate, worker: ne.worker,
       sentences: st.sentences, chapterId: st.chapterId, rate: st.prefs.rate,
-      fastStart: st.fastStart,
+      fastStart: st.fastStart, groupCaps: st.groupCaps,
     };
     try {
       // ── the margin ──────────────────────────────────────────────────────
@@ -1564,6 +1557,25 @@ const T = {
         normal.to + ' vs ' + fast.to) && pass;
       pass = ok(VT().FAST_START_CAPS.contMax > VT().FAST_START_CAPS.max,
         'and a split sentence is still finished rather than cut at a comma') && pass;
+
+      // Once lookahead has started, its grouping boundaries are a cache
+      // contract. Per-clip timing is noisy; changing tiers after clips are
+      // queued makes playback request different keys and synthesize again.
+      const stable = [
+        { text: 'A'.repeat(50), blockIdx: 0, kind: 'p', start: 0, end: 50 },
+        { text: 'B'.repeat(50), blockIdx: 0, kind: 'p', start: 50, end: 100 },
+        { text: 'C'.repeat(50), blockIdx: 0, kind: 'p', start: 100, end: 150 },
+        { text: 'D'.repeat(50), blockIdx: 0, kind: 'p', start: 150, end: 200 },
+      ];
+      st.sentences = stable;
+      st.groupCaps = { target: 90, max: 160, contMax: 400 };
+      ne.noteSpeed({ ms: 1000, seconds: 3, chars: 60 });
+      const beforeNoise = VT().neuralGroupAt(0);
+      ne.noteSpeed({ ms: 3000, seconds: 1, chars: 20 });
+      const afterNoise = VT().neuralGroupAt(0);
+      pass = ok(beforeNoise.to === 1 && afterNoise.to === 1,
+        'queued group boundaries stay fixed when later timing samples cross tiers',
+        beforeNoise.to + ' / ' + afterNoise.to) && pass;
     } finally {
       ne.speed = held.speed;
       ne.generate = held.generate;
@@ -1572,6 +1584,7 @@ const T = {
       st.chapterId = held.chapterId;
       st.prefs.rate = held.rate;
       st.fastStart = held.fastStart;
+      st.groupCaps = held.groupCaps;
     }
     return { name: 'lookahead buffer', pass };
   },
@@ -1872,7 +1885,9 @@ const T = {
       window.Platform = { memoryClass: function () { return 'high'; } };
       await window.NovelReader.open({ series: SERIES, chapter: SERIES.chapters[0], blocks: CHAPTERS[0].blocks, resume: null });
       await pause(150);
-      pass = ok(warmed >= 1, 'high memory: book open prewarms the downloaded engine', 'warmed=' + warmed) && pass;
+      pass = ok(warmed === 0, 'high memory: initial reader paint is not competing with voice startup') && pass;
+      await pause(VT().PREWARM_DELAY_MS + 500);
+      pass = ok(warmed >= 1, 'high memory: the downloaded engine prewarms after the reader settles', 'warmed=' + warmed) && pass;
     } finally {
       neuralStub.resume();       // hand the engine back to the shared stub
       ne.downloaded = origDownloaded;
@@ -2058,7 +2073,7 @@ const T = {
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
-      T.testListenButton, T.testTransportAutoHide, T.testPlayback, T.testFollow, T.testAutoAdvance,
+      T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
       T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,

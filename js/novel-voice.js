@@ -168,7 +168,7 @@
   // "Preparing voice…" only appears when the wait is real. Cache hits and
   // fast generations stay visually seamless instead of strobing the bar.
   const PREPARING_DELAY_MS = 350;
-  const BAR_AUTO_HIDE_MS = 3000;
+  const PREWARM_DELAY_MS = 1500;
 
   // After this many consecutive per-sentence engine failures we stop instead
   // of narrating silence sentence by sentence.
@@ -892,6 +892,7 @@
     spokeOk: 0,            // utterances completed this session (crash-loop breaker)
 
     group: null,           // neural group currently playing (the pump's cursor)
+    groupCaps: null,       // fixed for a session so queued clip boundaries stay valid
     fastStart: false,      // next neural group is the one someone is waiting on
     prebuffer: null,       // { target, got } while paying a chapter's deficit up front
     utterance: null,       // device engine's in-flight utterance
@@ -905,7 +906,8 @@
   // The last error a sheet control threw while syncing. See syncSheet().
   let syncError = '';
   let sheetOpen = false;
-  let barHideTimer = 0;
+  let prewarmTimer = 0;
+  let prewarmIdle = 0;
   const sheetSync = [];    // fn() → refresh a control from prefs/session
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1869,7 +1871,11 @@
     return { from: from, to: to, blockIdx: first.blockIdx, start: first.start, end: last.end, text: text };
   }
 
-  function neuralGroupAt(from, caps) { return groupSentences(state.sentences, from, caps); }
+  function activeNeuralCaps() { return state.groupCaps || neuralGroupCaps(); }
+
+  function neuralGroupAt(from, caps) {
+    return groupSentences(state.sentences, from, caps || activeNeuralCaps());
+  }
 
   function neuralKey(chapterId, g) {
     return chapterId + ':' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + state.prefs.neuralVoice;
@@ -1931,6 +1937,11 @@
         if (token !== state.speakToken || !state.playing) return;
         const first = state.fastStart;
         state.fastStart = false;     // the wait someone sat through is over
+        // Pin the boundaries used by lookahead and playback. Generation speed
+        // is noisy and is updated for every queued clip. Letting it resize the
+        // groups mid-queue changes their cache keys, so playback misses audio
+        // that is already prepared and starts generating it again.
+        if (!state.groupCaps) state.groupCaps = neuralGroupCaps();
         prefetchNeural(group);
         // Only the group a reader tapped for pays the deficit up front. Every
         // group after it is playing off a buffer that is already built, or off
@@ -2127,7 +2138,7 @@
     if (!state.bridge) return;
     if (state.playing) return;
     state.playing = true;
-    revealControls();
+    syncBarWithReaderChrome();
     state.errors = 0;
     // Whatever is about to be spoken, someone is waiting on it right now.
     state.fastStart = true;
@@ -2211,9 +2222,7 @@
   function pause() {
     if (!state.playing) return;
     state.playing = false;
-    clearTimeout(barHideTimer);
-    barHideTimer = 0;
-    setBarHidden(false);
+    syncBarWithReaderChrome();
     guardClear();    // we are demonstrably alive — no crash to guard against
     cancelSpeech();
     const s = currentSentence();
@@ -2241,27 +2250,10 @@
     }
   }
 
-  function scheduleBarHide() {
-    clearTimeout(barHideTimer);
-    barHideTimer = 0;
-    if (!state.active || !state.playing || sheetOpen || !dom.bar || dom.bar.hidden) return;
-    barHideTimer = setTimeout(function () {
-      barHideTimer = 0;
-      if (state.active && state.playing && !sheetOpen) setBarHidden(true);
-    }, BAR_AUTO_HIDE_MS);
-  }
-
-  /**
-   * Bring an idle transport back without stealing the tap from the book.
-   * Returns whether it was hidden so the reader can restore its own chrome on
-   * the same gesture instead of making the page rail need a second tap.
-   */
-  function revealControls() {
-    if (!state.active || !dom.bar || dom.bar.hidden) return false;
-    const wasHidden = dom.bar.classList.contains('vc-bar-hidden');
-    setBarHidden(false);
-    scheduleBarHide();
-    return wasHidden;
+  function syncBarWithReaderChrome() {
+    if (!dom.bar || dom.bar.hidden) return;
+    const root = dom.bar.closest('#novel-screen');
+    setBarHidden(!!(root && root.classList.contains('nv-chrome-hidden')));
   }
 
   function startSession() {
@@ -2271,8 +2263,9 @@
     state.prefs = readPrefs();
     ensureDom();
     seedFromReader();
+    state.groupCaps = neuralEngine.speed ? neuralGroupCaps() : null;
     dom.bar.hidden = false;
-    revealControls();
+    syncBarWithReaderChrome();
     updateBar();
     updateListenBtn();
     // Crash-loop breaker: a fresh guard flag means the last narration attempt
@@ -2307,8 +2300,6 @@
 
   function stopSession() {
     if (!state.active) return;
-    clearTimeout(barHideTimer);
-    barHideTimer = 0;
     state.playing = false;
     state.active = false;
     guardClear();    // a clean stop is proof of life, same as pause
@@ -2325,6 +2316,7 @@
     state.sentences = [];
     state.index = 0;
     state.chapterId = null;
+    state.groupCaps = null;
     mediaSessionClear();
     // Let the model idle-out rather than die: the weights stay in the browser
     // cache either way, but a warm session skips the whole re-init.
@@ -2368,15 +2360,21 @@
       closeSheet();
       state.bridge = bridge || state.bridge;
       state.prefs = readPrefs();
-      prewarmNeural();
+      scheduleNeuralPrewarm();
       return;
     }
     if (!state.bridge) return;
 
     if (kind === 'close') {
+      cancelNeuralPrewarm();
       stopSession();
       closeSheet();
       state.bridge = null;
+      return;
+    }
+
+    if (kind === 'chrome') {
+      syncBarWithReaderChrome();
       return;
     }
 
@@ -2458,9 +2456,10 @@
     status.appendChild(statusLine);
 
     bar.append(voiceBtn, prevBtn, playBtn, nextBtn, closeBtn, status);
-    bar.addEventListener('click', function () { revealControls(); });
-
-    voiceBtn.addEventListener('click', function () { sheetOpen ? closeSheet() : openSheet(); });
+    voiceBtn.addEventListener('click', function () {
+      if (voiceSheetVisible() && !readerSheetVisible()) closeSheet();
+      else openSheet();
+    });
     prevBtn.addEventListener('click', function () { skip(-1); });
     nextBtn.addEventListener('click', function () { skip(1); });
     playBtn.addEventListener('click', function () { togglePlay(); });
@@ -3062,6 +3061,25 @@
     });
   }
 
+  function cancelNeuralPrewarm() {
+    clearTimeout(prewarmTimer); prewarmTimer = 0;
+    if (prewarmIdle && typeof cancelIdleCallback === 'function') cancelIdleCallback(prewarmIdle);
+    prewarmIdle = 0;
+  }
+
+  // The book gets first claim on the main thread. Starting the worker while
+  // pagination and fonts are settling makes opening a chapter feel like voice
+  // startup even when the reader never presses Listen.
+  function scheduleNeuralPrewarm() {
+    cancelNeuralPrewarm();
+    prewarmTimer = setTimeout(function () {
+      prewarmTimer = 0;
+      const run = function () { prewarmIdle = 0; if (state.bridge) prewarmNeural(); };
+      if (typeof requestIdleCallback === 'function') prewarmIdle = requestIdleCallback(run, { timeout: 3000 });
+      else run();
+    }, PREWARM_DELAY_MS);
+  }
+
 
   function setRate(v) {
     state.prefs.rate = clamp(Math.round(v * 100) / 100, RATE_MIN, RATE_MAX);
@@ -3131,9 +3149,6 @@
   // slide, and `inert` is what actually removes it from the tab order.
   function openSheet() {
     if (!dom.sheet) return;
-    clearTimeout(barHideTimer);
-    barHideTimer = 0;
-    setBarHidden(false);
     // One sheet at a time: ours replaces the reader's Aa sheet rather than
     // stacking on it (both dock right on wide viewports).
     if (state.bridge && state.bridge.closeSettingsSheet) {
@@ -3178,7 +3193,12 @@
     if (state.bridge && state.bridge.syncBackdrop) {
       try { state.bridge.syncBackdrop(); } catch (e) {}
     }
-    scheduleBarHide();
+  }
+
+  function voiceSheetVisible() { return !!(dom.sheet && !dom.sheet.hidden); }
+
+  function readerSheetVisible() {
+    return !!document.querySelector('#novel-screen .nv-sheet:not([hidden])');
   }
 
   /**
@@ -3188,8 +3208,14 @@
    * the backdrop, and has already been called.
    */
   function hideStrandedReaderSheet() {
-    const nodes = document.querySelectorAll('#novel-screen .nv-sheet, #novel-screen .nv-scrim');
-    for (let i = 0; i < nodes.length; i++) nodes[i].hidden = true;
+    const readerSheet = document.querySelector('#novel-screen .nv-sheet');
+    const readerScrim = document.querySelector('#novel-screen .nv-scrim');
+    if (readerSheet) { readerSheet.hidden = true; readerSheet.inert = true; }
+    if (readerScrim) readerScrim.hidden = true;
+    const readerBtn = document.querySelector('#novel-screen [aria-label="Reading settings"]');
+    if (readerBtn) readerBtn.setAttribute('aria-expanded', 'false');
+    document.querySelectorAll('#novel-screen .nv-viewport, #novel-screen .nv-zones, #novel-screen .nv-header, #novel-screen .nv-footer')
+      .forEach(function (node) { node.inert = false; });
   }
 
   function syncSheet() {
@@ -3225,9 +3251,6 @@
 
     isActive: function () { return !!state.active; },
 
-    /** A centre/prose tap uses this to recall an idle transport. */
-    revealControls: revealControls,
-
     /** novel-reader closes our sheet when its own settings sheet opens —
         the mirror of the closeSettingsSheet call we make through the bridge. */
     closeSheet: function () { closeSheet(); },
@@ -3258,6 +3281,8 @@
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,
       neuralGroupCaps: neuralGroupCaps,
+      activeNeuralCaps: activeNeuralCaps,
+      neuralGroupAt: neuralGroupAt,
       neuralMargin: neuralMargin,
       lookaheadSeconds: lookaheadSeconds,
       estimateSeconds: estimateSeconds,
@@ -3265,9 +3290,7 @@
       prebufferTargetSeconds: prebufferTargetSeconds,
       bufferedAhead: bufferedAhead,
       NEURAL_PREBUFFER_MAX_SEC: NEURAL_PREBUFFER_MAX_SEC,
-      BAR_AUTO_HIDE_MS: BAR_AUTO_HIDE_MS,
-      hideControls: function () { setBarHidden(true); },
-      scheduleBarHide: scheduleBarHide,
+      PREWARM_DELAY_MS: PREWARM_DELAY_MS,
       highlighter: highlighter,
       FAST_START_CAPS: FAST_START_CAPS,
       prefetchNeural: prefetchNeural,

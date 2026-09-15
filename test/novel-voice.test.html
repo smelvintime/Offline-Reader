@@ -46,6 +46,7 @@
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
   <button onclick="T.testLookaheadBuffer().then(T.report)">lookahead buffer</button>
   <button onclick="T.testPrebuffer().then(T.report)">prebuffer</button>
+  <button onclick="T.testVoicePanelSyncs().then(T.report)">voice panel</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
@@ -369,28 +370,16 @@ const T = {
 
     // Light-novel typography (§2.14): shapes an engine chokes on rather than
     // stylistic choices it can interpret.
-    pass = ok(n('Wait…… what?', 'device') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'device')) && pass;
-
-    // An ellipsis is a beat the model does not take on its own. "…" reaches the
-    // tokens intact -- it is in kokoro-js's punctuation set and the model's
-    // vocabulary -- it just carries almost no learned duration, being rare in
-    // read-speech corpora. A comma carries the most certain duration there is,
-    // so the pair keeps the ellipsis and borrows the comma's pause.
-    pass = ok(n('Wait…… what?', 'neural') === 'Wait…, what?',
-      'neural: an ellipsis mid-sentence borrows a comma for its beat',
-      n('Wait…… what?', 'neural')) && pass;
-    pass = ok(n('He stopped…', 'neural') === 'He stopped…',
-      'but a sentence ending on one is left alone: the stop is already there',
-      n('He stopped…', 'neural')) && pass;
-    pass = ok(n('Well… “no.”', 'neural') === 'Well…, “no.”',
-      'a quotation counts as something starting, so the beat lands before it',
-      n('Well… “no.”', 'neural')) && pass;
-    pass = ok(n('Wait…?', 'neural') === 'Wait…?',
-      'and no comma is ever wedged into the middle of a run of punctuation',
-      n('Wait…?', 'neural')) && pass;
-    pass = ok(n('Wait… what?', 'device') === 'Wait… what?',
-      'the device engine is untouched: this is a Kokoro duration, not a reading',
-      n('Wait… what?', 'device')) && pass;
+    pass = ok(n('Wait…… what?', 'neural') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'neural')) && pass;
+    // No comma is added after an ellipsis, though it was tried: "…" carries
+    // almost no learned duration where a comma carries the most certain one
+    // there is. The beat landed on some ellipses and not others, because a
+    // comma's duration is itself contextual, and an inconsistent pause reads
+    // as a stumble rather than a breath. Kokoro's own "…" is at least the same
+    // every time.
+    pass = ok(n('Wait… what?', 'neural') === 'Wait… what?',
+      'and nothing is added after one: an uneven beat is worse than none',
+      n('Wait… what?', 'neural')) && pass;
     pass = ok(n('Well...... no', 'device') === 'Well… no', 'a run of dots is one ellipsis too', n('Well...... no', 'device')) && pass;
     pass = ok(n('He said――then stopped', 'neural') === 'He said—then stopped', 'a dash RUN becomes one em dash', n('He said――then stopped', 'neural')) && pass;
     pass = ok(n('He said――then stopped', 'device') === 'He said, then stopped', 'device turns the same run into a pause') && pass;
@@ -1665,6 +1654,71 @@ const T = {
     return { name: 'prebuffer', pass };
   },
 
+  // The natural-voice panel has to actually run.
+  //
+  // It did not, for an unknown number of builds. `removeBtn` was passed to
+  // syncNeuralStatus and never declared anywhere — "Remove download" had been
+  // deleted from the sheet on purpose and its references left behind — so
+  // evaluating the argument threw a ReferenceError before the function was
+  // entered, and syncSheet's per-control catch swallowed it whole. The symptom
+  // was a download button, in an app that ships the weights inside itself,
+  // frozen at the label it was built with. Nothing logged, nothing to report.
+  // Two rounds of correcting that function's branch logic could not have
+  // worked, because no branch was ever reached.
+  //
+  // So these assert the panel SYNCS, not that its logic is right. Every test
+  // here was reading the logic of a function that never ran.
+  async testVoicePanelSyncs() {
+    let pass = true;
+    const heldPlatform = window.Platform;
+    try {
+      await freshOpen();
+      V().toggle();
+      await pause(250);
+      document.querySelector('.vc-bar [aria-label="Voice settings"]').click();
+      await pause(300);
+
+      const natText = document.querySelector('.vc-sheet .vc-nat-status .vc-hint');
+      pass = ok(!!natText, 'the natural-voice panel is in the sheet') && pass;
+      pass = ok(natText && natText.textContent.trim().length > 0,
+        'and it has something to say: an empty panel means its sync threw',
+        JSON.stringify(natText && natText.textContent)) && pass;
+      pass = ok(VT().syncError() === '',
+        'no sheet control threw while syncing', VT().syncError() || 'none') && pass;
+
+      // In the app the weights ARE the app: nothing to download, in any state
+      // syncNeuralStatus can reach. window.Platform is absent from this page,
+      // so isNativeApp() is false here and every native branch in the module
+      // went untested — which is its own reason this survived.
+      window.Platform = Object.assign({}, window.Platform, { isNative: true });
+      const st = VT().state;
+      const held = { bundled: st.neuralBundled, have: st.neuralHave };
+      const combos = [[true, true], [false, true], [false, false], [null, null]];
+      let offered = null;
+      for (let i = 0; i < combos.length; i++) {
+        st.neuralBundled = combos[i][0];
+        st.neuralHave = combos[i][1];
+        VT().syncSheet();
+        await pause(60);
+        const shown = [].slice.call(document.querySelectorAll('.vc-sheet button'))
+          .filter(function (x) { return !x.hidden && /download|remove/i.test(x.textContent); });
+        if (shown.length && !offered) {
+          offered = 'bundled=' + combos[i][0] + ' have=' + combos[i][1] + ' → ' + shown[0].textContent;
+        }
+      }
+      st.neuralBundled = held.bundled;
+      st.neuralHave = held.have;
+      pass = ok(!offered, 'the app never offers to download or remove a file it ships',
+        offered || 'none in any state') && pass;
+      pass = ok(VT().syncError() === '', 'and still nothing threw across all of them',
+        VT().syncError() || 'none') && pass;
+    } finally {
+      window.Platform = heldPlatform;
+      endSession();
+    }
+    return { name: 'voice panel', pass };
+  },
+
   // Weights shipped inside the app: the phone must never be told to download
   // something it already has, and the probe has to work over the custom URL
   // scheme the native shell serves from.
@@ -1968,7 +2022,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

@@ -2669,7 +2669,15 @@
         if (window.NovelVoice && typeof window.NovelVoice.toggle === 'function') window.NovelVoice.toggle();
       });
     }
-    on(dom.scrim, 'click', function () { closeSheet(); });
+    on(dom.scrim, 'click', function () {
+      closeSheet();
+      // Tapping the backdrop is the gesture people reach for when a sheet will
+      // not go away, so it clears BOTH. The stacking that strands them has not
+      // been reproduced, which is exactly why the escape has to work without
+      // knowing what caused it.
+      hideStrandedVoiceSheet();
+      syncBackdropInert();
+    });
     on(dom.prevCh, 'click', function () { goChapter(-1, 'start'); });
     on(dom.nextCh, 'click', function () { goChapter(1, 'start'); });
 

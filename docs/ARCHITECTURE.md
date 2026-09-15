@@ -1069,6 +1069,22 @@ which no amount of buffering touches. Trimmed in the worker rather than at
 playback, so the cache, the duration the lookahead plans with, and the sound all
 agree on how long a clip is.
 
+**A control that throws while syncing is recorded, not swallowed.** `syncSheet`
+wraps each control so one stale entry cannot break the rest, and for an unknown
+number of builds that catch hid a `ReferenceError`: `removeBtn` was passed to
+`syncNeuralStatus` and never declared, because "Remove download" had been
+deleted from the sheet on purpose and its references left behind. Evaluating the
+argument threw *before* the function was entered, so the natural-voice panel
+never synced once — no "Ready", no error text, and a download button frozen at
+its build-time label inside an app that ships the weights. Two rounds of
+correcting that function's branch logic could not have worked, because no branch
+was ever reached. The failure now lands on the engine line, which is already the
+screen for "something is wrong and I need to know what". The lesson generalises:
+a test that reads a function's logic proves nothing if the function never runs,
+so `voice panel` asserts the panel *syncs* before it asserts anything it says.
+`window.Platform` is also absent from the test page, which left every
+`isNativeApp()` branch untested; that test stubs it.
+
 **Neither sheet trusts the other to have closed.** The reader's Aa sheet and the
 voice sheet keep out of each other's way by calling each other's close, which
 makes single-sheet-at-a-time a promise across two modules. When that promise is

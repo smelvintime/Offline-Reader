@@ -316,6 +316,7 @@
             + neuralEngine.speed.ratio.toFixed(2) + '× realtime, '
             + neuralMargin().toFixed(2) + '× at this speed)'
           : '')
+      + (syncError ? ' · sheet: ' + syncError : '')
       + (c.memoryError ? ' · ' + c.memoryError : '');
   }
 
@@ -817,20 +818,15 @@
       // one em dash — the shape the model was trained on. "―――" is not a
       // punctuation mark it has ever seen.
       s = s.replace(DASH_RUN, '—');
-      // An ellipsis is a beat, and Kokoro does not take one for it.
+      // No comma is added after an ellipsis, though it was tried.
       //
-      // Not because the character is lost: "…" is in kokoro-js's punctuation
-      // set and in the model's own vocabulary, so it survives all the way to
-      // the tokens. It simply carries almost no learned duration, being rare
-      // in the read-speech corpora the model was trained on. A comma is the
-      // opposite — the most common pause mark there is, with a duration the
-      // model is certain about. Pairing them keeps whatever shape the ellipsis
-      // has and borrows the comma's beat.
-      //
-      // Only before something that starts a word or a quote, so a sentence
-      // ending on an ellipsis is left alone and no run of punctuation gets a
-      // comma wedged into the middle of it.
-      s = s.replace(/…(?=\s*[A-Za-z0-9“"‘'(])/g, '…,');
+      // The theory was sound — "…" reaches the tokens but carries almost no
+      // learned duration, where a comma carries the most certain one there is
+      // — and the result was a beat that landed on some ellipses and not
+      // others, because the duration a comma gets is itself contextual. An
+      // inconsistent pause reads as a stumble, which is worse than no pause at
+      // all: a reader stops hearing the prose and starts hearing the engine.
+      // Kokoro's own rendering of "…" is at least always the same.
     }
     return s.trim();
   }
@@ -905,6 +901,8 @@
 
   const dom = {};          // bar + sheet, built once on first open
   let built = false;
+  // The last error a sheet control threw while syncing. See syncSheet().
+  let syncError = '';
   let sheetOpen = false;
   const sheetSync = [];    // fn() → refresh a control from prefs/session
 
@@ -2717,10 +2715,10 @@
         chips[i].classList.toggle('vc-on', onV);
         chips[i].setAttribute('aria-checked', String(onV));
       }
-      const trouble = !neuralCapability().ok || !!state.neuralError;
+      const trouble = !neuralCapability().ok || !!state.neuralError || !!syncError;
       natEngine.hidden = !trouble;
       natEngine.textContent = trouble ? neuralCapabilityLine() : '';
-      syncNeuralStatus(natText, natBar, natAction, removeBtn);
+      syncNeuralStatus(natText, natBar, natAction);
     });
 
     return sheet;
@@ -2773,7 +2771,19 @@
     return row;
   }
 
-  function syncNeuralStatus(natText, natBar, natAction, removeBtn) {
+  /**
+   * `removeBtn` used to be a fourth argument here and was never declared.
+   *
+   * "Remove download" was deleted from the sheet on purpose — there is nothing
+   * to remove from a build that carries its own weights — but every reference
+   * to it stayed. Evaluating the argument threw a ReferenceError before this
+   * function ran at all, which syncSheet's per-control catch then swallowed. So
+   * the natural-voice panel never synced once: no "Ready", no error text, and a
+   * download button frozen at the label it was built with, in an app that ships
+   * the weights inside itself. Two rounds of fixing the branch logic could not
+   * have worked, because no branch was ever reached.
+   */
+  function syncNeuralStatus(natText, natBar, natAction) {
     // Before download state, before anything: if the engine cannot run on this
     // runtime, that is the whole story and the rest of the panel is noise.
     const cap = neuralCapability();
@@ -2781,7 +2791,6 @@
       natText.textContent = 'Not available on this device: ' + cap.reason + '.';
       natBar.hidden = true;
       natAction.hidden = true;
-      removeBtn.hidden = true;
       return;
     }
     // Said before anything about downloads: offering a 90 MB download for a
@@ -2790,8 +2799,7 @@
       natText.textContent = 'This narrator reads English, and this book is not in English.';
       natBar.hidden = true;
       natAction.hidden = true;
-      removeBtn.hidden = !state.neuralHave;
-      inAppHasNoFileToManage(natAction, removeBtn);
+      inAppHasNoFileToManage(natAction);
       return;
     }
     const initInFlight = !!(neuralEngine.readyPromise && !neuralEngine.ready);
@@ -2812,7 +2820,6 @@
         natBar.firstChild.style.width = Math.round((state.neuralProgress || 0) * 100) + '%';
       }
       natAction.hidden = true;
-      removeBtn.hidden = true;
       return;
     }
     natBar.hidden = true;
@@ -2820,7 +2827,6 @@
       natText.textContent = 'Could not load: ' + state.neuralError;
       natAction.hidden = false;
       natAction.textContent = 'Try again';
-      removeBtn.hidden = true;
       return;
     }
     if (neuralEngine.ready) {
@@ -2830,8 +2836,7 @@
         ? 'Ready — included with the app. Works offline.'
         : 'Ready — running on this device. Works offline.';
       natAction.hidden = true;
-      removeBtn.hidden = !!state.neuralBundled;
-      inAppHasNoFileToManage(natAction, removeBtn);
+      inAppHasNoFileToManage(natAction);
       return;
     }
     // Not loaded, nothing in flight: answer from the cached probe. The probe
@@ -2840,7 +2845,6 @@
     if (state.neuralHave == null) {
       natText.textContent = '…';
       natAction.hidden = true;
-      removeBtn.hidden = true;
       refreshNeuralHave();
       return;
     }
@@ -2849,11 +2853,9 @@
       // — "Remove download" here would delete a file the next launch restores.
       natText.textContent = 'Included with the app — nothing to download, works offline.';
       natAction.hidden = true;
-      removeBtn.hidden = true;
     } else if (state.neuralHave) {
       natText.textContent = 'Downloaded — loads when you press play. Works offline.';
       natAction.hidden = true;
-      removeBtn.hidden = false;
     } else if (isNativeApp()) {
       // In the app the weights are supposed to BE the app. Missing them is a
       // build that skipped scripts/fetch-voice-model.mjs, and a download button
@@ -2861,14 +2863,12 @@
       natText.textContent = 'The narrator is missing from this build. It should ship inside the app — '
         + 'rebuild with scripts/fetch-voice-model.mjs, then npm run sync.';
       natAction.hidden = true;
-      removeBtn.hidden = true;
     } else {
       natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
       natAction.hidden = false;
       natAction.textContent = 'Download voice (~90 MB)';
-      removeBtn.hidden = true;
     }
-    inAppHasNoFileToManage(natAction, removeBtn);
+    inAppHasNoFileToManage(natAction);
   }
 
   /**
@@ -2881,10 +2881,9 @@
    * already loaded, which is to say the state a reader is actually in, and a
    * rule stated once cannot be forgotten in a branch added later.
    */
-  function inAppHasNoFileToManage(natAction, removeBtn) {
+  function inAppHasNoFileToManage(natAction) {
     if (!isNativeApp()) return;
     natAction.hidden = true;
-    removeBtn.hidden = true;
   }
 
   function downloadNeural() {
@@ -3141,7 +3140,17 @@
   function syncSheet() {
     if (!built) return;
     for (let i = 0; i < sheetSync.length; i++) {
-      try { sheetSync[i](); } catch (e) { /* one stale control must not break the rest */ }
+      try {
+        sheetSync[i]();
+      } catch (e) {
+        // One stale control must not break the rest — but it must not vanish
+        // either. A ReferenceError in here kept the whole natural-voice panel
+        // from ever running, and the only symptom was a button that never
+        // changed: nothing logged, nothing shown, nothing to report. Recorded
+        // on the engine line, which is already the screen for "something is
+        // wrong and I need to know what".
+        syncError = (e && e.message) ? String(e.message) : 'a control failed to sync';
+      }
     }
   }
 
@@ -3215,6 +3224,8 @@
       neuralCapability: neuralCapability,
       resetCapability: function () { neuralCapabilityCache = null; },
       neuralCapabilityLine: neuralCapabilityLine,
+      syncError: function () { return syncError; },
+      syncSheet: function () { syncSheet(); },
       nativeKokoro: nativeKokoro,
       channel: channel,
       silentWavUrl: silentWavUrl,

@@ -1632,10 +1632,28 @@
     // First user gesture: bless the audio element while we still have it.
     channel.play(silentWavUrl(), {}).catch(function () {});
 
-    ensureNeuralThenSpeak();
+    ensureEngineThenSpeak();
     mediaSessionWire();
     mediaSessionUpdate();
     updateBar();
+  }
+
+  /**
+   * Get whichever narrator was chosen ready, then speak.
+   *
+   * The OS narrator has nothing to get ready, and routing it through the
+   * neural path would have been the whole point of having it thrown away: that
+   * path blocks on 88 MB of weights loading and ends the session outright when
+   * the natural voice cannot run here. A reader who picked the instant voice
+   * would have waited for the slow one to load before hearing a word, and been
+   * told the natural voice was broken when they were not using it.
+   */
+  function ensureEngineThenSpeak() {
+    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
+      speakCurrent();
+      return;
+    }
+    ensureNeuralThenSpeak();
   }
 
   function ensureNeuralThenSpeak() {
@@ -2423,7 +2441,8 @@
 
   function prewarmNeural() {
     if (!neuralEngine.available()) return;
-    if (!neuralSpeaks(docLang())) return;   // this book will use the device voice
+    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
+    if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
     // Opening a book must never be what kills the app. This path has no user
     // action behind it, so after a load-phase crash it is the first thing to
     // stand down — a background half-gigabyte is not worth one warm start.

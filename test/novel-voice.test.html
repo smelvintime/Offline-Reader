@@ -689,6 +689,8 @@ const T = {
     const held = window.Platform ? window.Platform.speech : undefined;
     const spoken = [];
     let resolveNext = null;
+    let readyCalls = 0;
+    let origEnsureReady = null;
     try {
       window.Platform = window.Platform || {};
       window.Platform.speech = {
@@ -710,6 +712,12 @@ const T = {
       };
 
       // Ranked best-first, so the good voices are not buried.
+      // Count every attempt to load the model, not just every generation.
+      readyCalls = 0;
+      const ne0 = T.neuralEngine;
+      origEnsureReady = ne0.ensureReady;
+      ne0.ensureReady = function () { readyCalls++; return origEnsureReady.apply(this, arguments); };
+
       const ranked = T.rankSystemVoices(await window.Platform.speech.voices());
       pass = ok(ranked[0].quality === 'premium' && ranked[1].quality === 'enhanced'
                 && ranked[2].quality === 'default',
@@ -726,14 +734,23 @@ const T = {
       pass = ok(spoken[0].voiceId === 'prem.en', 'through the chosen voice, not the default',
         spoken[0].voiceId) && pass;
       pass = ok(!V_.state().preparing, 'and nothing is "preparing" — there is nothing to prepare') && pass;
-      pass = ok(neuralStub.spoken.length === 0, 'the neural engine is never touched') && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'the neural engine is never generating') && pass;
+      // The bug this exists for: play() used to route every narrator through
+      // ensureNeuralThenSpeak, so picking the instant voice still waited on
+      // 88 MB of weights and still ended the session when the natural voice
+      // could not run here. Counting generate() was not enough to see it —
+      // the load is the cost, and the stub made the load free.
+      pass = ok(readyCalls === 0,
+        'and its 88 MB load is never even started', readyCalls + ' ensureReady calls') && pass;
 
       // The selected chip has to actually look selected. css/voice.css styles
       // `.vc-chip.vc-on`, and a plain `.on` would have been invisible.
-      V_.toggle();  // close the session, open the sheet cleanly below
-      await pause(100);
-      await freshOpen();
-      V_.toggle();
+      // Open the sheet the way a reader does. Relying on some other code path
+      // to have called syncSheet() is how the previous version of this passed
+      // while the panels were never synced on this narrator at all.
+      const voiceBtn = document.querySelector('.vc-bar [aria-label="Voice settings"]');
+      pass = ok(!!voiceBtn, 'the listen bar has a voice button to open') && pass;
+      if (voiceBtn) voiceBtn.click();
       await pause(300);
       const narOn = document.querySelector('.vc-narrator-row .vc-chip.vc-on');
       pass = ok(!!narOn, 'the chosen narrator chip carries the class the CSS styles',
@@ -755,6 +772,7 @@ const T = {
       pass = ok(V_.state().index > before, 'and moves on once it has', String(V_.state().index)) && pass;
       endSession();
     } finally {
+      if (origEnsureReady) VT().neuralEngine.ensureReady = origEnsureReady;
       if (held === undefined) { try { delete window.Platform.speech; } catch (e) {} }
       else window.Platform.speech = held;
       Store.prefs.set('voice.narrator', 'natural');

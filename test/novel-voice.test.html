@@ -1290,16 +1290,18 @@ const T = {
     return { name: 'generation speed', pass };
   },
 
-  // How far ahead the generator has to stay, and against what.
+  // How far ahead the generator has to stay, against what, and when chasing a
+  // cushion stops being worth the heat.
   //
-  // Two bugs met here and produced one symptom. The speed check compared the
-  // raw generation ratio against a fixed threshold, but the ratio is measured
-  // at speed 1 while the reader drains the audio at their chosen rate — so a
-  // 1.34x engine looked healthy to a reader running 2x, who was really being
-  // served by a 0.67x one. And the lookahead was counted in GROUPS while the
-  // caps shrink groups on slow devices, so the cushion got shorter exactly
-  // where it needed to get longer. Both make the same sound: a clip, a breath,
-  // a clip.
+  // Three bugs met here. The speed check compared the raw generation ratio
+  // against a fixed threshold, but the ratio is measured at speed 1 while the
+  // reader drains the audio at their chosen rate, so a 1.34x engine looked
+  // healthy to a reader running 2x who was really being served by a 0.67x one.
+  // The lookahead was counted in GROUPS while the caps shrink groups on slow
+  // devices, so the cushion got shorter exactly where it needed to get longer.
+  // And then the seconds-based version chased its target unconditionally,
+  // which on a device that cannot get ahead holds the CPU flat for a whole
+  // chapter, heats the phone, and gets throttled for its trouble.
   async testLookaheadBuffer() {
     let pass = true;
     const ne = VT().neuralEngine;
@@ -1307,6 +1309,7 @@ const T = {
     const held = {
       speed: ne.speed, generate: ne.generate, worker: ne.worker,
       sentences: st.sentences, chapterId: st.chapterId, rate: st.prefs.rate,
+      fastStart: st.fastStart,
     };
     try {
       // ── the margin ──────────────────────────────────────────────────────
@@ -1333,9 +1336,24 @@ const T = {
       pass = ok(VT().neuralGroupCaps().max === 160,
         'and the same engine at 1x does not', JSON.stringify(VT().neuralGroupCaps())) && pass;
 
+      // ── how deep a cushion is worth chasing ─────────────────────────────
+      ne.speed = null;
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
+        'unmeasured assumes the good case rather than crippling the first chapter') && pass;
+      ne.noteSpeed({ ms: 1000, seconds: 3, chars: 60 });      // 3x realtime
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
+        'an engine that outruns the reader is asked for the whole cushion') && pass;
+      ne.noteSpeed({ ms: 1000, seconds: 1.2, chars: 24 });    // 1.2x: ahead, barely
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC / 2,
+        'barely ahead gets half of it', String(VT().lookaheadSeconds())) && pass;
+      ne.noteSpeed({ ms: 1000, seconds: 1, chars: 20 });      // break-even
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'and a device that cannot get ahead is not asked to try: the queue it '
+        + 'can never fill is just heat', String(VT().lookaheadSeconds())) && pass;
+
       // ── the estimate ────────────────────────────────────────────────────
-      // 300 characters produced 15.4 s, so 150 is about 7.7 s.
-      pass = ok(Math.abs(VT().estimateSeconds('x'.repeat(150)) - 7.7) < 0.1,
+      // 20 characters per second of audio, so 150 characters is 7.5 s.
+      pass = ok(Math.abs(VT().estimateSeconds('x'.repeat(150)) - 7.5) < 0.01,
         'an ungenerated group is sized from what this voice actually produced',
         VT().estimateSeconds('x'.repeat(150)).toFixed(2)) && pass;
       ne.speed = null;
@@ -1344,40 +1362,41 @@ const T = {
         String(VT().estimateSeconds('x'.repeat(150)))) && pass;
 
       // ── the buffer ──────────────────────────────────────────────────────
-      // 10 characters per second of audio, break-even on compute. Sentences of
-      // 100 characters each, so one sentence is one group and one group is ten
-      // seconds — arithmetic a reader of this test can do in their head.
-      ne.noteSpeed({ ms: 1000, seconds: 1, chars: 10 });
+      // 20 characters per second of audio at 2x realtime. Sentences of 200
+      // characters, so one sentence is one group under any cap and one group
+      // is ten seconds: arithmetic a reader of this test can do in their head.
+      ne.noteSpeed({ ms: 1000, seconds: 2, chars: 40 });
       const list = [];
       for (let i = 0; i < 12; i++) {
-        list.push({ text: 'S'.repeat(100), blockIdx: 0, kind: 'p', start: i * 100, end: (i + 1) * 100 });
+        list.push({ text: 'S'.repeat(200), blockIdx: 0, kind: 'p', start: i * 200, end: (i + 1) * 200 });
       }
       st.sentences = list;
       st.chapterId = 'lookahead-test';
+      st.fastStart = false;
       ne.worker = {};                 // prefetchNeural only checks it is there
       const asked = [];
       ne.generate = function (key) { asked.push(key); return new Promise(function () {}); };
 
       const first = VT().groupSentences(list, 0);
-      pass = ok(first.to === 0, 'one 100-character sentence is one group', JSON.stringify(first.to)) && pass;
+      pass = ok(first.to === 0, 'one 200-character sentence is one group', JSON.stringify(first.to)) && pass;
 
       st.prefs.rate = 1;
       asked.length = 0;
       VT().prefetchNeural(first);
       // 40 s of cushion at 10 s a group. A group-counted lookahead stopped at
-      // two here, which is 20 s — less than the 11.5 s generation plus its own
-      // queueing, and so a breath every other clip.
+      // two here, which is 20 s — less than one generation plus its queueing,
+      // and so a breath every other clip.
       pass = ok(asked.length === 4,
-        'the queue is filled to NEURAL_LOOKAHEAD_SEC of playback, not to a group count',
-        asked.length + ' groups for ' + VT().NEURAL_LOOKAHEAD_SEC + 's') && pass;
+        'the queue is filled to seconds of playback, not to a group count',
+        asked.length + ' groups for ' + VT().lookaheadSeconds() + 's') && pass;
 
-      // Same audio, drained twice as fast: the same 40 s of playback now takes
-      // twice as many groups, and the cap is what stops it.
+      // Same audio, drained twice as fast: now break-even, and the right
+      // amount of work to do ahead is one group. This is the heat fix.
       st.prefs.rate = 2;
       asked.length = 0;
       VT().prefetchNeural(first);
-      pass = ok(asked.length === VT().NEURAL_LOOKAHEAD_MAX,
-        'a faster reader needs more of them, bounded by the cache',
+      pass = ok(asked.length === 1,
+        'a device at break-even generates the next group and stops',
         asked.length + ' groups') && pass;
 
       // Already generated, or already queued: counted toward the cushion,
@@ -1403,6 +1422,25 @@ const T = {
       asked.length = 0;
       VT().prefetchNeural(last);
       pass = ok(asked.length === 0, 'nothing is queued past the last sentence') && pass;
+
+      // ── the first group after a tap ─────────────────────────────────────
+      // Nothing is generated behind it, so its whole length is a wait someone
+      // sits through. It gets its own caps; the lookahead behind it does not,
+      // or every clip generated during the wait would be keyed to boundaries
+      // that stop existing the moment the caps go back to normal.
+      const prose = [
+        { text: 'Short one.', blockIdx: 0, kind: 'p', start: 0, end: 10 },
+        { text: 'B'.repeat(140), blockIdx: 0, kind: 'p', start: 10, end: 150 },
+        { text: 'C'.repeat(140), blockIdx: 0, kind: 'p', start: 150, end: 290 },
+      ];
+      const fast = VT().groupSentences(prose, 0, VT().FAST_START_CAPS);
+      pass = ok(fast.to === 0, 'the fast-start group is the one sentence and no more',
+        JSON.stringify(fast.text)) && pass;
+      const normal = VT().groupSentences(prose, 0);
+      pass = ok(normal.to > fast.to, 'where the normal caps would have merged more',
+        normal.to + ' vs ' + fast.to) && pass;
+      pass = ok(VT().FAST_START_CAPS.contMax > VT().FAST_START_CAPS.max,
+        'and a split sentence is still finished rather than cut at a comma') && pass;
     } finally {
       ne.speed = held.speed;
       ne.generate = held.generate;
@@ -1410,6 +1448,7 @@ const T = {
       st.sentences = held.sentences;
       st.chapterId = held.chapterId;
       st.prefs.rate = held.rate;
+      st.fastStart = held.fastStart;
     }
     return { name: 'lookahead buffer', pass };
   },

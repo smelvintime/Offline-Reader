@@ -91,9 +91,20 @@
   // cushion two 300-character ones gave, and the shrink is triggered by the
   // device being slow. Seconds are the quantity that actually has to cover the
   // next generation, so seconds are what the lookahead counts.
-  const NEURAL_LOOKAHEAD_MIN = 2;    // groups, however long they are
+  const NEURAL_LOOKAHEAD_MIN = 1;    // groups, however long they are
   const NEURAL_LOOKAHEAD_MAX = 6;    // groups; bounded by WAV_CACHE_MAX
-  const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds to keep in hand
+  // …and how many of those seconds are worth chasing depends entirely on
+  // whether this device can ever get ahead. See lookaheadSeconds().
+  const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds, where they are reachable
+
+  // The first group after a tap on Play is the one a reader is actually
+  // waiting through, and the only one with nothing already generated behind
+  // it. It gets its own caps: one sentence, as short as the prose allows, so
+  // the voice starts speaking while the normal-sized groups behind it are
+  // still rendering. Applies to the cursor's group only — the lookahead keeps
+  // the real caps, so nothing generated during the fast start is thrown away
+  // when the boundaries go back to normal.
+  const FAST_START_CAPS = { target: 1, max: 40, contMax: 140 };
   // The queue is topped up on this interval as well as at group boundaries.
   // A boundary top-up looks at the queue once per clip and then not again for
   // as long as that clip plays, which is precisely the window there was spare
@@ -846,6 +857,7 @@
     spokeOk: 0,            // utterances completed this session (crash-loop breaker)
 
     group: null,           // neural group currently playing (the pump's cursor)
+    fastStart: false,      // next neural group is the one someone is waiting on
     utterance: null,       // device engine's in-flight utterance
     speakToken: 0,         // invalidates stale onend/async callbacks
 
@@ -1421,6 +1433,27 @@
     supported: typeof CSS !== 'undefined' && !!CSS.highlights && typeof Highlight === 'function',
     markedEl: null,
 
+    /**
+     * Whether to paint the exact range, or tint the whole paragraph.
+     *
+     * The Custom Highlight API paints into the same tiles as the text, and the
+     * native WebView does not reliably invalidate those tiles when the registry
+     * entry is replaced — in a columnated, hyphenated reader it leaves the
+     * previous ranges painted where they were. What a reader sees is several
+     * disconnected patches lit at once, some of them ahead of the voice, which
+     * looks less like a highlight than like a bug in the text. It is not that
+     * the range is wrong: `apply` clears before it sets, and a Highlight holds
+     * one range. The paint is simply stale.
+     *
+     * A class on the block is an ordinary background on an ordinary element, so
+     * it invalidates the way everything else does. Coarser, and right every
+     * time, which for something a reader watches for a whole chapter is the
+     * better trade. The web keeps the precise range, where it repaints.
+     */
+    rangeOk: function () {
+      return this.supported && !isNativeApp();
+    },
+
     apply: function (sentence) {
       this.clear();
       if (!state.prefs.highlight || !sentence || !state.bridge) return;
@@ -1428,7 +1461,7 @@
       const node = els && els[sentence.blockIdx];
       if (!node || !node.isConnected) return;
 
-      if (this.supported) {
+      if (this.rangeOk()) {
         const range = rangeForOffsets(node, sentence.start, sentence.end);
         if (range) {
           try { CSS.highlights.set(HIGHLIGHT_NAME, new Highlight(range)); return; } catch (e) {}
@@ -1640,6 +1673,31 @@
     return (text || '').length / cps;
   }
 
+  /**
+   * How much audio to keep in hand, given whether this device can get ahead.
+   *
+   * A deep buffer is only reachable when the engine generates faster than the
+   * reader speaks. Below that it is not merely useless, it is harmful: there
+   * is no spare capacity to fill it with, so the queue never gets deeper, and
+   * all the attempt does is hold the CPU at a hundred per cent for the whole
+   * chapter. On a phone that means heat, and heat means thermal throttling,
+   * which makes the very generation it was trying to get ahead of slower. The
+   * first version of this chased forty seconds unconditionally and did exactly
+   * that.
+   *
+   * So: chase a real cushion where one is achievable, and where it is not,
+   * generate the next group and nothing more. One group ahead is all that is
+   * needed to overlap generation with playback, which is the only part of the
+   * benefit a slow device was ever going to get.
+   */
+  function lookaheadSeconds() {
+    const margin = neuralMargin();
+    if (!margin) return NEURAL_LOOKAHEAD_SEC;   // unmeasured: assume the good case
+    if (margin >= 1.5) return NEURAL_LOOKAHEAD_SEC;
+    if (margin >= 1.05) return NEURAL_LOOKAHEAD_SEC / 2;
+    return 0;                                   // NEURAL_LOOKAHEAD_MIN only
+  }
+
   function neuralGroupCaps() {
     const margin = neuralMargin();
     const wide = { target: NEURAL_GROUP_TARGET, max: NEURAL_GROUP_MAX, contMax: NEURAL_GROUP_CONT_MAX };
@@ -1683,14 +1741,15 @@
     return { from: from, to: to, blockIdx: first.blockIdx, start: first.start, end: last.end, text: text };
   }
 
-  function neuralGroupAt(from) { return groupSentences(state.sentences, from); }
+  function neuralGroupAt(from, caps) { return groupSentences(state.sentences, from, caps); }
 
   function neuralKey(chapterId, g) {
     return chapterId + ':' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + state.prefs.neuralVoice;
   }
 
   function speakNeural(s, token, done, fail) {
-    const group = neuralGroupAt(state.index) || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
+    const group = neuralGroupAt(state.index, state.fastStart ? FAST_START_CAPS : null)
+      || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
     // The highlight covers the whole spoken group, so the mark and the audio
     // always agree on what is being read.
     highlighter.apply(group);
@@ -1707,6 +1766,7 @@
       .then(function (url) {
         if (token !== state.speakToken || !state.playing) return;
         setPreparing(false);
+        state.fastStart = false;     // the wait someone sat through is over
         prefetchNeural(group);
         primeNextClip(group);
         return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
@@ -1739,10 +1799,11 @@
   function prefetchNeural(currentGroup) {
     if (!neuralEngine.worker || !currentGroup) return;
     const rate = state.prefs.rate || 1;
+    const want = lookaheadSeconds();
     let from = currentGroup.to + 1;
     let ahead = 0;               // playback seconds already in hand or coming
     for (let k = 0; k < NEURAL_LOOKAHEAD_MAX; k++) {
-      if (k >= NEURAL_LOOKAHEAD_MIN && ahead >= NEURAL_LOOKAHEAD_SEC) break;
+      if (k >= NEURAL_LOOKAHEAD_MIN && ahead >= want) break;
       const g = neuralGroupAt(from);
       if (!g) break;
       const key = neuralKey(state.chapterId, g);
@@ -1811,6 +1872,9 @@
   function skip(delta) {
     if (!state.active) return;
     cancelSpeech();
+    // A skip lands somewhere nothing has been generated for, so this is a wait
+    // someone is sitting through, same as a tap on Play.
+    state.fastStart = true;
     advance(delta);
   }
 
@@ -1892,6 +1956,8 @@
     if (state.playing) return;
     state.playing = true;
     state.errors = 0;
+    // Whatever is about to be spoken, someone is waiting on it right now.
+    state.fastStart = true;
     // Armed until two utterances complete: if speech takes the page down
     // (WebKit home-screen apps have form here; low-memory phones OOM), the
     // flag survives the crash and the next session refuses to auto-play.
@@ -2205,13 +2271,20 @@
     // unreadable: a gap because the engine is grinding and a gap because it
     // died look the same. The last group's cost says which, in the place a
     // reader is already staring at while waiting.
+    // Which weights ran and how far ahead of the reader they are, in the one
+    // place a reader photographs. The full engine line has carried the margin
+    // for a while and has never once made it into a screenshot; this is the
+    // text someone is already staring at while they wait, and the two numbers
+    // decide everything about what to do next.
     const sp = neuralEngine.speed;
+    const tag = (neuralEngine.nativeWeights ? neuralEngine.nativeWeights + ' · ' : '')
+      + (neuralMargin() ? neuralMargin().toFixed(2) + '× ahead' : 'measuring');
     dom.statusLine.textContent = state.preparing
       ? (sp
-          ? 'Preparing voice… (last: ' + (sp.ms / 1000).toFixed(1) + 's for '
+          ? 'Preparing voice… (' + tag + ', last: ' + (sp.ms / 1000).toFixed(1) + 's for '
             + sp.seconds.toFixed(1) + 's of speech)'
           : 'Preparing voice…')
-      : (n ? at + ' / ' + n : 'Nothing to read');
+      : (n ? at + ' / ' + n + (sp ? '  ·  ' + tag : '') : 'Nothing to read');
   }
 
   // The Listen button in the reader header mirrors whether a session is up.
@@ -2879,7 +2952,7 @@
         rate: state.prefs.rate,
         errors: state.errors,
         sheetOpen: sheetOpen,
-        highlightMode: highlighter.supported ? 'range' : 'block',
+        highlightMode: highlighter.rangeOk() ? 'range' : 'block',
       };
     },
 
@@ -2890,7 +2963,10 @@
       groupSentences: groupSentences,
       neuralGroupCaps: neuralGroupCaps,
       neuralMargin: neuralMargin,
+      lookaheadSeconds: lookaheadSeconds,
       estimateSeconds: estimateSeconds,
+      highlighter: highlighter,
+      FAST_START_CAPS: FAST_START_CAPS,
       prefetchNeural: prefetchNeural,
       state: state,
       normalizeForSpeech: normalizeForSpeech,

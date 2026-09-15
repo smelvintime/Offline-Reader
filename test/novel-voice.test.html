@@ -36,6 +36,7 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testGaplessPlayback().then(T.report)">gapless</button>
   <button onclick="T.testNativeInference().then(T.report)">native inference</button>
   <button onclick="T.testSystemNarrator().then(T.report)">system narrator</button>
   <button onclick="T.testCompactVoiceHint().then(T.report)">compact hint</button>
@@ -465,9 +466,11 @@ const T = {
     // The rate lands on the <audio> element when the clip starts, which is a
     // worker round-trip after generate() is requested — so wait for the rate,
     // not for the request.
-    await waitFor(() => VT().channel.audio && Math.abs(VT().channel.audio.playbackRate - 1.3) < 0.001,
-      3000, 'spoke at the new rate');
-    pass = ok(true, 'rate pref reaches the audio channel', VT().channel.audio.playbackRate) && pass;
+    await waitFor(() => {
+      const a = VT().channel.current();
+      return a && Math.abs(a.playbackRate - 1.3) < 0.001;
+    }, 3000, 'spoke at the new rate');
+    pass = ok(true, 'rate pref reaches the audio channel', VT().channel.current().playbackRate) && pass;
     Store.prefs.set('voice.rate', 1);
     endSession();
     return { name: 'playback', pass };
@@ -845,6 +848,75 @@ const T = {
       T.setSystemVoices(null);
     }
     return { name: 'compact voice hint', pass };
+  },
+
+  // Gapless playback across group boundaries.
+  //
+  // One <audio> element reused for every clip meant every group boundary ran
+  // the media load algorithm — fetch, parse, decode — AFTER the previous clip
+  // had gone silent. At roughly three sentences per group that is a gasp every
+  // three sentences, for a whole chapter.
+  async testGaplessPlayback() {
+    let pass = true;
+    const T = VT();
+    const ch = T.channel;
+    try {
+      ch.stop();
+      ch.pool.length = 0;
+      ch.slot = 0;
+      ch.ensure();
+      pass = ok(ch.pool.length === 2, 'there are two elements to alternate between',
+        String(ch.pool.length)) && pass;
+
+      // iOS blesses ELEMENTS, not the page. Missing the second blessing shows
+      // up as every OTHER clip refusing to play, which is a miserable bug to
+      // chase, so the gesture has to reach both.
+      const silent = T.silentWavUrl();
+      ch.bless(silent);
+      pass = ok(ch.pool[0].src === silent && ch.pool[1].src === silent,
+        'a user gesture blesses both, not just the one in use') && pass;
+
+      // Priming puts the next clip in the SPARE, never the one playing.
+      const a = 'blob:fake-a', b = 'blob:fake-b';
+      ch.slot = 0;
+      ch.primed = null;
+      ch.pool[0].src = a;
+      ch.prime(b);
+      pass = ok(ch.primed === b, 'the next clip is primed', String(ch.primed)) && pass;
+      pass = ok(ch.pool[1].src === b, 'into the spare element', ch.pool[1].src) && pass;
+      pass = ok(ch.pool[0].src === a, 'leaving the playing element alone', ch.pool[0].src) && pass;
+
+      // Playing the primed clip SWAPS to it rather than reloading. That swap
+      // is the whole point: the decode was already paid for.
+      ch.play(b, {});
+      pass = ok(ch.slot === 1, 'playing the primed clip takes the spare', String(ch.slot)) && pass;
+      pass = ok(ch.primed === null, 'and the prime is spent, not left stale') && pass;
+
+      // An unprimed clip still plays, just without the head start.
+      ch.play('blob:fake-c', {});
+      pass = ok(ch.pool[ch.slot].src === 'blob:fake-c',
+        'an unprimed clip still plays on the current element') && pass;
+
+      // Rate reaches both, or a primed clip starts at the old speed.
+      ch.setRate(1.35);
+      pass = ok(ch.pool[0].playbackRate === 1.35 && ch.pool[1].playbackRate === 1.35,
+        'speed reaches both, so a primed clip never starts at the old rate') && pass;
+      pass = ok(ch.pool[0].defaultPlaybackRate === 1.35,
+        'and survives the media load that assigning src runs') && pass;
+
+      // Only the element actually playing may end a clip.
+      let ends = 0;
+      ch.onended = function () { ends++; };
+      ch.pool[1 - ch.slot].dispatchEvent(new Event('ended'));
+      pass = ok(ends === 0, 'the spare firing "ended" does not advance the reader',
+        String(ends)) && pass;
+      ch.pool[ch.slot].dispatchEvent(new Event('ended'));
+      pass = ok(ends === 1, 'the playing one does', String(ends)) && pass;
+    } finally {
+      ch.stop();
+      ch.setRate(1);
+    }
+    return { name: 'gapless playback', pass };
   },
 
   // Kokoro's forward pass, run natively.
@@ -1455,7 +1527,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

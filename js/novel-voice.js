@@ -95,7 +95,10 @@
   const NEURAL_LOOKAHEAD_MAX = 30;   // groups; bounded by WAV_CACHE_MAX
   // …and how many of those seconds are worth chasing depends entirely on
   // whether this device can ever get ahead. See lookaheadSeconds().
-  const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds, where they are reachable
+  const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds of cushion, to absorb wobble
+  // Below break-even there is no idle to protect and depth is free, so the
+  // only real bound is the cache. See lookaheadSeconds().
+  const NEURAL_LOOKAHEAD_DEEP = 240;
 
   // The first group after a tap on Play is the one a reader is actually
   // waiting through, and the only one with nothing already generated behind
@@ -122,7 +125,7 @@
   // Big enough to hold a whole pre-buffer, not just a lookahead. Forty clips
   // of seven seconds is about thirteen megabytes of PCM, which is nothing set
   // against the model already resident.
-  const WAV_CACHE_MAX = 40;          // generated groups kept for replay/skip-back
+  const WAV_CACHE_MAX = 64;          // generated groups kept for replay/skip-back
 
   // ── Pre-buffering ────────────────────────────────────────────────────────
   //
@@ -1294,8 +1297,15 @@
     generate: function (cacheKey, text, voice) {
       const cached = this.wavCache.get(cacheKey);
       if (cached) {
-        // Refresh LRU position.
-        this.wavCache.delete(cacheKey); this.wavCache.set(cacheKey, cached);
+        // Deliberately NOT refreshed to the front.
+        //
+        // Insertion order is generation order, which for a reader going
+        // forwards is exactly "furthest behind first" — the right thing to
+        // drop. Refreshing on a hit inverted that: playing a group moved it to
+        // the newest end, which left the group about to play as the OLDEST
+        // entry and therefore first out. With a shallow queue that never came
+        // up; with a deep one it evicts the next clip and the reader hears a
+        // stall in the middle of audio that had already been generated.
         return Promise.resolve(cached);
       }
       // wavCache only knows about FINISHED generations. Without this, a group
@@ -1715,15 +1725,33 @@
    * benefit a slow device was ever going to get.
    */
   function lookaheadSeconds() {
-    // While the deficit is being paid up front, the target IS the lookahead:
-    // this is the one time a slow device should be generating flat out, because
-    // it is generating into a wait rather than into a queue it cannot keep.
+    // While the deficit is being paid up front, the target IS the lookahead.
     if (state.prebuffer) return state.prebuffer.target;
     const margin = neuralMargin();
     if (!margin) return NEURAL_LOOKAHEAD_SEC;   // unmeasured: assume the good case
-    if (margin >= 1.5) return NEURAL_LOOKAHEAD_SEC;
-    if (margin >= 1.05) return NEURAL_LOOKAHEAD_SEC / 2;
-    return 0;                                   // NEURAL_LOOKAHEAD_MIN only
+
+    // Below break-even, bank everything.
+    //
+    // This used to return zero here, on the reasoning that a queue the device
+    // can never fill is just heat. That was backwards. Below break-even the
+    // generator has no idle moments to protect: there is always a next group
+    // and it is always needed, so the CPU is at a hundred per cent whatever
+    // the depth. Lookahead does not change how much work gets done, only WHICH
+    // clips are ready when — and the depth costs nothing.
+    //
+    // What it buys is the fluctuation. This engine measures 0.92x and 1.28x
+    // minutes apart on the same phone; shallow, the good stretches are thrown
+    // away and the bad ones are heard as a stall. Deep, the good stretches are
+    // banked against the bad, which is the whole of the difference between
+    // "occasionally buffers mid-chapter" and not.
+    if (margin < 1.05) return NEURAL_LOOKAHEAD_DEEP;
+
+    // Above it the generator really will go idle, and idle is worth
+    // protecting: it is most of the difference between a warm phone and a hot
+    // one. A cushion only has to absorb the wobble, so the further ahead the
+    // engine is, the less of one it needs.
+    if (margin >= 1.5) return NEURAL_LOOKAHEAD_SEC / 2;
+    return NEURAL_LOOKAHEAD_SEC;
   }
 
   /**
@@ -3130,6 +3158,7 @@
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
       NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,
+      NEURAL_LOOKAHEAD_DEEP: NEURAL_LOOKAHEAD_DEEP,
       NEURAL_LOOKAHEAD_MAX: NEURAL_LOOKAHEAD_MAX,
     },
   };

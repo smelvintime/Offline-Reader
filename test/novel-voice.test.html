@@ -1342,15 +1342,23 @@ const T = {
       pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
         'unmeasured assumes the good case rather than crippling the first chapter') && pass;
       ne.noteSpeed({ ms: 1000, seconds: 3, chars: 60 });      // 3x realtime
-      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
-        'an engine that outruns the reader is asked for the whole cushion') && pass;
-      ne.noteSpeed({ ms: 1000, seconds: 1.2, chars: 24 });    // 1.2x: ahead, barely
       pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC / 2,
-        'barely ahead gets half of it', String(VT().lookaheadSeconds())) && pass;
+        'an engine well ahead needs only enough cushion to absorb the wobble, '
+        + 'and the idle it keeps is what stops the phone heating',
+        String(VT().lookaheadSeconds())) && pass;
+      ne.noteSpeed({ ms: 1000, seconds: 1.2, chars: 24 });    // 1.2x: ahead, barely
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
+        'barely ahead has less slack to spare, so it holds more',
+        String(VT().lookaheadSeconds())) && pass;
+      // Below break-even the depth is free: the generator never idles anyway,
+      // so a deep queue does not add work, it only decides which clips are
+      // ready. Returning 0 here threw away the stretches where the engine ran
+      // fast, and those are exactly what covers the stretches where it did not.
       ne.noteSpeed({ ms: 1000, seconds: 1, chars: 20 });      // break-even
-      pass = ok(VT().lookaheadSeconds() === 0,
-        'and a device that cannot get ahead is not asked to try: the queue it '
-        + 'can never fill is just heat', String(VT().lookaheadSeconds())) && pass;
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
+        'and a device that cannot get ahead banks everything, because below '
+        + 'break-even depth costs nothing and variance is all there is to win',
+        String(VT().lookaheadSeconds())) && pass;
 
       // ── the estimate ────────────────────────────────────────────────────
       // 20 characters per second of audio, so 150 characters is 7.5 s.
@@ -1384,26 +1392,32 @@ const T = {
       st.prefs.rate = 1;
       asked.length = 0;
       VT().prefetchNeural(first);
-      // 40 s of cushion at 10 s a group. A group-counted lookahead stopped at
-      // two here, which is 20 s — less than one generation plus its queueing,
-      // and so a breath every other clip.
-      pass = ok(asked.length === 4,
+      // 2x realtime: 20 s of cushion at 10 s a group, and then the generator
+      // is allowed to stop, which is the only reason the phone ever cools.
+      pass = ok(asked.length === 2,
         'the queue is filled to seconds of playback, not to a group count',
         asked.length + ' groups for ' + VT().lookaheadSeconds() + 's') && pass;
 
-      // Same audio, drained twice as fast: now break-even, and the right
-      // amount of work to do ahead is one group. This is the heat fix.
-      st.prefs.rate = 2;
+      // Barely ahead: less slack, so a longer cushion, still bounded.
+      ne.noteSpeed({ ms: 1000, seconds: 1.2, chars: 24 });    // 1.2x, same 20 cps
       asked.length = 0;
       VT().prefetchNeural(first);
-      pass = ok(asked.length === 1,
-        'a device at break-even generates the next group and stops',
+      pass = ok(asked.length === 4, 'a thinner margin holds more in hand',
+        asked.length + ' groups for ' + VT().lookaheadSeconds() + 's') && pass;
+
+      // Break-even: bank the lot. There is no idle being given up, because
+      // there is always a next group and it is always needed.
+      ne.noteSpeed({ ms: 1000, seconds: 1, chars: 20 });
+      asked.length = 0;
+      VT().prefetchNeural(first);
+      pass = ok(asked.length === 11,
+        'and below it every remaining group is queued, since depth is free there',
         asked.length + ' groups') && pass;
 
       // Already generated, or already queued: counted toward the cushion,
       // never asked for again. The worker is a serial queue, so a duplicate
       // does not just waste time, it renders in front of audio that is waiting.
-      st.prefs.rate = 1;
+      ne.noteSpeed({ ms: 1000, seconds: 1.2, chars: 24 });
       asked.length = 0;
       VT().prefetchNeural(first);
       const repeat = asked.slice();
@@ -1550,14 +1564,15 @@ const T = {
       // The one time a slow device should be at full tilt: it is generating
       // into a wait, not into a queue it can never keep.
       ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
-      pass = ok(VT().lookaheadSeconds() === 0,
-        'below break-even the steady-state lookahead is one group') && pass;
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
+        'below break-even the steady-state lookahead banks everything') && pass;
       st.prebuffer = { target: 55, got: 0 };
       pass = ok(VT().lookaheadSeconds() === 55,
         'but while a buffer is being built the target is the lookahead',
         String(VT().lookaheadSeconds())) && pass;
       st.prebuffer = null;
-      pass = ok(VT().lookaheadSeconds() === 0, 'and it goes back afterwards') && pass;
+      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
+        'and it goes back afterwards') && pass;
     } finally {
       ne.speed = held.speed;
       ne.clipSeconds.clear();

@@ -932,6 +932,35 @@ const T = {
       pass = ok(z(voiceScrim) < z(voiceSheet),
         'while staying under its own sheet', z(voiceScrim) + ' vs ' + z(voiceSheet)) && pass;
 
+      // Mobile sheets used to hide with translateY(101%). That percentage is
+      // relative to the sheet, so WebKit changed the travel distance as the
+      // first layout resolved and visibly threw the sheet to the top before
+      // dropping it back. Prove that changing a hidden sheet's height cannot
+      // change its off-screen destination anymore.
+      if (innerWidth < 720) {
+        const hiddenTravel = function (sheet) {
+          const oldHeight = sheet.style.height;
+          const oldTransition = sheet.style.transition;
+          sheet.style.transition = 'none';
+          sheet.hidden = true;
+          sheet.style.height = '180px';
+          const first = new DOMMatrixReadOnly(getComputedStyle(sheet).transform).m42;
+          sheet.style.height = '360px';
+          const second = new DOMMatrixReadOnly(getComputedStyle(sheet).transform).m42;
+          sheet.style.height = oldHeight;
+          sheet.style.transition = oldTransition;
+          return [first, second];
+        };
+        const readerTravel = hiddenTravel(readerSheet);
+        const voiceTravel = hiddenTravel(voiceSheet);
+        pass = ok(Math.abs(readerTravel[0] - readerTravel[1]) < 0.5,
+          'reader sheet has a height-independent mobile travel distance',
+          readerTravel.join(' vs ')) && pass;
+        pass = ok(Math.abs(voiceTravel[0] - voiceTravel[1]) < 0.5,
+          'voice sheet has a height-independent mobile travel distance',
+          voiceTravel.join(' vs ')) && pass;
+      }
+
       // Opening one closes the other, in both orders.
       const aa = document.querySelector('#novel-screen [aria-label*="ettings"]');
       const vb = document.querySelector('.vc-bar [aria-label="Voice settings"]');

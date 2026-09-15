@@ -1122,6 +1122,14 @@ sheet is actually visible (`syncBackdropInert`) rather than set and unset in
 pairs that only balance if every path is matched. An inert backdrop outliving
 the sheet that asked for it is the whole of "the screen will not move".
 
+On narrow screens both sheets animate from a fixed viewport-height destination,
+not a percentage of their own height. This is load-bearing on mobile WebKit:
+font and row layout can change a sheet's measured height during its first open,
+so a percentage transform can overshoot to the top of the reader before
+settling. The sheet header is non-shrinking, the body has `min-height: 0`, and
+only the body owns contained vertical scrolling. Keep those constraints shared
+between `.nv-sheet` and `.vc-sheet`.
+
 **The highlight is a range on the web and a block in the app.** The Custom
 Highlight API paints into the same tiles as the text, and the native WebView
 does not reliably invalidate those tiles when the registry entry is replaced: in

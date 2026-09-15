@@ -978,11 +978,10 @@ file absent (or a browser with neither `speechSynthesis` nor `Worker`,
 in which case the module leaves `window.NovelVoice` undefined), the reader
 renders no Listen button and behaves exactly as before.
 
-The floating transport is temporary chrome. While narration is playing it
-retires after three seconds without interaction; paused controls and an open
-voice sheet remain visible. A centre/prose tap recalls the transport and the
-reader header/footer together, so the bottom page rail never needs a second
-tap. Hidden controls are also `inert` and `aria-hidden`, not merely transparent.
+The floating transport is part of the reader chrome, not an independent layer.
+A centre/prose tap hides or reveals the transport, header, footer and bottom
+page rail together with the same 280 ms motion. Hidden controls are also
+`inert` and `aria-hidden`, not merely transparent.
 
 **Two narrators, named rather than ranked.** The iPhone's own voice
 (`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
@@ -1063,6 +1062,17 @@ sentence, because nothing is generated behind it and its whole length is a wait
 someone is sitting through. The lookahead behind it keeps the real caps, so
 nothing rendered during that wait is keyed to boundaries that stop existing
 when the caps go back to normal.
+
+After that first sample, the adaptive caps are fixed for the listening session.
+The generation ratio naturally varies from clip to clip; allowing those samples
+to change group boundaries after lookahead has queued audio changes the cache
+keys, discards prepared work, and presents as "Preparing voice" in the middle of
+a chapter. A later session can choose a new tier from the latest measurement.
+
+Natural-voice prewarming is delayed until the reader has had its first 1.5
+seconds and the browser reports idle time. This keeps model startup from
+competing with initial pagination and font settling. Pressing Listen sooner
+still starts the engine immediately through the normal path.
 
 **Below break-even the deficit is paid up front, not a second at a time.** Over
 a chapter of D seconds the engine produces `margin × D` and the reader consumes

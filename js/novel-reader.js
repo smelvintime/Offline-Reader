@@ -1162,8 +1162,16 @@
    * properly; this only guarantees that nothing stays visible.
    */
   function hideStrandedVoiceSheet() {
-    const nodes = document.querySelectorAll('#novel-screen .vc-sheet, #novel-screen .vc-scrim');
-    for (let i = 0; i < nodes.length; i++) nodes[i].hidden = true;
+    const voiceSheet = document.querySelector('#novel-screen .vc-sheet');
+    const voiceScrim = document.querySelector('#novel-screen .vc-scrim');
+    if (voiceSheet) { voiceSheet.hidden = true; voiceSheet.inert = true; }
+    if (voiceScrim) voiceScrim.hidden = true;
+  }
+
+  function readerSheetVisible() { return !!(dom.sheet && !dom.sheet.hidden); }
+
+  function voiceSheetVisible() {
+    return !!document.querySelector('#novel-screen .vc-sheet:not([hidden])');
   }
 
   /**
@@ -1185,7 +1193,6 @@
   }
 
   function openSheet() {
-    if (sheetOpen) return;
     // The voice sheet (§2.14) docks in the same place; never stack the two.
     try {
       if (window.NovelVoice && typeof window.NovelVoice.closeSheet === 'function') window.NovelVoice.closeSheet();
@@ -1200,6 +1207,9 @@
     // take every control off the screen. Hiding an element that is already
     // hidden costs nothing; this is the cheap half of a very expensive bug.
     hideStrandedVoiceSheet();
+    // Recovery can call this from an impossible two-open state. Even when our
+    // sheet is already visible, the sweep above must run before returning.
+    if (readerSheetVisible()) { sheetOpen = true; syncBackdropInert(); return; }
     sheetOpen = true;
     lastFocus = document.activeElement;
     dom.scrim.hidden = false;
@@ -1219,7 +1229,7 @@
    * sheet on screen behind one that is trying to replace it.
    */
   function closeSheet() {
-    if (!sheetOpen && (!dom.sheet || dom.sheet.hidden)) return;
+    if (!sheetOpen && !readerSheetVisible()) return;
     sheetOpen = false;
     dom.scrim.hidden = true;
     dom.sheet.hidden = true;
@@ -2127,6 +2137,7 @@
   function toggleChrome(force) {
     const hide = force === undefined ? !dom.root.classList.contains('nv-chrome-hidden') : !!force;
     dom.root.classList.toggle('nv-chrome-hidden', hide);
+    voiceNotify('chrome', { hidden: hide });
   }
 
   function toast(msg, ms) {
@@ -2642,11 +2653,7 @@
     // Tap zones (paged). The zones sit above the prose only in paged mode.
     on(dom.zPrev, 'click', function () { if (!swallowClick()) prevPage(); });
     on(dom.zNext, 'click', function () { if (!swallowClick()) nextPage(); });
-    on(dom.zMid,  'click', function () {
-      if (swallowClick()) return;
-      if (revealVoiceControls()) toggleChrome(false);
-      else toggleChrome();
-    });
+    on(dom.zMid,  'click', function () { if (!swallowClick()) toggleChrome(); });
 
     // Tapping the prose in the scroll modes toggles chrome, but only when it is
     // really a tap: not a text selection, not a control, not a link.
@@ -2655,8 +2662,7 @@
       if (e.target.closest('button, a, input, select, textarea')) return;
       const sel = window.getSelection && window.getSelection();
       if (sel && String(sel).length > 0) return;
-      if (revealVoiceControls()) toggleChrome(false);
-      else toggleChrome();
+      toggleChrome();
     });
 
     on(dom.back, 'click', function () { api.close(); });
@@ -2668,7 +2674,10 @@
       if (window.Catalogue && typeof window.Catalogue.goHome === 'function') window.Catalogue.goHome();
       else if (typeof window.showScreen === 'function') window.showScreen('home-screen');
     });
-    on(dom.settingsBtn, 'click', function () { sheetOpen ? closeSheet() : openSheet(); });
+    on(dom.settingsBtn, 'click', function () {
+      if (readerSheetVisible() && !voiceSheetVisible()) closeSheet();
+      else openSheet();
+    });
     if (dom.listenBtn) {
       on(dom.listenBtn, 'click', function () {
         if (window.NovelVoice && typeof window.NovelVoice.toggle === 'function') window.NovelVoice.toggle();
@@ -2735,7 +2744,12 @@
     switch (e.key) {
       case 'Escape':
         e.preventDefault();
-        if (sheetOpen) closeSheet(); else api.close();
+        if (readerSheetVisible() || document.querySelector('#novel-screen .vc-sheet:not([hidden])')) {
+          closeSheet();
+          try { if (window.NovelVoice && window.NovelVoice.closeSheet) window.NovelVoice.closeSheet(); } catch (err) {}
+          hideStrandedVoiceSheet();
+          syncBackdropInert();
+        } else api.close();
         return;
       case 'ArrowRight': case 'PageDown':
         e.preventDefault(); nextPage(); return;
@@ -2769,7 +2783,7 @@
       case '-': case '_':
         setPref('fontSize', clamp(state.prefs.fontSize - FONT_STEP, FONT_MIN, FONT_MAX), true);
         e.preventDefault(); return;
-      case 's': sheetOpen ? closeSheet() : openSheet(); e.preventDefault(); return;
+      case 's': readerSheetVisible() ? closeSheet() : openSheet(); e.preventDefault(); return;
       case 'h': toggleChrome(); e.preventDefault(); return;
       case '?': openSheet(); e.preventDefault(); return;
     }
@@ -3023,17 +3037,6 @@
         window.NovelVoice.readerEvent(kind, info || null, voiceBridge());
       }
     } catch (e) { /* narration is an accessory, reading is the product */ }
-  }
-
-  // A narration transport that retired after its idle delay gets first claim
-  // on a centre/prose tap. Restore the reader chrome with it so the quiet page
-  // rail and the voice controls never require two separate taps to recall.
-  function revealVoiceControls() {
-    try {
-      return !!(window.NovelVoice
-        && typeof window.NovelVoice.revealControls === 'function'
-        && window.NovelVoice.revealControls());
-    } catch (e) { return false; }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

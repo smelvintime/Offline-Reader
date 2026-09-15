@@ -5,9 +5,8 @@ keep up with them.
 
 ## Why this exists
 
-The model was never the problem. Kokoro-82M at q8 is 88 MB and already sits in
-the app bundle; making it bigger would make it slower, not faster. What was slow
-is **where it ran**: WebAssembly, single-threaded, inside a WebView sandbox.
+The first problem was **where it ran**: WebAssembly, single-threaded, inside a
+WebView sandbox.
 
 Apple's own Premium voices are the same class of thing executed as native ARM
 code, which is most of why theirs sound effortless and ours did not. Measured on
@@ -15,20 +14,45 @@ a real iPhone, the wasm path took minutes to speak a paragraph — not because t
 phone is slow, but because a browser sandbox is the wrong place to run an
 82-million-parameter model.
 
-So this changes the execution path and nothing else. Same weights, same voices,
-the same `model_quantized.onnx` the web build loads.
+The second problem was **which weights**. This first shipped loading the same
+`model_quantized.onnx` as the web build, on the reasoning that a smaller model
+is a faster one. That is true of a download and false of this graph. q8 here is
+*dynamic* quantisation: it rewrites the matmuls to int8 and wraps them in
+quantise/dequantise pairs, leaves Kokoro's convolutions and its iSTFT decoder's
+LSTMs in float, and pays a conversion at every boundary between the two. It
+buys an 88 MB download instead of a 326 MB one, which is the right trade in a
+browser and no trade at all in an app bundle that ships the file either way.
 
-## Why ONNX Runtime and not Core ML directly
+So `bundledWeights` prefers fp32, then fp16, then q8. A build that only has q8
+runs exactly as it did before and says `q8` in the engine line; re-running
+`scripts/fetch-voice-model.mjs` is what upgrades it. Only one session is ever
+resident: the wasm session kokoro-js builds during `from_pretrained` is
+disposed the moment the native one takes over.
+
+Session options are set explicitly rather than left to defaults. Graph
+optimisation runs at `.all`, and intra-op threads are pinned to half the
+logical cores — the other half are efficiency cores, and handing them matmuls
+makes the fast cores wait at every join.
+
+## Why ONNX Runtime and not Core ML
 
 `coremltools` no longer converts ONNX. That route goes through PyTorch and a
 re-export, and every step is a chance for the voice to come out subtly wrong.
-ONNX Runtime loads the file we already ship, and its Core ML execution provider
-hands over whatever the graph allows. A quantised model often falls back to CPU,
-and that is fine — native ARM with NEON is already a different universe from
-single-threaded wasm, which is the gap that mattered.
+ONNX Runtime loads the file we already ship.
 
-Which provider actually ran is reported back and shown on the app's engine line,
-because "why is this slow" should never need a rebuild to answer.
+Its Core ML **execution provider** is a different thing, and this deliberately
+does not append one. It was appended unconditionally at first, on the
+assumption that a provider which can decline is free to offer. It is not. On
+the quantised graph Core ML cannot run int8 nodes at all, so it claims a few
+float islands and the partition boundaries cost more than the islands save. On
+any graph it specialises per input shape — and every group is a different
+number of phoneme tokens, so a chapter becomes a fresh compile per sentence,
+which is the opposite of the problem being solved.
+
+Restoring it is three lines before the session is built. What would justify
+them is a measurement, and the engine line prints the one to beat: the provider
+and the dtype that actually ran, next to the last group's seconds of compute
+per second of audio. "Why is this slow" should never need a rebuild to answer.
 
 ## The seam
 

@@ -84,7 +84,25 @@
   // is worse than a slightly longer generation. Kokoro chunks internally, so
   // this costs latency on one group, not correctness.
   const NEURAL_GROUP_CONT_MAX = 700;
-  const NEURAL_LOOKAHEAD = 2;        // groups generated ahead of playback
+  // How far ahead of the reader the generator tries to stay, counted in
+  // SECONDS OF PLAYBACK rather than in groups. Groups shrink on a slow device
+  // (neuralGroupCaps), so a fixed group count buys the least runway on exactly
+  // the devices that need the most: two 90-character groups is a third of the
+  // cushion two 300-character ones gave, and the shrink is triggered by the
+  // device being slow. Seconds are the quantity that actually has to cover the
+  // next generation, so seconds are what the lookahead counts.
+  const NEURAL_LOOKAHEAD_MIN = 2;    // groups, however long they are
+  const NEURAL_LOOKAHEAD_MAX = 6;    // groups; bounded by WAV_CACHE_MAX
+  const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds to keep in hand
+  // The queue is topped up on this interval as well as at group boundaries.
+  // A boundary top-up looks at the queue once per clip and then not again for
+  // as long as that clip plays, which is precisely the window there was spare
+  // time to generate in.
+  const NEURAL_PUMP_MS = 2000;
+  // Characters of prose per second of audio, until this voice has produced a
+  // group and the real figure is known. Only used to size the buffer; being
+  // wrong makes the cushion the wrong length, not the playback wrong.
+  const NEURAL_CHARS_PER_SEC = 15;
   const NEURAL_TIMEOUT_MS = 120000;  // one group; the first pays session warm-up
   // Silence from the worker during init. Not a deadline for the whole load —
   // every message resets it — so a slow download and a slow ONNX session
@@ -254,12 +272,14 @@
       + (neuralEngine.note ? ' · note: ' + neuralEngine.note : '')
       + ' · inference: ' + (neuralEngine.native
           ? 'native' + (neuralEngine.provider ? '/' + neuralEngine.provider : '')
+            + (neuralEngine.nativeWeights ? ' ' + neuralEngine.nativeWeights : '')
           : 'wasm')
       + (neuralEngine.speed
           ? ' · last group: ' + neuralEngine.speed.chars + ' chars, '
             + (neuralEngine.speed.ms / 1000).toFixed(1) + 's compute for '
             + neuralEngine.speed.seconds.toFixed(1) + 's audio ('
-            + neuralEngine.speed.ratio.toFixed(2) + '× realtime)'
+            + neuralEngine.speed.ratio.toFixed(2) + '× realtime, '
+            + neuralMargin().toFixed(2) + '× at this speed)'
           : '')
       + (c.memoryError ? ' · ' + c.memoryError : '');
   }
@@ -825,6 +845,7 @@
     emptyHops: 0,          // consecutive auto-advances through speechless chapters
     spokeOk: 0,            // utterances completed this session (crash-loop breaker)
 
+    group: null,           // neural group currently playing (the pump's cursor)
     utterance: null,       // device engine's in-flight utterance
     speakToken: 0,         // invalidates stale onend/async callbacks
 
@@ -1076,14 +1097,16 @@
     note: '',              // something the worker saw escape; diagnostic only
     speed: null,           // { ms, seconds, chars, ratio } for the last group
     native: false,         // true once a load proved the forward pass is native
-    provider: '',          // 'coreml' | 'cpu', as the plugin reported it
+    provider: '',          // e.g. 'cpu ×3', as the plugin reported it
     device: null,          // device the live worker was initialised with
+    nativeWeights: '',     // dtype the native session actually opened
     readyPromise: null,
     ready: false,          // resolved at least once (drives the sheet status)
     nextId: 1,
     pending: new Map(),    // id → { resolve, reject, timer }
     inFlight: new Map(),   // cacheKey → Promise<blob URL> not yet settled
     wavCache: new Map(),   // cacheKey → blob URL (bounded LRU)
+    clipSeconds: new Map(),// cacheKey → audio seconds (same lifetime as wavCache)
     onprogress: null,      // sheet download/init-progress hook
     idleTimer: 0,          // scheduled teardown after release()
 
@@ -1158,6 +1181,7 @@
             nativeKokoro().infer(m.ids, m.style, m.speed).then(function (r) {
               if (!r || !r.pcm) throw new Error('native inference returned nothing');
               self.provider = r.provider || '';
+              self.nativeWeights = r.weights || '';
               w.postMessage({ type: 'infer-result', id: m.id, pcm: r.pcm });
             }).catch(function (e) {
               w.postMessage({ type: 'infer-error', id: m.id,
@@ -1260,10 +1284,12 @@
       }).then(function (msg) {
         const url = URL.createObjectURL(new Blob([msg.wav], { type: 'audio/wav' }));
         self.wavCache.set(cacheKey, url);
+        self.clipSeconds.set(cacheKey, msg.seconds || 0);
         while (self.wavCache.size > WAV_CACHE_MAX) {
           const oldest = self.wavCache.keys().next().value;
           const u = self.wavCache.get(oldest);
           self.wavCache.delete(oldest);
+          self.clipSeconds.delete(oldest);
           try { URL.revokeObjectURL(u); } catch (e) {}
         }
         return url;
@@ -1317,6 +1343,7 @@
       const self = this;
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();
+      this.clipSeconds.clear();
     },
 
     // "Is the model on this device?" — bundled counts, and is asked first: a
@@ -1577,15 +1604,51 @@
    * own generations. Until a group has been generated there is no reading, and
    * the original caps stand.
    */
-  function neuralGroupCaps() {
+  /**
+   * Generation speed measured against the speed the reader actually drains it.
+   *
+   * neuralEngine.speed.ratio is audio-seconds per compute-second at speed 1,
+   * because the worker always generates at 1 and the <audio> element does the
+   * stretching. A reader at 1.5× empties that audio half again as fast, so a
+   * 1.3× generator is really a 0.87× one and falls behind for the whole
+   * chapter. Comparing the raw ratio against a fixed threshold gets this
+   * wrong, and gets it wrong in the direction that stutters — the faster the
+   * reader asks to go, the more confident the check becomes.
+   *
+   * 0 means not measured yet: no group has finished, so there is nothing to
+   * compare and the callers keep their optimistic defaults.
+   */
+  function neuralMargin() {
     const sp = neuralEngine.speed;
+    if (!sp || !sp.ratio) return 0;
+    return sp.ratio / (state.prefs.rate || 1);
+  }
+
+  /**
+   * Audio seconds a group will take, before it has been generated.
+   *
+   * From what this voice actually produced for the last group: prose is
+   * uniform enough that characters per second holds across a chapter, and the
+   * only exact alternative is generating the clip, which is the thing the
+   * estimate exists to schedule.
+   */
+  function estimateSeconds(text) {
+    const sp = neuralEngine.speed;
+    const cps = (sp && sp.chars > 0 && sp.seconds > 0)
+      ? sp.chars / sp.seconds
+      : NEURAL_CHARS_PER_SEC;
+    return (text || '').length / cps;
+  }
+
+  function neuralGroupCaps() {
+    const margin = neuralMargin();
     const wide = { target: NEURAL_GROUP_TARGET, max: NEURAL_GROUP_MAX, contMax: NEURAL_GROUP_CONT_MAX };
-    if (!sp || !sp.ratio) return wide;
+    if (!margin) return wide;
     // Comfortably ahead of the reader: leave prosody alone, it is why groups
-    // exist. The margin is above 1.0 because lookahead needs slack to stay
+    // exist. The threshold is above 1.0 because lookahead needs slack to stay
     // ahead, not merely to break even.
-    if (sp.ratio >= 1.5) return wide;
-    if (sp.ratio >= 0.7) return { target: 90, max: 160, contMax: 400 };
+    if (margin >= 1.5) return wide;
+    if (margin >= 0.7) return { target: 90, max: 160, contMax: 400 };
     return { target: 45, max: 90, contMax: 220 };
   }
 
@@ -1632,6 +1695,8 @@
     // always agree on what is being read.
     highlighter.apply(group);
     setPreparingSoon();
+    state.group = group;         // the pump tops up from here while this plays
+    startPrefetchPump();
     const chapterId = state.chapterId;
     const groupDone = function () {
       if (token !== state.speakToken || !state.playing) return;
@@ -1659,25 +1724,61 @@
     mediaSessionUpdate();
   }
 
-  // Keep the next groups in flight while this one plays. The worker is a
-  // serial queue, so this is "top the queue up to depth 2", not a stampede.
+  /**
+   * Keep enough generated audio in hand to cover the next generation.
+   *
+   * The worker is a serial queue, so this tops the queue up — it is not a
+   * stampede. What counts as "enough" is NEURAL_LOOKAHEAD_SEC of playback,
+   * measured at the rate the reader is actually running: clips already
+   * generated contribute their true length, clips in flight their estimate.
+   * Groups that are already cached or already queued are counted and skipped,
+   * never re-requested.
+   *
+   * Safe to call repeatedly, and the pump does.
+   */
   function prefetchNeural(currentGroup) {
-    if (!neuralEngine.worker) return;
+    if (!neuralEngine.worker || !currentGroup) return;
+    const rate = state.prefs.rate || 1;
     let from = currentGroup.to + 1;
-    for (let k = 0; k < NEURAL_LOOKAHEAD; k++) {
+    let ahead = 0;               // playback seconds already in hand or coming
+    for (let k = 0; k < NEURAL_LOOKAHEAD_MAX; k++) {
+      if (k >= NEURAL_LOOKAHEAD_MIN && ahead >= NEURAL_LOOKAHEAD_SEC) break;
       const g = neuralGroupAt(from);
       if (!g) break;
       const key = neuralKey(state.chapterId, g);
-      if (!neuralEngine.wavCache.has(key)) {
+      const known = neuralEngine.clipSeconds.get(key);
+      if (!neuralEngine.wavCache.has(key) && !neuralEngine.inFlight.has(key)) {
         neuralEngine.generate(key, normalizeForSpeech(g.text, 'neural'), state.prefs.neuralVoice)
           // Generated is not the same as ready to play. The clip still has to
           // be decoded, and paying for that while the current one plays is the
           // difference between a seam and a breath.
-          .then(function () { primeNextClip(currentGroup); })
+          .then(function () { primeNextClip(state.group || currentGroup); })
           .catch(function () { /* the on-cursor attempt will retry and report */ });
       }
+      ahead += (known || estimateSeconds(g.text)) / rate;
       from = g.to + 1;
     }
+  }
+
+  // Boundary top-ups leave the queue unattended for the length of a clip, and
+  // that is the only time there is spare capacity to generate in. The pump
+  // checks it on a timer instead, so a buffer that drains mid-clip is refilled
+  // mid-clip rather than after the gap the reader would otherwise hear.
+  let prefetchTimer = 0;
+
+  function startPrefetchPump() {
+    if (prefetchTimer) return;
+    prefetchTimer = setInterval(function () {
+      if (!state.playing || !state.group || state.prefs.narrator !== 'natural') return;
+      prefetchNeural(state.group);
+      primeNextClip(state.group);
+    }, NEURAL_PUMP_MS);
+  }
+
+  function stopPrefetchPump() {
+    if (!prefetchTimer) return;
+    clearInterval(prefetchTimer);
+    prefetchTimer = 0;
   }
 
   /**
@@ -1774,6 +1875,10 @@
   function cancelSpeech() {
     state.speakToken++;
     clearTimeout(preparingTimer); preparingTimer = 0;
+    // The pump generates from state.group, so a cursor left behind here would
+    // keep synthesising for a chapter nobody is listening to any more.
+    stopPrefetchPump();
+    state.group = null;
     neuralEngine.cancelPending();
     systemSpeech().stop();
     channel.stop();
@@ -2784,6 +2889,10 @@
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,
       neuralGroupCaps: neuralGroupCaps,
+      neuralMargin: neuralMargin,
+      estimateSeconds: estimateSeconds,
+      prefetchNeural: prefetchNeural,
+      state: state,
       normalizeForSpeech: normalizeForSpeech,
       encodeWav: encodeWav,
       readPrefs: readPrefs,
@@ -2805,6 +2914,8 @@
       setSystemVoices: function (list) { state.systemVoices = list; },
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
+      NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,
+      NEURAL_LOOKAHEAD_MAX: NEURAL_LOOKAHEAD_MAX,
     },
   };
 })();

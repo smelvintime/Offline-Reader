@@ -17,14 +17,23 @@ None of this is loaded at app boot. `js/novel-voice.js` spawns
 the worker imports `kokoro.web.js` from here, pointing ONNX Runtime's
 `wasmPaths` at this directory instead of its default CDN.
 
-The **model weights are not in this repository** (~90 MB is a download, not
-a commit), but they can be in the BUILD, and for the native app they should
-be:
+The **model weights are not in this repository** (a download, not a commit),
+but they can be in the BUILD, and for the native app they should be:
 
 ```bash
 node scripts/fetch-voice-model.mjs      # → vendor/tts/models/, vendor/tts/voices/
 npm run sync                            # carries them into www/ and the app
 ```
+
+That fetches two dtypes, ~414 MB, because the app runs two engines that want
+opposite files. **q8** (~88 MB) is what kokoro-js builds its ONNX Runtime wasm
+session from, in every build; on the web it is the engine. **fp32** (~326 MB)
+is what `native/or-kokoro` opens, and it is the faster forward pass despite the
+larger file — q8 here is dynamic quantisation, so the graph pays a conversion
+at every boundary between its int8 matmuls and the float convolutions and LSTMs
+around them. Only one session is resident at a time: the wasm one is disposed
+as soon as native inference takes over. `--dtype q8` fetches just the small one
+for a web deploy.
 
 Both directories are gitignored. `js/novel-voice-worker.js` points
 transformers.js's `localModelPath` at `vendor/tts/models/`, and transformers.js

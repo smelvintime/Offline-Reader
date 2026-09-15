@@ -989,16 +989,36 @@ in the old code ever surfaced it.
 
 **The neural engine's forward pass runs natively where it can.** `tts.model` is
 a plain property on the vendored engine, so `js/novel-voice-worker.js` swaps it
-for a call to `native/or-kokoro` (ONNX Runtime, Core ML execution provider where
-the graph allows it) and everything else — phonemisation, tokenisation, the
+for a call to `native/or-kokoro` (ONNX Runtime on the CPU execution provider)
+and everything else — phonemisation, tokenisation, the
 voice style slice, the text splitter — stays exactly as vendored. Same weights,
 same voices; only the tensor maths crosses the bridge.
 
-The model was never the problem. 88 MB of weights already ship and a bigger one
-would be slower. What was slow is where they ran: WebAssembly, single-threaded,
-inside a WebView. The engine line reports `inference: native/coreml` or
-`inference: wasm`, because "why is this slow" should never need a rebuild to
-answer.
+Two things were slow, and only one of them was obvious. The first was where the
+weights ran: WebAssembly, single-threaded, inside a WebView. The second was
+which weights — q8 is *dynamic* quantisation, so the graph pays a
+quantise/dequantise conversion at every boundary between its int8 matmuls and
+the float convolutions and LSTMs around them. That trade buys a smaller
+download, which an app bundle does not need. The native session now prefers
+fp32 and falls back through fp16 to q8, and the engine line reports
+`inference: native/cpu ×3 fp32` or `inference: wasm`, because "why is this
+slow" should never need a rebuild to answer.
+
+No Core ML execution provider, deliberately. It cannot run the quantised
+graph's int8 nodes, and on any graph it specialises per input shape — every
+group is a different number of phoneme tokens, so a chapter becomes a compile
+per sentence. "cpu" here is native ARM across the performance cores, pinned to
+half the logical cores because the other half are efficiency cores and a matmul
+split across both makes the fast ones wait at every join.
+
+**Lookahead is measured in seconds of playback, not in groups.** The caps
+shrink groups on a slow device, so a group-counted cushion gets shorter exactly
+where it needs to get longer. And the generation ratio is measured at speed 1
+while the reader drains the audio at their chosen rate, so it is compared
+against `ratio / rate` — a 1.34× engine is a 0.67× one to a reader at 2×.
+`prefetchNeural` fills the queue to `NEURAL_LOOKAHEAD_SEC` of playback and a
+timer tops it up mid-clip, because a boundary-only top-up leaves the queue
+unattended for precisely the window there was spare capacity to generate in.
 
 **One neural engine, by design.** Narration is Kokoro-82M through the vendored
 `vendor/tts/kokoro.web.js` (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a

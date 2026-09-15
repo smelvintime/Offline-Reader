@@ -252,6 +252,14 @@ compiles against `java.util.zip` from the platform.
 Nothing extra to generate — the pieces arrive mechanically — but three things
 are worth knowing, and one is a manual iOS step:
 
+- **The natural voice runs natively through `native/or-kokoro`.** A local
+  Capacitor plugin over ONNX Runtime, loading the same
+  `model_quantized.onnx` that `scripts/fetch-voice-model.mjs` already puts in
+  the bundle. No extra download and no model conversion. `npm install` +
+  `npm run sync` wires it like any plugin. Without it the natural voice still
+  works, in WebAssembly, at a speed a real iPhone measured in minutes per
+  paragraph.
+
 - **The iPhone voice is `native/or-speech`.** A local Capacitor plugin over
   `AVSpeechSynthesizer`, wired like any other (`npm install` + `npm run sync`,
   no per-platform config) and carrying no third-party code. It is the default

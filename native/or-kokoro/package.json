@@ -1,0 +1,25 @@
+{
+  "name": "or-kokoro",
+  "version": "0.1.0",
+  "description": "Runs Kokoro's ONNX forward pass natively instead of in WebAssembly. Same weights, same voices; phonemisation, tokenisation and voice styles stay in JS and only the tensor maths crosses the bridge.",
+  "main": "index.js",
+  "license": "AGPL-3.0-or-later",
+  "author": "Offline Reader",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smelvintime/Offline-Reader"
+  },
+  "keywords": ["capacitor", "plugin", "native", "onnxruntime", "tts"],
+  "files": [
+    "ios/Sources",
+    "Package.swift",
+    "OrKokoro.podspec",
+    "index.js"
+  ],
+  "capacitor": {
+    "ios": { "src": "ios" }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

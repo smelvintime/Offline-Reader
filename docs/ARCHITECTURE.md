@@ -987,6 +987,19 @@ sorts on iOS's own quality tier and says so when only the compact voice is
 installed, because that is a settings problem with a one-minute fix and nothing
 in the old code ever surfaced it.
 
+**The neural engine's forward pass runs natively where it can.** `tts.model` is
+a plain property on the vendored engine, so `js/novel-voice-worker.js` swaps it
+for a call to `native/or-kokoro` (ONNX Runtime, Core ML execution provider where
+the graph allows it) and everything else — phonemisation, tokenisation, the
+voice style slice, the text splitter — stays exactly as vendored. Same weights,
+same voices; only the tensor maths crosses the bridge.
+
+The model was never the problem. 88 MB of weights already ship and a bigger one
+would be slower. What was slow is where they ran: WebAssembly, single-threaded,
+inside a WebView. The engine line reports `inference: native/coreml` or
+`inference: wasm`, because "why is this slow" should never need a rebuild to
+answer.
+
 **One neural engine, by design.** Narration is Kokoro-82M through the vendored
 `vendor/tts/kokoro.web.js` (kokoro-js 1.2.1; see `vendor/tts/README.md`), in a
 module worker, WASM and the q8 weights. The device engine (`speechSynthesis`,

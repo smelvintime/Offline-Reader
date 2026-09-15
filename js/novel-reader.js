@@ -1153,18 +1153,59 @@
     [dom.viewport, dom.zones, dom.header, dom.footer].forEach(function (n) { if (n) n.inert = !!on; });
   }
 
+  /**
+   * Hide a voice sheet that is still on screen after being asked to leave.
+   *
+   * By class rather than through the module, because the point is to be the
+   * check that does not depend on the module answering. Its own closeSheet()
+   * has already been called and is the path that restores focus and inertness
+   * properly; this only guarantees that nothing stays visible.
+   */
+  function hideStrandedVoiceSheet() {
+    const nodes = document.querySelectorAll('#novel-screen .vc-sheet, #novel-screen .vc-scrim');
+    for (let i = 0; i < nodes.length; i++) nodes[i].hidden = true;
+  }
+
+  /**
+   * Derive the backdrop's inertness from what is actually on screen.
+   *
+   * setBackdropInert is called in pairs, and a pair only balances if every
+   * path that opens the sheet is matched by one that closes it. The voice
+   * sheet (§2.14) opens and closes this one through the bridge, which makes
+   * that a promise across two modules — and the failure mode when it is not
+   * kept is the worst one in the app: the sheet is gone, the header and the
+   * page are still inert, and there is nothing left on screen that responds to
+   * a tap. "The screen is unable to move."
+   *
+   * Derived, it cannot drift. Anything that changes what is visible calls this
+   * afterwards and the backdrop follows.
+   */
+  function syncBackdropInert() {
+    setBackdropInert(!!(dom.sheet && !dom.sheet.hidden));
+  }
+
   function openSheet() {
     if (sheetOpen) return;
     // The voice sheet (§2.14) docks in the same place; never stack the two.
     try {
       if (window.NovelVoice && typeof window.NovelVoice.closeSheet === 'function') window.NovelVoice.closeSheet();
     } catch (e) { /* an accessory must not block the settings sheet */ }
+    // …and then check the screen rather than trusting that call.
+    //
+    // Asking the other module to close is a request, and a request can fail in
+    // ways nothing here can see: an exception swallowed above, a module that
+    // never got its bridge, a flag that says closed over a sheet that is not.
+    // Two sheets open at once is not a cosmetic problem — theirs layers above
+    // this one and this one makes the header inert, so between them they can
+    // take every control off the screen. Hiding an element that is already
+    // hidden costs nothing; this is the cheap half of a very expensive bug.
+    hideStrandedVoiceSheet();
     sheetOpen = true;
     lastFocus = document.activeElement;
     dom.scrim.hidden = false;
     dom.sheet.hidden = false;
     dom.sheet.inert = false;
-    setBackdropInert(true);
+    syncBackdropInert();
     dom.settingsBtn.setAttribute('aria-expanded', 'true');
     if (refreshPresets) refreshPresets();   // pick up saves/deletes from elsewhere
     syncSheet();
@@ -1185,7 +1226,7 @@
     // The sheet stays displayed (the stylesheet translates it off-screen for
     // the animation), so it has to be explicitly removed from the tab order.
     dom.sheet.inert = true;
-    setBackdropInert(false);
+    syncBackdropInert();
     dom.settingsBtn.setAttribute('aria-expanded', 'false');
     if (lastFocus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) {} }
     lastFocus = null;
@@ -2948,7 +2989,16 @@
 
       /** One sheet at a time: the voice sheet closes this reader's settings
           sheet when it opens, and openSheet() below returns the favour. */
-      closeSettingsSheet: function () { closeSheet(); },
+      syncBackdrop: function () { syncBackdropInert(); },
+
+      closeSettingsSheet: function () {
+        closeSheet();
+        // Belt and braces. closeSheet() returns early when it believes there
+        // is nothing to close, and the whole reason the voice sheet is calling
+        // is that it is about to cover this one — so the backdrop must come
+        // back either way, or its sheet is up over a header that ignores taps.
+        syncBackdropInert();
+      },
     };
     return voiceBridgeObj;
   }

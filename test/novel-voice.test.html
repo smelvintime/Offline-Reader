@@ -45,6 +45,7 @@
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
   <button onclick="T.testLookaheadBuffer().then(T.report)">lookahead buffer</button>
+  <button onclick="T.testPrebuffer().then(T.report)">prebuffer</button>
   <button onclick="T.testBundledWeights().then(T.report)">bundled weights</button>
   <button onclick="T.testMemoryTier().then(T.report)">memory tier</button>
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
@@ -1453,6 +1454,122 @@ const T = {
     return { name: 'lookahead buffer', pass };
   },
 
+  // Paying a chapter's deficit up front instead of a second at a time.
+  //
+  // Below break-even no scheduling helps: over a chapter of D seconds the
+  // engine produces margin x D and the reader consumes D, so it ends short by
+  // (1 - margin) x D however the work is ordered. That quantity is fixed, and
+  // the only real choice is when it gets paid. These pin the arithmetic that
+  // decides how long the wait is, and the cases where there should be no wait
+  // at all.
+  async testPrebuffer() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const st = VT().state;
+    const held = {
+      speed: ne.speed, sentences: st.sentences, chapterId: st.chapterId,
+      rate: st.prefs.rate, index: st.index, prebuffer: st.prebuffer,
+    };
+    try {
+      // 20 characters per second of audio. 200 sentences of 200 characters is
+      // 40,000 characters, so 2000 seconds of speech at 1x.
+      const list = [];
+      for (let i = 0; i < 200; i++) {
+        list.push({ text: 'S'.repeat(200), blockIdx: i, kind: 'p', start: 0, end: 200 });
+      }
+      st.sentences = list;
+      st.chapterId = 'prebuffer-test';
+      st.index = 0;
+      st.prefs.rate = 1;
+      st.prebuffer = null;
+
+      ne.noteSpeed({ ms: 1000, seconds: 2, chars: 40 });     // 2x realtime, 20 cps
+      pass = ok(Math.abs(VT().chapterSecondsLeft(0) - 2000) < 1,
+        'what is left of the chapter is measured in playback seconds',
+        VT().chapterSecondsLeft(0).toFixed(0) + 's') && pass;
+      st.prefs.rate = 2;
+      pass = ok(Math.abs(VT().chapterSecondsLeft(0) - 1000) < 1,
+        'and a faster reader gets through it in half the time',
+        VT().chapterSecondsLeft(0).toFixed(0) + 's') && pass;
+      st.prefs.rate = 1;
+
+      // ── no deficit, no wait ─────────────────────────────────────────────
+      pass = ok(VT().prebufferTargetSeconds() === 0,
+        'an engine that keeps up is never made to buffer') && pass;
+      ne.noteSpeed({ ms: 1000, seconds: 1.1, chars: 22 });   // 1.1x: still ahead
+      pass = ok(VT().prebufferTargetSeconds() === 0,
+        'and neither is one that is merely close') && pass;
+      ne.speed = null;
+      pass = ok(VT().prebufferTargetSeconds() === 0,
+        'unmeasured does not invent a deficit out of nothing') && pass;
+
+      // ── a real deficit, capped at what anyone will sit through ──────────
+      // The phone's own number. 0.92x over a 2000-second chapter is 160
+      // seconds short, which is far past the cap, so the cap is what applies:
+      // 60 wall seconds of generating buys 60 x 0.92 seconds of audio.
+      ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
+      const capped = VT().prebufferTargetSeconds();
+      pass = ok(Math.abs(capped - VT().NEURAL_PREBUFFER_MAX_SEC * 0.92) < 0.5,
+        'a long chapter buffers as much as the cap allows and no more',
+        capped.toFixed(1) + 's') && pass;
+
+      // A short chapter's whole deficit fits inside the cap, so it is paid in
+      // full and the chapter really does play through without a gap.
+      st.sentences = list.slice(0, 10);          // 2000 chars, 100 s of speech
+      const full = VT().prebufferTargetSeconds();
+      const expected = (1 - 0.92) * 100 * 1.35;
+      pass = ok(Math.abs(full - expected) < 0.5,
+        'a short one pays its whole deficit, safety margin included',
+        full.toFixed(1) + 's vs ' + expected.toFixed(1) + 's') && pass;
+      pass = ok(full < capped, 'and a short chapter never waits longer than a long one',
+        full.toFixed(1) + 's < ' + capped.toFixed(1) + 's') && pass;
+
+      // ── what counts as buffered ─────────────────────────────────────────
+      // Unbroken is the point: audio past a hole cannot be played through it.
+      st.sentences = list;
+      const g0 = VT().groupSentences(list, 0);
+      const g1 = VT().groupSentences(list, 1);
+      const g2 = VT().groupSentences(list, 2);
+      const key = function (g) {
+        return 'prebuffer-test:' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + st.prefs.neuralVoice;
+      };
+      pass = ok(VT().bufferedAhead(g0) === 0, 'nothing generated is nothing buffered') && pass;
+      ne.clipSeconds.set(key(g1), 10);
+      pass = ok(VT().bufferedAhead(g0) === 10, 'one ready group is ten seconds of runway',
+        String(VT().bufferedAhead(g0))) && pass;
+      ne.clipSeconds.set(key(g2), 10);
+      pass = ok(VT().bufferedAhead(g0) === 20, 'two in a row is twenty',
+        String(VT().bufferedAhead(g0))) && pass;
+      ne.clipSeconds.delete(key(g1));
+      pass = ok(VT().bufferedAhead(g0) === 0,
+        'and a hole at the front makes everything behind it unreachable',
+        String(VT().bufferedAhead(g0))) && pass;
+      ne.clipSeconds.delete(key(g2));
+
+      // ── while buffering, generate flat out ──────────────────────────────
+      // The one time a slow device should be at full tilt: it is generating
+      // into a wait, not into a queue it can never keep.
+      ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'below break-even the steady-state lookahead is one group') && pass;
+      st.prebuffer = { target: 55, got: 0 };
+      pass = ok(VT().lookaheadSeconds() === 55,
+        'but while a buffer is being built the target is the lookahead',
+        String(VT().lookaheadSeconds())) && pass;
+      st.prebuffer = null;
+      pass = ok(VT().lookaheadSeconds() === 0, 'and it goes back afterwards') && pass;
+    } finally {
+      ne.speed = held.speed;
+      ne.clipSeconds.clear();
+      st.sentences = held.sentences;
+      st.chapterId = held.chapterId;
+      st.prefs.rate = held.rate;
+      st.index = held.index;
+      st.prebuffer = held.prebuffer;
+    }
+    return { name: 'prebuffer', pass };
+  },
+
   // Weights shipped inside the app: the phone must never be told to download
   // something it already has, and the probe has to work over the custom URL
   // scheme the native shell serves from.
@@ -1756,7 +1873,7 @@ const T = {
       T.testListenButton, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

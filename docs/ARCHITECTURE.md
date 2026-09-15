@@ -1034,6 +1034,19 @@ someone is sitting through. The lookahead behind it keeps the real caps, so
 nothing rendered during that wait is keyed to boundaries that stop existing
 when the caps go back to normal.
 
+**Below break-even the deficit is paid up front, not a second at a time.** Over
+a chapter of D seconds the engine produces `margin × D` and the reader consumes
+`D`, so it ends `(1 − margin) × D` short however cleverly the work is ordered.
+No scheduling turns 0.92 into 1.0. But that quantity is fixed, and the only real
+choice is when it gets paid: `awaitPrebuffer` holds the first clip until
+`prebufferTargetSeconds()` of audio sits generated behind it, showing a
+percentage, and then the chapter plays through. Capped at
+`NEURAL_PREBUFFER_MAX_SEC` of waiting, which does not make a long chapter
+gapless — the deficit is what it is — but front-loads as much of it as anyone
+will sit through, so the gaps that remain come later and fewer. Only the group a
+reader tapped for waits; `bufferedAhead` counts an *unbroken* run, because audio
+past a hole cannot be played through it.
+
 **Clips are trimmed of Kokoro's padding at generation.** Every clip comes back
 with near-silence at each end; played back to back that is two paddings nose to
 tail at every group boundary, which is the seam a reader hears as a breath and

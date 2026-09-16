@@ -12,7 +12,7 @@
 //   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[],
 //                        heapPages:number[], native:boolean }
 //   in:  { type:'generate', id, text, voice }
-//   in:  { type:'cancel' }                  — drop everything not yet started
+//   in:  { type:'cancel', preserveId? }     — drop everything else not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'stage', stage:string }     — where init has got to
 //   out: { type:'note', stage, message }    — something escaped; NOT a verdict
@@ -419,6 +419,9 @@ async function pump() {
   running = true;
   while (queue.length) {
     const job = queue.shift();
+    // The main thread keeps this one promise across pause/resume. ONNX cannot
+    // abort a forward pass once entered, but queued work can still be dropped.
+    post({ type: 'generating', id: job.id });
     // How long a group takes, against how much audio it produced. This ratio
     // is the difference between an engine that is broken and one that is
     // merely slower than the reader, and those want opposite fixes: the first
@@ -458,9 +461,12 @@ self.onmessage = function (ev) {
   if (msg.type === 'infer-result' || msg.type === 'infer-error') { settleNative(msg); return; }
   if (msg.type === 'cancel') {
     // The job mid-generate cannot be aborted (ONNX Runtime runs to
-    // completion); its result is discarded by id on the main thread.
-    const dropped = queue;
-    queue = [];
+    // completion). A just-posted cursor job can be kept across the tiny race
+    // before its `generating` message reaches the main thread; everything else
+    // behind the active job can and should be dropped.
+    const preserveId = Number(msg.preserveId) || 0;
+    const dropped = preserveId ? queue.filter(function (job) { return job.id !== preserveId; }) : queue;
+    queue = preserveId ? queue.filter(function (job) { return job.id === preserveId; }) : [];
     for (let i = 0; i < dropped.length; i++) post({ type: 'error', id: dropped[i].id, message: 'cancelled' });
   }
 };

@@ -96,10 +96,6 @@
   // …and how many of those seconds are worth chasing depends entirely on
   // whether this device can ever get ahead. See lookaheadSeconds().
   const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds of cushion, to absorb wobble
-  // Below break-even there is no idle to protect and depth is free, so the
-  // only real bound is the cache. See lookaheadSeconds().
-  const NEURAL_LOOKAHEAD_DEEP = 240;
-
   // The first group after a tap on Play is the one a reader is actually
   // waiting through, and the only one with nothing already generated behind
   // it. It gets its own caps: one sentence, as short as the prose allows, so
@@ -1746,21 +1742,13 @@
     const margin = neuralMargin();
     if (!margin) return NEURAL_LOOKAHEAD_SEC;   // unmeasured: assume the good case
 
-    // Below break-even, bank everything.
-    //
-    // This used to return zero here, on the reasoning that a queue the device
-    // can never fill is just heat. That was backwards. Below break-even the
-    // generator has no idle moments to protect: there is always a next group
-    // and it is always needed, so the CPU is at a hundred per cent whatever
-    // the depth. Lookahead does not change how much work gets done, only WHICH
-    // clips are ready when — and the depth costs nothing.
-    //
-    // What it buys is the fluctuation. This engine measures 0.92x and 1.28x
-    // minutes apart on the same phone; shallow, the good stretches are thrown
-    // away and the bad ones are heard as a stall. Deep, the good stretches are
-    // banked against the bad, which is the whole of the difference between
-    // "occasionally buffers mid-chapter" and not.
-    if (margin < 1.05) return NEURAL_LOOKAHEAD_DEEP;
+    // Below break-even, keep only the mandatory next group in flight (the
+    // loop's NEURAL_LOOKAHEAD_MIN). A deeper queue cannot make a device that
+    // produces 0.9 seconds of audio per second of compute catch up; it only
+    // keeps inference pinned at full load and turns the phone's battery into
+    // heat. The initial chapter prebuffer still banks the useful head start,
+    // and the next clip is still generated concurrently with playback.
+    if (margin < 1.05) return 0;
 
     // Above it the generator really will go idle, and idle is worth
     // protecting: it is most of the difference between a warm phone and a hot
@@ -3161,6 +3149,7 @@
     // inert, so two of them open at once can between them leave nothing on
     // screen that answers a tap.
     hideStrandedReaderSheet();
+    setSheetOwner('voice');
     sheetOpen = true;
     syncSheet();
     dom.sheet.hidden = false;
@@ -3182,11 +3171,13 @@
    */
   function closeSheet() {
     if (!dom.sheet) return;
-    if (!sheetOpen && dom.sheet.hidden) return;
+    const ownsSlot = sheetOwner() === 'voice';
+    if (!sheetOpen && dom.sheet.hidden && !ownsSlot) return;
     sheetOpen = false;
     dom.sheet.hidden = true;
     dom.sheet.inert = true;
     dom.scrim.hidden = true;
+    if (ownsSlot) setSheetOwner(null);
     // Whatever the reader made inert to show a sheet of its own has to come
     // back now that no sheet is up. It derives that from what is visible, so
     // all this has to do is ask at the right moment.
@@ -3195,10 +3186,23 @@
     }
   }
 
-  function voiceSheetVisible() { return !!(dom.sheet && !dom.sheet.hidden); }
+  function sheetOwner() {
+    const root = dom.sheet && dom.sheet.closest('#novel-screen');
+    return root ? root.dataset.sheetOwner || '' : '';
+  }
+
+  function setSheetOwner(owner) {
+    const root = dom.sheet && dom.sheet.closest('#novel-screen');
+    if (!root) return;
+    if (owner) root.dataset.sheetOwner = owner;
+    else delete root.dataset.sheetOwner;
+  }
+
+  function voiceSheetVisible() { return !!(dom.sheet && !dom.sheet.hidden && sheetOwner() === 'voice'); }
 
   function readerSheetVisible() {
-    return !!document.querySelector('#novel-screen .nv-sheet:not([hidden])');
+    return sheetOwner() === 'reader'
+      && !!document.querySelector('#novel-screen .nv-sheet:not([hidden])');
   }
 
   /**
@@ -3216,6 +3220,7 @@
     if (readerBtn) readerBtn.setAttribute('aria-expanded', 'false');
     document.querySelectorAll('#novel-screen .nv-viewport, #novel-screen .nv-zones, #novel-screen .nv-header, #novel-screen .nv-footer')
       .forEach(function (node) { node.inert = false; });
+    if (sheetOwner() === 'reader') setSheetOwner(null);
   }
 
   function syncSheet() {
@@ -3319,7 +3324,6 @@
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
       NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,
-      NEURAL_LOOKAHEAD_DEEP: NEURAL_LOOKAHEAD_DEEP,
       NEURAL_LOOKAHEAD_MAX: NEURAL_LOOKAHEAD_MAX,
     },
   };

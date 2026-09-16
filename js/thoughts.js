@@ -191,9 +191,9 @@
 
   // ── Book-finish detection (the goals §5.1 rule, verbatim) ─────────────────
   //
-  // The finale's id by ascending num — the catalogue's own reading-order rule.
-  // A decimal finale (num 271.5 over chapterCount 271) sorts last here and is
-  // caught by ID equality where num arithmetic never would be;
+  // The finale's id by explicit EPUB order when present, then ascending num.
+  // A decimal finale (num 271.5 over chapterCount 271) sorts last in the legacy
+  // path and is caught by ID equality where num arithmetic never would be;
   // chapterNum === chapterCount is the last resort only.
 
   function lastChapterIdOf(seriesId) {
@@ -203,10 +203,15 @@
       const s = C.getSeries(seriesId);
       const chs = s && Array.isArray(s.chapters) ? s.chapters : null;
       if (!chs || !chs.length) return null;
+      const byOrder = chs.some(function (ch) { return ch && ch.order != null && Number.isFinite(Number(ch.order)); });
       let last = chs[0];
-      let lastNum = last && last.num != null ? last.num : 0;
+      let lastNum = byOrder
+        ? (last && last.order != null && Number.isFinite(Number(last.order)) ? Number(last.order) : -Infinity)
+        : (last && last.num != null ? last.num : 0);
       for (let i = 1; i < chs.length; i++) {
-        const n = chs[i] && chs[i].num != null ? chs[i].num : 0;
+        const n = byOrder
+          ? (chs[i] && chs[i].order != null && Number.isFinite(Number(chs[i].order)) ? Number(chs[i].order) : -Infinity)
+          : (chs[i] && chs[i].num != null ? chs[i].num : 0);
         if (n >= lastNum) { last = chs[i]; lastNum = n; }
       }
       return last && last.id != null ? String(last.id) : null;

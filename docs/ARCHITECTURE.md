@@ -62,7 +62,7 @@ Everything else (catalogue browsing, library, progress, import) is shared.
   "readingDirection": "ltr",         // ltr | rtl | vertical  (image types only)
   "updatedAt": "2026-08-01T…",
   "chapterCount": 271,
-  "chapters":  [ /* Chapter */ ]     // ascending by num
+  "chapters":  [ /* Chapter */ ]     // ascending by num, or EPUB spine order (§5)
 }
 ```
 
@@ -72,6 +72,7 @@ Everything else (catalogue browsing, library, progress, import) is shared.
 {
   "id":    "c-0271",                 // REQUIRED, unique within the series, stable
   "num":   271.5,                    // number | null   (decimals allowed)
+  "order": 271,                      // optional reading order for imported EPUB sections
   "volume": 30,                      // number | null
   "title": "The Decisive Battle",    // string | null
   "updatedAt": "2026-08-01T…",
@@ -1632,6 +1633,18 @@ ruby-annotate constantly, and keeping them renders `冒険者` as
 glossed word twice. `dc:language` is carried onto the `Series` and each
 `Chapter`, which is what lets the voice module pick a narrator that can
 actually read the book.
+
+**EPUB structure is not chapter numbering.** The importer excludes only
+high-confidence structural spine documents: package/guide declarations,
+document semantics (`cover`, `titlepage`, `copyright-page`, `toc`, `index`),
+the EPUB navigation document, and exact structural paths/ids. A short or
+image-only document is never discarded on shape alone. When an EPUB supplies
+explicit `Chapter N` labels, `num` carries those publisher numbers and named
+sections such as prologues or illustrations remain `null`; the separate
+one-based `order` preserves their spine position for next/previous navigation.
+If the EPUB supplies no explicit numbers, sequential `num` values preserve the
+legacy display. EPUB 3 titles come only from the `nav epub:type="toc"` subtree,
+never landmarks or page lists.
 
 The URL flow calls the worker's `/resolve` endpoint (§6.2), normalizes the
 response into a `Series` with `source: "user"`, and persists it via

@@ -103,6 +103,10 @@ const CAT = {
   's-img2': { id: 's-img2', title: 'Image Series 2', chapters: [ { id: 'j1', num: 1 } ] },
   's-nov':  { id: 's-nov',  title: 'Novel Series',   chapters: [ { id: 'n1', num: 1 }, { id: 'n2', num: 2 } ] },
   's-dec':  { id: 's-dec',  title: 'Decimal Finale', chapters: [ { id: 'd1', num: 1 }, { id: 'd271', num: 271 }, { id: 'dfin', num: 271.5 } ] },
+  's-ordered': { id: 's-ordered', title: 'Ordered Finale', chapters: [
+    { id: 'o1', num: 1, order: 1 }, { id: 'o2', num: 2, order: 2 },
+    { id: 'o-after', num: null, order: 3 },
+  ] },
 };
 window.Catalogue = {
   getSeries: function (id) { return CAT[id] || null; },
@@ -346,6 +350,15 @@ window.__done = (async function main() {
   assert(!chipVisible(), 'decimal finale: chapter 271 of 271.5 is NOT the finale (id rule)');
   fireProgress('s-dec', { chapterId: 'dfin', completed: true });
   assert(chipVisible(), 'decimal finale: the 271.5 chapter id IS the finale');
+  setScreen('series-screen');
+  await sleep(50);
+
+  setScreen('reader-screen');
+  fireProgress('s-ordered', { chapterId: 'o2', completed: true });
+  await sleep(100);
+  assert(!chipVisible(), 'ordered EPUB: last numbered chapter is not final before an afterword');
+  fireProgress('s-ordered', { chapterId: 'o-after', completed: true });
+  assert(chipVisible(), 'ordered EPUB: trailing unnumbered afterword is the finale');
   setScreen('series-screen');
   await sleep(50);
 

@@ -1911,12 +1911,21 @@
   }
 
   function orderedChapters(s) {
-    // The catalogue stores chapters ascending by num (§1.1); reading order is
-    // that order, so "next" is always index + 1 regardless of display sort.
-    return (s.chapters || []).slice().sort(function (a, b) {
-      const an = a.num != null ? a.num : 0, bn = b.num != null ? b.num : 0;
-      return an - bn;
-    });
+    // Imported EPUBs can contain readable, unnumbered sections around numbered
+    // chapters. Their explicit `order` keeps prologues/illustrations/afterwords
+    // in spine order without fabricating a chapter number. Existing catalogues
+    // have no `order` and keep the long-standing numeric sort.
+    return (s.chapters || []).map(function (chapter, index) {
+      return { chapter: chapter, index: index };
+    }).sort(function (a, b) {
+      const ao = Number(a.chapter.order), bo = Number(b.chapter.order);
+      const aHasOrder = a.chapter.order != null && Number.isFinite(ao);
+      const bHasOrder = b.chapter.order != null && Number.isFinite(bo);
+      if (aHasOrder && bHasOrder && ao !== bo) return ao - bo;
+      const an = a.chapter.num != null ? Number(a.chapter.num) : 0;
+      const bn = b.chapter.num != null ? Number(b.chapter.num) : 0;
+      return an !== bn ? an - bn : a.index - b.index;
+    }).map(function (row) { return row.chapter; });
   }
 
   function resumeTarget(s) {

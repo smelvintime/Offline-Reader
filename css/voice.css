@@ -142,6 +142,11 @@
   pointer-events: none;
 }
 
+body #novel-screen:not([data-sheet-owner='voice']) > .vc-scrim,
+body #novel-screen:not([data-sheet-owner='voice']) > .vc-sheet {
+  display: none !important;
+}
+
 #novel-screen .vc-sheet-head {
   display: flex; align-items: center; gap: 0.5rem;
   flex: 0 0 auto;

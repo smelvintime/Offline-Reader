@@ -938,9 +938,12 @@ const T = {
       // dropping it back. Prove that changing a hidden sheet's height cannot
       // change its off-screen destination anymore.
       if (innerWidth < 720) {
-        const hiddenTravel = function (sheet) {
+        const root = document.querySelector('#novel-screen');
+        const hiddenTravel = function (sheet, owner) {
           const oldHeight = sheet.style.height;
           const oldTransition = sheet.style.transition;
+          const oldOwner = root.dataset.sheetOwner;
+          root.dataset.sheetOwner = owner;
           sheet.style.transition = 'none';
           sheet.hidden = true;
           sheet.style.height = '180px';
@@ -949,10 +952,12 @@ const T = {
           const second = new DOMMatrixReadOnly(getComputedStyle(sheet).transform).m42;
           sheet.style.height = oldHeight;
           sheet.style.transition = oldTransition;
+          if (oldOwner) root.dataset.sheetOwner = oldOwner;
+          else delete root.dataset.sheetOwner;
           return [first, second];
         };
-        const readerTravel = hiddenTravel(readerSheet);
-        const voiceTravel = hiddenTravel(voiceSheet);
+        const readerTravel = hiddenTravel(readerSheet, 'reader');
+        const voiceTravel = hiddenTravel(voiceSheet, 'voice');
         pass = ok(Math.abs(readerTravel[0] - readerTravel[1]) < 0.5,
           'reader sheet has a height-independent mobile travel distance',
           readerTravel.join(' vs ')) && pass;
@@ -966,14 +971,37 @@ const T = {
       const vb = document.querySelector('.vc-bar [aria-label="Voice settings"]');
       pass = ok(!!(aa && vb), 'both buttons are reachable') && pass;
 
+      // Aa must not wake the voice controller when voice does not own the
+      // modal slot. This is the direct regression for a reader seeing voice
+      // settings appear after tapping text settings.
+      const realVoiceClose = V_.closeSheet;
+      let idleVoiceCalls = 0;
+      V_.closeSheet = function () { idleVoiceCalls++; };
+      aa.click(); await pause(300);
+      pass = ok(idleVoiceCalls === 0 && !readerSheet.hidden,
+        'Aa opens reader settings without calling an idle voice menu',
+        'voice calls=' + idleVoiceCalls) && pass;
+      aa.click(); await pause(300);
+      V_.closeSheet = realVoiceClose;
+
       vb.click(); await pause(300);
       pass = ok(!voiceSheet.hidden, 'voice opens') && pass;
       aa.click(); await pause(350);
       pass = ok(voiceSheet.hidden && !readerSheet.hidden,
         'pressing Aa replaces the voice sheet rather than stacking on it') && pass;
+      pass = ok(document.querySelector('#novel-screen').dataset.sheetOwner === 'reader'
+          && getComputedStyle(voiceSheet).display === 'none',
+        'Aa gives the one modal slot to the reader and removes voice from layout',
+        'owner=' + document.querySelector('#novel-screen').dataset.sheetOwner
+          + ', voice display=' + getComputedStyle(voiceSheet).display
+          + ', parent=' + (voiceSheet.parentElement && voiceSheet.parentElement.id)
+          + ', matches=' + voiceSheet.matches("#novel-screen:not([data-sheet-owner='voice']) > .vc-sheet")) && pass;
       vb.click(); await pause(350);
       pass = ok(!voiceSheet.hidden && readerSheet.hidden,
         'and pressing Voice replaces the Aa sheet the same way') && pass;
+      pass = ok(document.querySelector('#novel-screen').dataset.sheetOwner === 'voice'
+          && getComputedStyle(readerSheet).display === 'none',
+        'Voice gives the same slot to voice and removes the reader sheet from layout') && pass;
 
       // ── the dead screen ─────────────────────────────────────────────────
       //
@@ -1480,14 +1508,11 @@ const T = {
       pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
         'barely ahead has less slack to spare, so it holds more',
         String(VT().lookaheadSeconds())) && pass;
-      // Below break-even the depth is free: the generator never idles anyway,
-      // so a deep queue does not add work, it only decides which clips are
-      // ready. Returning 0 here threw away the stretches where the engine ran
-      // fast, and those are exactly what covers the stretches where it did not.
+      // Below break-even, speculative depth just keeps a phone pinned at full
+      // load. The mandatory one-group minimum still overlaps the next clip.
       ne.noteSpeed({ ms: 1000, seconds: 1, chars: 20 });      // break-even
-      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
-        'and a device that cannot get ahead banks everything, because below '
-        + 'break-even depth costs nothing and variance is all there is to win',
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'and a device that cannot get ahead stops chasing speculative depth',
         String(VT().lookaheadSeconds())) && pass;
 
       // ── the estimate ────────────────────────────────────────────────────
@@ -1535,13 +1560,13 @@ const T = {
       pass = ok(asked.length === 4, 'a thinner margin holds more in hand',
         asked.length + ' groups for ' + VT().lookaheadSeconds() + 's') && pass;
 
-      // Break-even: bank the lot. There is no idle being given up, because
-      // there is always a next group and it is always needed.
+      // Break-even: only the mandatory next group is queued. That keeps the
+      // overlap which prevents a seam without scheduling minutes of heat.
       ne.noteSpeed({ ms: 1000, seconds: 1, chars: 20 });
       asked.length = 0;
       VT().prefetchNeural(first);
-      pass = ok(asked.length === 11,
-        'and below it every remaining group is queued, since depth is free there',
+      pass = ok(asked.length === 1,
+        'and below it only the next group is queued',
         asked.length + ' groups') && pass;
 
       // Already generated, or already queued: counted toward the cushion,
@@ -1714,15 +1739,15 @@ const T = {
       // The one time a slow device should be at full tilt: it is generating
       // into a wait, not into a queue it can never keep.
       ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
-      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
-        'below break-even the steady-state lookahead banks everything') && pass;
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'below break-even steady state avoids a speculative backlog') && pass;
       st.prebuffer = { target: 55, got: 0 };
       pass = ok(VT().lookaheadSeconds() === 55,
         'but while a buffer is being built the target is the lookahead',
         String(VT().lookaheadSeconds())) && pass;
       st.prebuffer = null;
-      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_DEEP,
-        'and it goes back afterwards') && pass;
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'and it returns to next-clip-only afterwards') && pass;
     } finally {
       ne.speed = held.speed;
       ne.clipSeconds.clear();

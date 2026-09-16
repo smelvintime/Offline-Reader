@@ -1034,20 +1034,16 @@ against `ratio / rate` — a 1.34× engine is a 0.67× one to a reader at 2×.
 timer tops it up mid-clip, because a boundary-only top-up leaves the queue
 unattended for precisely the window there was spare capacity to generate in.
 
-**How deep that queue goes depends on whether the device can get ahead at all,
-and the two cases want opposite things.** Below break-even the generator never
-idles: there is always a next group and it is always needed, so the CPU is at a
-hundred per cent whatever the depth. Depth there does not change how much work
-is done, only *which* clips are ready — so it is free, and what it buys is the
-variance. The same phone measures 0.92× and 1.28× minutes apart; a deep queue
-spends the good stretches covering the bad ones instead of discarding them, and
-that is the whole difference between occasional mid-chapter stalls and none.
-Above break-even the generator genuinely will idle, and that idle is worth
-protecting because it is most of the difference between a warm phone and a hot
-one; a cushion there only has to absorb wobble, so the further ahead the engine
-is the less of one it needs. `lookaheadSeconds()` therefore returns
-`NEURAL_LOOKAHEAD_DEEP` below 1.05×, the full cushion between 1.05× and 1.5×,
-and half of it above.
+**How deep that queue goes depends on whether the device can get ahead at all.**
+Below break-even, speculative depth cannot change the arithmetic: inference
+still has more work than playback gives it time to finish. Queuing minutes of
+audio only pins a phone at full load and turns the deficit into heat. The
+steady-state target is therefore zero there, with `NEURAL_LOOKAHEAD_MIN` still
+requiring the immediate next group so generation overlaps playback. The useful
+head start is paid once by the chapter prebuffer below. Above break-even the
+generator genuinely can idle, and that idle is worth protecting; the cushion
+only has to absorb wobble, so `lookaheadSeconds()` returns the full cushion
+between 1.05× and 1.5× and half of it above.
 
 **The wav cache is FIFO by generation order, deliberately not LRU.** For a
 reader going forwards, insertion order is exactly "furthest behind first",
@@ -1110,17 +1106,15 @@ so `voice panel` asserts the panel *syncs* before it asserts anything it says.
 `window.Platform` is also absent from the test page, which left every
 `isNativeApp()` branch untested; that test stubs it.
 
-**Neither sheet trusts the other to have closed.** The reader's Aa sheet and the
-voice sheet keep out of each other's way by calling each other's close, which
-makes single-sheet-at-a-time a promise across two modules. When that promise is
-not kept the result is the worst state in the app: the reader's sheet makes the
-header and viewport inert, the voice sheet layers above it, and between them
-every control is off the screen. So each `openSheet` now also sweeps the other's
-elements hidden by class — the check that does not depend on the other module
-answering — and the backdrop's inertness is *derived* from whether the reader's
-sheet is actually visible (`syncBackdropInert`) rather than set and unset in
-pairs that only balance if every path is matched. An inert backdrop outliving
-the sheet that asked for it is the whole of "the screen will not move".
+**There is one modal slot, with one owner.** The reader root's
+`data-sheet-owner` is either `reader`, `voice`, or absent. CSS removes every
+non-owner sheet and scrim from layout with `display: none`, so even a mobile
+WebKit compositor glitch or stale `[hidden]` flag cannot draw two modal layers,
+leave a gap between them, or let the wrong one catch a tap. The Aa path only
+calls the voice controller when voice actually owns that slot. Each open path
+still sweeps stale attributes on the other module, and the backdrop's inertness
+is derived from the reader sheet's real state (`syncBackdropInert`). An inert
+backdrop outliving its owner is the whole of "the screen will not move".
 
 On narrow screens both sheets animate from a fixed viewport-height destination,
 not a percentage of their own height. This is load-bearing on mobile WebKit:

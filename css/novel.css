@@ -630,6 +630,10 @@
 }
 .nv-scrim[hidden] { display: block !important; opacity: 0; pointer-events: none; }
 
+/* There is one modal slot in the reader. Hidden attributes remain the
+   animation mechanism, but ownership is the visibility invariant: WebKit can
+   composite an off-screen transformed layer during a viewport relayout, so a
+   non-owner is display:none and cannot flash, leave a gap, or catch a tap. */
 .nv-sheet {
   position: absolute; z-index: 50;
   left: 0; right: 0; bottom: 0;
@@ -661,6 +665,11 @@
   transform: translate3d(0, calc(100vh + env(safe-area-inset-bottom, 0px)), 0);
   transform: translate3d(0, calc(100dvh + env(safe-area-inset-bottom, 0px)), 0);
   pointer-events: none;
+}
+
+body #novel-screen:not([data-sheet-owner='reader']) > .nv-scrim,
+body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
+  display: none !important;
 }
 
 .nv-sheet-head {

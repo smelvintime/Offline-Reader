@@ -1171,7 +1171,14 @@
   function readerSheetVisible() { return !!(dom.sheet && !dom.sheet.hidden); }
 
   function voiceSheetVisible() {
-    return !!document.querySelector('#novel-screen .vc-sheet:not([hidden])');
+    return !!(dom.root && dom.root.dataset.sheetOwner === 'voice'
+      && document.querySelector('#novel-screen .vc-sheet:not([hidden])'));
+  }
+
+  function setSheetOwner(owner) {
+    if (!dom.root) return;
+    if (owner) dom.root.dataset.sheetOwner = owner;
+    else delete dom.root.dataset.sheetOwner;
   }
 
   /**
@@ -1193,10 +1200,14 @@
   }
 
   function openSheet() {
-    // The voice sheet (§2.14) docks in the same place; never stack the two.
-    try {
-      if (window.NovelVoice && typeof window.NovelVoice.closeSheet === 'function') window.NovelVoice.closeSheet();
-    } catch (e) { /* an accessory must not block the settings sheet */ }
+    // The voice sheet (§2.14) docks in the same modal slot. Do not even call
+    // into its controller unless its sheet is actually the current owner: an
+    // Aa tap has no reason to wake or otherwise touch voice settings.
+    if (voiceSheetVisible()) {
+      try {
+        if (window.NovelVoice && typeof window.NovelVoice.closeSheet === 'function') window.NovelVoice.closeSheet();
+      } catch (e) { /* an accessory must not block the settings sheet */ }
+    }
     // …and then check the screen rather than trusting that call.
     //
     // Asking the other module to close is a request, and a request can fail in
@@ -1207,11 +1218,13 @@
     // take every control off the screen. Hiding an element that is already
     // hidden costs nothing; this is the cheap half of a very expensive bug.
     hideStrandedVoiceSheet();
-    // Recovery can call this from an impossible two-open state. Even when our
-    // sheet is already visible, the sweep above must run before returning.
-    if (readerSheetVisible()) { sheetOpen = true; syncBackdropInert(); return; }
+    setSheetOwner('reader');
+    // Recovery can call this from an impossible state where the sheet and its
+    // scrim disagree. Reassert the complete visible state instead of returning
+    // early from a sheet that merely happens not to have [hidden].
+    const alreadyVisible = readerSheetVisible();
     sheetOpen = true;
-    lastFocus = document.activeElement;
+    if (!alreadyVisible) lastFocus = document.activeElement;
     dom.scrim.hidden = false;
     dom.sheet.hidden = false;
     dom.sheet.inert = false;
@@ -1229,13 +1242,15 @@
    * sheet on screen behind one that is trying to replace it.
    */
   function closeSheet() {
-    if (!sheetOpen && !readerSheetVisible()) return;
+    const ownsSlot = !!(dom.root && dom.root.dataset.sheetOwner === 'reader');
+    if (!sheetOpen && !readerSheetVisible() && !ownsSlot) return;
     sheetOpen = false;
     dom.scrim.hidden = true;
     dom.sheet.hidden = true;
     // The sheet stays displayed (the stylesheet translates it off-screen for
     // the animation), so it has to be explicitly removed from the tab order.
     dom.sheet.inert = true;
+    if (ownsSlot) setSheetOwner(null);
     syncBackdropInert();
     dom.settingsBtn.setAttribute('aria-expanded', 'false');
     if (lastFocus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) {} }

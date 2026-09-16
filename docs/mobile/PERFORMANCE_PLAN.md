@@ -50,7 +50,7 @@ device validation is complete. Every subsequent agent must update this table.
 | P04 | Scheduler, queue and audio memory bounds | PARTIAL | Four-job and byte/count bounds implemented; rolling policy and adversarial cache tests remain |
 | P05 | Sustainable native inference tuning | NOT STARTED, device measurements needed | Preserve existing CPU/precision defaults until benchmark selects a change |
 | P06 | Shared image-reader teardown | IMPLEMENTED, device gate pending | `test/image-reader.test.html` (new suite, 11 cases); Close/Home/back unified, session token added |
-| P07 | Image decoding and memory budgets | NOT STARTED | Depends on P06 cleanup guarantees |
+| P07 | Image decoding and memory budgets | PARTIAL | Decoded-byte budget + farthest-first eviction landed; bounded decode queue and downsampling deliberately not built |
 | P08 | Novel scrolling and autoscroll efficiency | NOT STARTED | Independent of native profiling |
 | P09 | Large-import allocation/cancellation bounds | NOT STARTED | Audit both reader and importer paths; use P06 generation ownership |
 | P10 | Library/cache/backup maintenance | NOT STARTED, profile first | Existing debounce/protection must be preserved |

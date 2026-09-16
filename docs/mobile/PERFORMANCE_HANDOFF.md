@@ -69,6 +69,40 @@ Next exact task and starting files: P07 — js/reader.js (loadPage,
   unloadDistant, the observer window), js/platform.js (TUNING).
 ```
 
+## P07 record: 2026-09-16
+
+```text
+Task ID / date: P07 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-memory, stacked on
+  codex/mobile-reader-efficiency (P06)
+Behavior changed: retained decoded bitmaps are now bounded by estimated bytes
+  (natural dimensions x 4) against a per-memory-class budget — decodedMB
+  96/192/320 — and evicted farthest-first inside the existing unloadDistant()
+  pass. The count windows stay as they are; they are the cheap first filter.
+  Visible and current pages are never evicted, so a single spread larger than
+  the budget still renders: the budget is a target, not a guarantee.
+Deliberately NOT built (plan items 2, 4 and 6 of P07):
+  - A separate bounded decode/extraction queue. loadPage already dedupes on
+    p.loading and the observer debounce already bounds a pass to
+    LOOK_BEHIND+LOOK_AHEAD pages. Add one when a profile shows decode
+    concurrency, not retention, is the cost.
+  - Resident-page tracking instead of the pages.forEach scan. The scan is one
+    pass over an array on a 100 ms debounce; above 800 pages the scroll window
+    already collapses chapters. Add when a profile shows the scan.
+  - Downsampling. The plan makes it conditional on profiling, and nothing has
+    been profiled on device yet.
+Tests actually run and outcomes: 3 new cases in test/image-reader.test.html
+  (evict farthest first to budget, visible page survives its own budget,
+  nothing evicted under budget); full browser + node gate below.
+Device evidence: NOT RUN. The budget numbers are chosen, not measured; P01's
+  capture checklist on the phone is what should confirm or move them.
+Remaining risks/dependencies: decodedBytes() is an estimate, not the
+  compositor's figure. A page that has not decoded yet counts as zero and is
+  caught on the next pass.
+Next exact task and starting files: P08 — js/novel-reader.js (onScroll,
+  captureScroll, prefixChars), js/reader.js (autoStep).
+```
+
 ## Next actions
 
 1. Follow the plan's restart commands and inspect changes since this checkpoint.

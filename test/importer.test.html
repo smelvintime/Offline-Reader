@@ -152,7 +152,7 @@
     }
 
     // Builds a valid, minimal EPUB 2/3 hybrid in-page with JSZip.
-    // chapters: [{ file, xhtml }]
+    // chapters: [{ id, file, xhtml, properties, linear, epubType, guideType }]
     async function makeEpub(opts) {
       const o = opts || {};
       const zip = new JSZip();
@@ -165,11 +165,21 @@
 
       const chapters = o.chapters || [];
       const manifestItems = chapters.map(function (c, i) {
-        return '<item id="c' + i + '" href="' + c.file + '" media-type="application/xhtml+xml"/>';
+        return '<item id="' + (c.id || ('c' + i)) + '" href="' + c.file +
+          '" media-type="application/xhtml+xml"' +
+          (c.properties ? ' properties="' + c.properties + '"' : '') + '/>';
       }).join('');
       const spineItems = chapters.map(function (c, i) {
-        return '<itemref idref="c' + i + '"/>';
+        return '<itemref idref="' + (c.id || ('c' + i)) + '"' +
+          (c.linear ? ' linear="' + c.linear + '"' : '') + '/>';
       }).join('');
+      const guideRefs = chapters.filter(function (c) { return !!c.guideType; }).map(function (c) {
+        return '<reference type="' + c.guideType + '" title="' +
+          (c.guideTitle || c.tocTitle || c.file) + '" href="' + c.file + '"/>';
+      }).join('');
+      const spineNav = chapters.find(function (c) {
+        return /(^|\s)nav(\s|$)/.test(c.properties || '');
+      });
 
       zip.file('OEBPS/content.opf',
         '<?xml version="1.0" encoding="UTF-8"?>' +
@@ -183,26 +193,30 @@
         '<meta name="cover" content="coverimg"/>' +
         '</metadata><manifest>' +
         '<item id="coverimg" href="images/cover.png" media-type="image/png"/>' +
-        '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' +
+        (spineNav ? '' : '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>') +
         manifestItems +
-        '</manifest><spine>' + spineItems + '</spine></package>');
+        '</manifest><spine>' + spineItems + '</spine>' +
+        (guideRefs ? '<guide>' + guideRefs + '</guide>' : '') + '</package>');
 
       zip.file('OEBPS/images/cover.png', b64ToUint8(PNG_1PX_B64), { binary: true });
 
       const navLinks = chapters.map(function (c) {
         return '<li><a href="' + c.file + '">' + (c.tocTitle || c.file) + '</a></li>';
       }).join('');
-      zip.file('OEBPS/nav.xhtml',
-        '<?xml version="1.0" encoding="UTF-8"?>' +
-        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">' +
-        '<head><title>Contents</title></head><body>' +
-        '<nav epub:type="toc"><ol>' + navLinks + '</ol></nav></body></html>');
+      if (!spineNav) {
+        zip.file('OEBPS/nav.xhtml',
+          '<?xml version="1.0" encoding="UTF-8"?>' +
+          '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">' +
+          '<head><title>Contents</title></head><body>' +
+          '<nav epub:type="toc"><ol>' + navLinks + '</ol></nav></body></html>');
+      }
 
       chapters.forEach(function (c) {
         zip.file('OEBPS/' + c.file,
           '<?xml version="1.0" encoding="UTF-8"?>' +
-          '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title>' +
-          '<style>body{color:red}</style></head><body>' + c.xhtml + '</body></html>');
+          '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>x</title>' +
+          '<style>body{color:red}</style></head><body' +
+          (c.epubType ? ' epub:type="' + c.epubType + '"' : '') + '>' + c.xhtml + '</body></html>');
       });
 
       const blob = await zip.generateAsync({ type: 'blob' });
@@ -350,6 +364,110 @@
         // <style> is in the skip set, so its CSS must never reach a block.
         const allText = JSON.stringify(f1.blocks) + JSON.stringify(f2.blocks);
         ok(allText.indexOf('color:red') === -1, '<style> contents dropped');
+      });
+
+      await test('EPUB skips explicit light-novel front matter before numbering story chapters', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'light-novel-front-matter.epub',
+          title: 'Light Novel Volume 1',
+          chapters: [
+            { id: 'cover-page', file: 'cover.xhtml', guideType: 'cover',
+              xhtml: '<img src="images/cover.png" alt="Cover"/>' },
+            { id: 'title-page', file: 'titlepage.xhtml', epubType: 'titlepage',
+              xhtml: '<h1>Light Novel Volume 1</h1><p>A. Writer</p>' },
+            { id: 'copyright-page', file: 'legal.xhtml',
+              xhtml: '<main><section epub:type="copyright-page"><p>Copyright 2026 A. Writer. All rights reserved.</p></section></main>' },
+            { id: 'book-nav', file: 'contents.xhtml', properties: 'nav', epubType: 'toc',
+              xhtml: '<nav epub:type="landmarks"><ol><li><a href="chapter-1.xhtml">Begin reading</a></li></ol></nav>' +
+                     '<nav epub:type="toc"><ol>' +
+                     '<li><a href="chapter-1.xhtml">Chapter 1: Arrival</a></li>' +
+                     '<li><a href="chapter-2.xhtml">Chapter 2: Departure</a></li>' +
+                     '</ol></nav>' },
+            { id: 'book-index', file: 'index.xhtml',
+              xhtml: '<h1>Index</h1><p>Alice, 12</p><p>Zephyr, 94</p>' },
+            { id: 'story-1', file: 'chapter-1.xhtml',
+              xhtml: '<h1>Arrival</h1><p>The actual story begins here.</p>' },
+            { id: 'story-2', file: 'chapter-2.xhtml',
+              xhtml: '<h1>Departure</h1><p>The actual story continues here.</p>' },
+          ],
+        });
+
+        const series = await I.importFile(file);
+        eq(series.chapters.length, 2, 'only the two story documents become chapters');
+        eq(series.chapters.map(function (c) { return c.num; }), [1, 2], 'story numbering begins at one');
+        eq(series.chapters.map(function (c) { return c.title; }),
+           ['Chapter 1: Arrival', 'Chapter 2: Departure'],
+           'titles come only from the epub:type=toc navigation, not landmarks');
+        const first = await Store.getChapter(series.id, 'c-0001');
+        ok(JSON.stringify(first.blocks).indexOf('actual story begins') !== -1,
+           'Chapter 1 contains the first story document');
+      });
+
+      await test('EPUB keeps uncertain, prologue, and image-only spine documents', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'conservative-epub-filter.epub',
+          chapters: [
+            { file: 'opening.xhtml', tocTitle: 'Prologue', epubType: 'prologue',
+              xhtml: '<h1>Prologue</h1><p>This must stay readable.</p>' },
+            { file: 'plate-01.xhtml', tocTitle: 'Color Illustration',
+              xhtml: '<img src="images/cover.png" alt="Character illustration"/>' },
+            { file: 'mystery-short.xhtml', tocTitle: 'A Note',
+              xhtml: '<p>An unusual short publisher page must not be guessed away.</p>' },
+            { file: 'chapter-1.xhtml', tocTitle: 'Chapter 1',
+              xhtml: '<h1>Chapter 1</h1><p>The story.</p>' },
+          ],
+        });
+
+        const series = await I.importFile(file);
+        eq(series.chapters.map(function (c) { return c.title; }),
+           ['Prologue', 'Color Illustration', 'A Note', 'Chapter 1'],
+           'only high-confidence structural pages are discarded');
+        eq(series.chapters.map(function (c) { return c.num; }),
+           [null, null, null, 1],
+           'publisher Chapter 1 stays number one while named sections stay unnumbered');
+        eq(series.chapters.map(function (c) { return c.order; }),
+           [1, 2, 3, 4], 'readable spine order is stored separately from chapter numbers');
+        const illustration = await Store.getChapter(series.id, 'c-0002');
+        ok(illustration.blocks.some(function (b) { return b.t === 'img'; }),
+           'image-only illustration insert remains readable');
+      });
+
+      await test('EPUB does not discard a real chapter merely because it is titled Index', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'story-called-index.epub',
+          chapters: [
+            { id: 'story-index', file: 'chapter-special.xhtml', tocTitle: 'Index',
+              xhtml: '<h1>Index</h1><p>This is a real story chapter with an unusual title.</p>' },
+            { file: 'chapter-1.xhtml', tocTitle: 'Chapter 1',
+              xhtml: '<h1>Chapter 1</h1><p>The next story chapter.</p>' },
+          ],
+        });
+        const series = await I.importFile(file);
+        eq(series.chapters.map(function (c) { return c.title; }), ['Index', 'Chapter 1'],
+           'title-only structural words are not enough to delete readable content');
+      });
+
+      await test('EPUB recognises spelled, Roman, and CJK publisher chapter numbers', async function () {
+        await wipeLibrary();
+        const file = await makeEpub({
+          name: 'non-arabic-chapter-numbers.epub',
+          chapters: [
+            { file: 'prologue.xhtml', tocTitle: 'Prologue',
+              xhtml: '<h1>Prologue</h1><p>Before the numbered story.</p>' },
+            { file: 'one.xhtml', tocTitle: 'Chapter One',
+              xhtml: '<h1>Chapter One</h1><p>One.</p>' },
+            { file: 'two.xhtml', tocTitle: 'Chapter II',
+              xhtml: '<h1>Chapter II</h1><p>Two.</p>' },
+            { file: 'three.xhtml', tocTitle: '第三章',
+              xhtml: '<h1>第三章</h1><p>Three.</p>' },
+          ],
+        });
+        const series = await I.importFile(file);
+        eq(series.chapters.map(function (c) { return c.num; }), [null, 1, 2, 3],
+           'prologue stays unnumbered and publisher number forms are preserved');
       });
 
       await test('EPUB XHTML cannot smuggle script or javascript: URLs into blocks', async function () {

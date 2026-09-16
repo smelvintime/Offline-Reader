@@ -1038,11 +1038,15 @@
     return doc;
   }
 
-  async function xhtmlToBlocks(text, ctx) {
+  function parseXhtml(text) {
     let doc = parseMarkup(text, 'application/xhtml+xml');
     // Plenty of "EPUBs" in the wild are HTML with an .xhtml extension. The HTML
     // parser is forgiving and equally inert, so it is the natural fallback.
     if (!doc) doc = parseMarkup(text, 'text/html');
+    return doc;
+  }
+
+  async function xhtmlDocToBlocks(doc, ctx) {
     if (!doc) return [];
 
     let root = doc.body;
@@ -1059,6 +1063,10 @@
     while (out.length && out[0].t === 'hr') out.shift();
     while (out.length && out[out.length - 1].t === 'hr') out.pop();
     return out;
+  }
+
+  async function xhtmlToBlocks(text, ctx) {
+    return xhtmlDocToBlocks(parseXhtml(text), ctx);
   }
 
   // ── EPUB ──────────────────────────────────────────────────────────────────
@@ -1080,6 +1088,21 @@
       if (t) return t;
     }
     return '';
+  }
+
+  const EPUB_OPS_NS = 'http://www.idpf.org/2007/ops';
+
+  function epubTypeTokens(node) {
+    if (!node || typeof node.getAttribute !== 'function') return [];
+    let value = node.getAttribute('epub:type') || '';
+    if (!value && typeof node.getAttributeNS === 'function') {
+      value = node.getAttributeNS(EPUB_OPS_NS, 'type') || '';
+    }
+    return collapse(value).toLowerCase().split(/\s+/).filter(Boolean);
+  }
+
+  function hasEpubType(node, wanted) {
+    return epubTypeTokens(node).indexOf(wanted) !== -1;
   }
 
   // container.xml → OPF path. Falls back to any .opf in the archive, because a
@@ -1112,13 +1135,16 @@
       const text = await zipText(zip, navItem.path);
       const doc = text ? (parseMarkup(text, 'application/xhtml+xml') || parseMarkup(text, 'text/html')) : null;
       if (doc) {
-        const anchors = xmlAll(doc, 'a');
-        for (const a of anchors) {
-          const href = a.getAttribute('href');
-          const label = collapse(a.textContent || '');
-          if (!href || !label) continue;
-          const p = resolveZipPath(dirOf(navItem.path), href);
-          if (p && !map.has(p)) map.set(p, label);
+        const tocNav = xmlAll(doc, 'nav').find(function (nav) { return hasEpubType(nav, 'toc'); });
+        if (tocNav) {
+          const anchors = xmlAll(tocNav, 'a');
+          for (const a of anchors) {
+            const href = a.getAttribute('href');
+            const label = collapse(a.textContent || '');
+            if (!href || !label) continue;
+            const p = resolveZipPath(dirOf(navItem.path), href);
+            if (p && !map.has(p)) map.set(p, label);
+          }
         }
       }
     }
@@ -1143,6 +1169,147 @@
       }
     }
     return map;
+  }
+
+  const STRUCTURAL_SEMANTICS = new Set([
+    'cover', 'titlepage', 'copyright-page', 'toc', 'index',
+  ]);
+  const STRUCTURAL_GUIDE_TYPES = new Set([
+    'cover', 'title-page', 'copyright-page', 'toc', 'index',
+  ]);
+  const STRUCTURAL_EXACT_NAMES = new Set([
+    'cover', 'cover-page', 'coverpage',
+    'title-page', 'titlepage',
+    'copyright', 'copyright-page',
+    'contents', 'table-of-contents', 'toc',
+    'index', 'nav', 'navigation',
+  ]);
+  const STRUCTURAL_EXACT_LABELS = new Set([
+    'cover', 'cover page',
+    'title page',
+    'copyright', 'copyright page',
+    'contents', 'table of contents',
+    'index', 'navigation',
+  ]);
+
+  function exactStructuralName(value) {
+    return STRUCTURAL_EXACT_NAMES.has(String(value || '').toLowerCase()
+      .replace(/^.*\//, '').replace(/\.[^.]+$/, '').replace(/[ _]+/g, '-'));
+  }
+
+  function exactStructuralLabel(value) {
+    return STRUCTURAL_EXACT_LABELS.has(collapse(value).toLowerCase().replace(/[:：]+$/, ''));
+  }
+
+  const CHAPTER_WORD_VALUES = {
+    zero: 0, one: 1, first: 1, two: 2, second: 2, three: 3, third: 3,
+    four: 4, fourth: 4, five: 5, fifth: 5, six: 6, sixth: 6,
+    seven: 7, seventh: 7, eight: 8, eighth: 8, nine: 9, ninth: 9,
+    ten: 10, tenth: 10, eleven: 11, eleventh: 11, twelve: 12, twelfth: 12,
+    thirteen: 13, fourteenth: 14, fifteen: 15, sixteenth: 16,
+    seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+    thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
+    eighty: 80, ninety: 90,
+  };
+
+  function romanChapterNumber(value) {
+    const roman = String(value || '').toUpperCase();
+    if (!/^[IVXLCDM]+$/.test(roman)) return null;
+    const values = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+    let total = 0;
+    for (let i = 0; i < roman.length; i++) {
+      const here = values[roman[i]], next = values[roman[i + 1]] || 0;
+      total += here < next ? -here : here;
+    }
+    return total > 0 ? total : null;
+  }
+
+  function wordChapterNumber(value) {
+    const parts = String(value || '').toLowerCase().split(/[\s-]+/).filter(Boolean);
+    if (!parts.length || parts.some(function (part) { return CHAPTER_WORD_VALUES[part] == null; })) return null;
+    return parts.reduce(function (sum, part) { return sum + CHAPTER_WORD_VALUES[part]; }, 0);
+  }
+
+  function cjkChapterNumber(value) {
+    const chars = Array.from(String(value || ''));
+    const digits = { '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+    const units = { '十': 10, '百': 100, '千': 1000 };
+    if (!chars.length || chars.some(function (ch) { return digits[ch] == null && units[ch] == null; })) return null;
+    if (!chars.some(function (ch) { return units[ch] != null; })) {
+      return Number(chars.map(function (ch) { return digits[ch]; }).join(''));
+    }
+    let total = 0, pending = 0;
+    chars.forEach(function (ch) {
+      if (digits[ch] != null) pending = digits[ch];
+      else { total += (pending || 1) * units[ch]; pending = 0; }
+    });
+    return total + pending;
+  }
+
+  function explicitChapterNumber(value) {
+    const text = collapse(value);
+    const latin = text.match(/^(?:chapter|chap(?:ter)?|ch\.?|episode|ep\.?)\s*#?\s*([a-z]+(?:[\s-][a-z]+)?|[ivxlcdm]+|\d+(?:\.\d+)?)(?:\b|\s*[:.\-–—])/i);
+    if (latin) {
+      const token = latin[1];
+      if (/^\d/.test(token)) return Number(token);
+      return romanChapterNumber(token) || wordChapterNumber(token);
+    }
+    const cjk = text.match(/^第\s*([0-9０-９〇零一二三四五六七八九十百千]+)\s*[章話话回節节]/);
+    if (!cjk) return null;
+    if (/^[0-9０-９]+$/.test(cjk[1])) return Number(cjk[1].replace(/[０-９]/g, function (ch) {
+      return String(ch.charCodeAt(0) - 0xFF10);
+    }));
+    return cjkChapterNumber(cjk[1]);
+  }
+
+  // Deliberately conservative. A short document, an image-only document, or a
+  // broad `frontmatter` marker is not enough to discard reading content. Only
+  // explicit package metadata, explicit structural semantics, or exact names
+  // identify a page as chrome around the book rather than part of the book.
+  function isStructuralSpineItem(item, doc, guideTypes, tocTitle) {
+    const propertyTokens = collapse(item.properties || '').toLowerCase().split(/\s+/);
+    if (propertyTokens.indexOf('nav') !== -1) return true;
+
+    const guide = guideTypes.get(item.path);
+    if (guide && Array.from(guide).some(function (type) { return STRUCTURAL_GUIDE_TYPES.has(type); })) {
+      return true;
+    }
+
+    if (doc) {
+      let body = doc.body;
+      if (!body) {
+        const bodies = doc.getElementsByTagName('body');
+        body = bodies && bodies.length ? bodies[0] : null;
+      }
+      let nodes = [];
+      try { nodes = doc.getElementsByTagName('*'); } catch (e) { nodes = []; }
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (epubTypeTokens(node).some(function (type) { return STRUCTURAL_SEMANTICS.has(type); })) {
+          return true;
+        }
+      }
+
+      let firstHeading = null;
+      try {
+        const nodes = doc.getElementsByTagName('*');
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i];
+          const name = localNameOf(node);
+          if (name === 'h1' || name === 'h2') { firstHeading = node; break; }
+        }
+      } catch (e) { firstHeading = null; }
+      // A story chapter may genuinely be titled “Cover” or “Index”. A heading
+      // or ToC label alone is never deletion evidence; exact package paths/ids
+      // may corroborate it below, while semantics and OPF guide data above are
+      // already strong enough by themselves.
+      const headingLooksStructural = firstHeading && exactStructuralLabel(firstHeading.textContent || '');
+      const tocLooksStructural = exactStructuralLabel(tocTitle);
+      if ((headingLooksStructural || tocLooksStructural)
+        && (exactStructuralName(item.path) || exactStructuralName(item.id))) return true;
+    }
+
+    return exactStructuralName(item.path) || exactStructuralName(item.id);
   }
 
   function pickCoverItem(opfDoc, manifest) {
@@ -1193,6 +1360,18 @@
       };
     }).filter(function (m) { return !!m.path; });
     const byId = new Map(manifest.map(function (m) { return [m.id, m]; }));
+
+    // EPUB 2 guide references are still common in commercial light novels.
+    // Keep every type for a path because malformed books sometimes duplicate
+    // references; one strong structural type is enough to classify the page.
+    const guideTypes = new Map();
+    for (const ref of xmlAll(opfDoc, 'reference')) {
+      const path = resolveZipPath(opfDir, ref.getAttribute('href') || '');
+      const type = collapse(ref.getAttribute('type') || '').toLowerCase();
+      if (!path || !type) continue;
+      if (!guideTypes.has(path)) guideTypes.set(path, new Set());
+      guideTypes.get(path).add(type);
+    }
 
     // spine: reading order. linear="no" is for pop-ups and back matter the book
     // itself says is out of line — following that keeps the chapter list clean.
@@ -1246,9 +1425,13 @@
       const text = await zipText(zip, item.path);
       if (!text) { skipped++; continue; }
 
+      const tocTitle = toc.get(item.path) || '';
+      const doc = parseXhtml(text);
+      if (isStructuralSpineItem(item, doc, guideTypes, tocTitle)) { skipped++; continue; }
+
       const ctx = { zip: zip, baseDir: dirOf(item.path), budget: { used: 0 }, cache: imageCache };
       let blocks;
-      try { blocks = await xhtmlToBlocks(text, ctx); }
+      try { blocks = await xhtmlDocToBlocks(doc, ctx); }
       catch (e) { console.warn('[Importer] chapter parse failed', item.path, e); blocks = []; }
 
       if (!blocks.length) { skipped++; continue; }
@@ -1257,24 +1440,35 @@
       totalWords += words;
       totalImages += blocks.filter(function (b) { return b.t === 'img'; }).length;
 
-      const num = chapters.length + 1;
-      const chapterId = 'c-' + pad4(num);
-      const tocTitle = toc.get(item.path) || '';
+      const order = chapters.length + 1;
+      const chapterId = 'c-' + pad4(order);
       const headingBlock = blocks.find(function (b) { return b.t === 'h2' || b.t === 'h3'; });
-      const chTitle = collapse(tocTitle) || (headingBlock ? headingBlock.c : '') || 'Chapter ' + num;
+      const chTitle = collapse(tocTitle) || (headingBlock ? headingBlock.c : '') || 'Chapter ' + order;
+      const declaredNum = explicitChapterNumber(chTitle);
 
       chapters.push({
-        id: chapterId, num: num, volume: null, title: chTitle.slice(0, 200),
+        id: chapterId, num: declaredNum, order: order, volume: null, title: chTitle.slice(0, 200),
         wordCount: words, lang: language, seriesId: id, updatedAt: null,
       });
       files.push([chapterId, {
-        seriesId: id, id: chapterId, num: num, title: chTitle.slice(0, 200),
+        seriesId: id, id: chapterId, num: declaredNum, order: order, title: chTitle.slice(0, 200),
         kind: 'text', blocks: blocks, wordCount: words,
       }]);
     }
 
     if (!chapters.length) {
       throw impErr('bad_epub', 'We opened that EPUB but found no text in it. Books protected by Adobe DRM look like this — the reader cannot decrypt them.');
+    }
+
+    // Preserve the old sequential numbering for EPUBs whose publisher never
+    // supplies an explicit Chapter N label. When even one explicit number is
+    // present, named sections stay unnumbered and `order` carries navigation,
+    // so a prologue cannot turn the publisher's Chapter 1 into Chapter 4.
+    if (!chapters.some(function (chapter) { return chapter.num != null; })) {
+      chapters.forEach(function (chapter, index) {
+        chapter.num = index + 1;
+        files[index][1].num = index + 1;
+      });
     }
 
     // A "manga EPUB" is all pictures and almost no prose. Guessing it here

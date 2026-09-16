@@ -185,6 +185,11 @@ const CAT = {
     { id: 'f1', num: 1 },
     { id: 'f2', num: 2 },
   ] },
+  's-ordered': { id: 's-ordered', title: 'Ordered Finale', chapters: [
+    { id: 'o1', num: 1, order: 1 },
+    { id: 'o2', num: 2, order: 2 },
+    { id: 'o-after', num: null, order: 3 },
+  ] },
   's-img':  { id: 's-img', title: 'Image Series', chapters: [ { id: 'i1', num: 1 } ] },
   's-x':    { id: 's-x', title: 'Excluded Series', chapters: [ { id: 'x1', num: 1, wordCount: 1000 } ] },
 };
@@ -298,6 +303,13 @@ window.__done = (async function main() {
   fireProgress('s-dec', { chapterId: 'dfin', chapterNum: 271.5, chapterCount: 271, pct: 1, completed: true });
   assertEq(st().today.booksFinished.filter(function (b) { return b === 's-dec'; }).length, 1,
     'decimal finale not double-counted');
+
+  fireProgress('s-ordered', { chapterId: 'o2', chapterNum: 2, chapterCount: 3, pct: 1, completed: true });
+  assert(st().today.booksFinished.indexOf('s-ordered') === -1,
+    'ordered EPUB does not finish at the last numbered chapter');
+  fireProgress('s-ordered', { chapterId: 'o-after', chapterNum: null, chapterCount: 3, pct: 1, completed: true });
+  assert(st().today.booksFinished.indexOf('s-ordered') !== -1,
+    'ordered EPUB finishes on its trailing unnumbered section');
 
   // Fallback path: series unknown to the catalogue → chapterNum === chapterCount.
   fireProgress('nf', { chapterId: 'z9', chapterNum: 12, chapterCount: 12, pct: 1, completed: true });
@@ -493,12 +505,12 @@ window.__done = (async function main() {
   // ── Books deduped across days within the period (§5.1) ────────────────────
   // 's-dec2' was finished on the 14th (seeded). Today: 's-txt', 's-dec',
   // 'nf', 'upload:k1' → 5 distinct finishes this month.
-  await until(function () { return statValue(3) === '5'; }, 'books-this-period counts the seeded finish (5)');
+  await until(function () { return statValue(3) === '6'; }, 'books-this-period counts the seeded finish (6)');
   fireProgress('s-dec2', { chapterId: 'f2', pct: 1, completed: true });
   assertEq(st().today.booksFinished.indexOf('s-dec2'), -1,
     'a series finished earlier in the period is not re-counted today');
   await sleep(200);
-  assertEq(statValue(3), '5', 'books count unchanged after the deduped finale');
+  assertEq(statValue(3), '6', 'books count unchanged after the deduped finale');
 
   // ── Day rollover ──────────────────────────────────────────────────────────
   window.dispatchEvent(new Event('pagehide')); // flush whatever is pending
@@ -529,13 +541,14 @@ window.__done = (async function main() {
   // Every fold above also accumulated here; the direct putDayLog rows (the
   // streak seeds) deliberately did NOT — lifetime observes folds, not store
   // writes. Words: 200 + 100 + 100 on the 15th, +100 on the 16th. Books:
-  // s-txt, s-dec, nf, upload:k1 on the 15th, plus s-dec2 — finished "on the
-  // 14th" only by a direct store write, so its first FOLD (the 15th) counts.
+  // s-txt, s-dec, s-ordered, nf, upload:k1 on the 15th, plus s-dec2 —
+  // finished "on the 14th" only by a direct store write, so its first FOLD
+  // (the 15th) counts.
   assertEq(st().lifetime.since, '2027-01-15', 'lifetime: empty-table seed stamped since = today-at-init');
   assertApprox(st().lifetime.words, 500, 'lifetime: words accumulated across every fold (500)');
   assertEq(st().lifetime.pages, 13, 'lifetime: pages accumulated, reader + upload (13)');
   assertEq(st().lifetime.chapters, 2, 'lifetime: chapters accumulated, reader + upload (2)');
-  assertEq(st().lifetime.books, 5, 'lifetime: five distinct finish events so far');
+  assertEq(st().lifetime.books, 6, 'lifetime: six distinct finish events so far');
   assert(st().lifetime.seconds > 0, 'lifetime: session seconds accrued');
 
   // Fractional accumulation — floats in, floats kept (§1.2 numeric rule).
@@ -558,8 +571,8 @@ window.__done = (async function main() {
   fireProgress('s-txt', { chapterId: 'c3', pct: 1, completed: true });
   assertEq(st().lifetime.books, booksBefore + 1, 'same-day double finish counts once');
   window.Store.prefs.set('goals.booksPeriod', 'month'); // no-op value — forces a recompute + render
-  await until(function () { return statValue(3) === '5'; },
-    'books-this-period stat stays 5 while lifetime went +1 (per-day vs per-period)');
+  await until(function () { return statValue(3) === '6'; },
+    'books-this-period stat stays 6 while lifetime went +1 (per-day vs per-period)');
 
   // The ledger persists UNROUNDED, in its own pref, on the flush cadence.
   window.dispatchEvent(new Event('pagehide'));
@@ -588,7 +601,7 @@ window.__done = (async function main() {
     if (Array.isArray(r.booksFinished)) exp.books += r.booksFinished.length;
     if (expSince == null || String(r.day) < expSince) expSince = String(r.day);
   });
-  assertEq(exp.books, 5, 'fixture sanity: stored day logs carry 5 finish entries');
+  assertEq(exp.books, 6, 'fixture sanity: stored day logs carry 6 finish entries');
   assertEq(expSince, '2027-01-08', 'fixture sanity: earliest stored day is 2027-01-08');
 
   function loadGoalsFrame() {

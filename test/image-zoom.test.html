@@ -69,8 +69,8 @@
       pointer('pointerdown', 1, 100, 150);
       pointer('pointermove', 1, 500, 500);
       pointer('pointerup', 1, 500, 500);
-      const translated = fixture.style.transform.match(/translate3d\(([-\d.]+)px,([-\d.]+)px/);
-      assert(translated && Number(translated[1]) <= 0 && Number(translated[2]) <= 0,
+      const translated = new DOMMatrix(getComputedStyle(fixture).transform);
+      assert(translated.m41 <= 0 && translated.m42 <= 0,
         'pan is clamped at the top and left edges', fixture.style.transform);
 
       zoom.reset();

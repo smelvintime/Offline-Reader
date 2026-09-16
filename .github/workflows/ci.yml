@@ -24,6 +24,18 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install app test dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Reader browser regressions
+        run: npm run test:browser
+
+      - name: Performance contracts
+        run: npm run test:performance
+
       # The worker genuinely has no runtime dependencies — its suite is
       # node:test over source that imports nothing outside node: — so it runs
       # with no install at all.

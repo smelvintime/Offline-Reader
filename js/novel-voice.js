@@ -92,7 +92,7 @@
   // device being slow. Seconds are the quantity that actually has to cover the
   // next generation, so seconds are what the lookahead counts.
   const NEURAL_LOOKAHEAD_MIN = 1;    // groups, however long they are
-  const NEURAL_LOOKAHEAD_MAX = 30;   // groups; bounded by WAV_CACHE_MAX
+  const NEURAL_LOOKAHEAD_MAX = 4;   // groups; bounded by WAV_CACHE_MAX
   // …and how many of those seconds are worth chasing depends entirely on
   // whether this device can ever get ahead. See lookaheadSeconds().
   const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds of cushion, to absorb wobble
@@ -121,7 +121,7 @@
   // Big enough to hold a whole pre-buffer, not just a lookahead. Forty clips
   // of seven seconds is about thirteen megabytes of PCM, which is nothing set
   // against the model already resident.
-  const WAV_CACHE_MAX = 64;          // generated groups kept for replay/skip-back
+  const WAV_CACHE_MAX = 32;          // generated groups kept for replay/skip-back
 
   // ── Pre-buffering ────────────────────────────────────────────────────────
   //
@@ -149,7 +149,9 @@
   // a mid phone seconds, and a low-memory phone none at all — holding half a
   // gigabyte of idle model on a 3 GB phone is how "the reader crashed" bug
   // reports happen.
-  const NEURAL_IDLE_BY_CLASS = { high: 120000, mid: 30000, low: 0 };
+  const NEURAL_IDLE_BY_CLASS = { high: 30000, mid: 15000, low: 0 };
+  const WAV_CACHE_BYTES = 16 * 1024 * 1024;
+  const MAX_PENDING_GENERATIONS = 4;
 
   // A crash-loop breaker for narration. Some platforms can take the whole
   // page down when speech starts (WebKit has a history of hard-crashing
@@ -239,7 +241,8 @@
       sharedMemory: false,
       reason: '',
     };
-    if (c.wasm) {
+    const native = nativeKokoro().available();
+    if (c.wasm && !native) {
       for (let i = 0; i < NEURAL_HEAP_PAGES.length; i++) {
         const max = NEURAL_HEAP_PAGES[i];
         try {
@@ -255,10 +258,11 @@
       }
       if (c.sharedMemory) c.memoryError = '';
     }
-    c.ok = c.worker && c.wasm && c.sharedMemory;
+    c.native = native;
+    c.ok = c.worker && c.wasm && (native || c.sharedMemory);
     if (!c.worker) c.reason = 'this browser has no Web Workers';
     else if (!c.wasm) c.reason = 'this browser has no WebAssembly';
-    else if (!c.sharedMemory) {
+    else if (!native && !c.sharedMemory) {
       c.reason = 'this device would not grant the voice engine any shared WebAssembly memory'
         + (c.isolated ? '' : ' (the page is not cross-origin isolated)');
     }
@@ -296,7 +300,7 @@
       : neuralEngine.bundledCache === false ? 'weights: absent'
       : 'weights: not probed yet';
     return 'engine check — shared wasm heap: '
-      + (c.sharedMemory ? Math.round(c.heapPages / 16) + ' MB' : 'NONE')
+      + (c.native ? 'not needed for native inference' : c.sharedMemory ? Math.round(c.heapPages / 16) + ' MB' : 'NONE')
       + ' · SharedArrayBuffer: ' + (c.sab ? 'yes' : 'no')
       + ' · app: ' + (isNativeApp() ? 'native' : 'web')
       + ' · ' + weights
@@ -1158,6 +1162,43 @@
   // back for an id we no longer care about is dropped on the floor.
   // ─────────────────────────────────────────────────────────────────────────
 
+  const voiceEvents = [];
+  let buildInfo = null;
+  const resources = { thermal: 'unknown', lowPower: false, blocked: false };
+  function voiceEvent(event, data) {
+    voiceEvents.push(Object.assign({ event: event, at: Date.now() }, data));
+    if (voiceEvents.length > 100) voiceEvents.shift();
+  }
+  function voiceDiagnostics() {
+    return { revision: 'mobile-efficiency-1', build: buildInfo,
+      voice: state.prefs.neuralVoice, rate: state.prefs.rate, memoryClass: memoryClass(),
+      backend: neuralEngine.native ? 'native' : (neuralEngine.ready ? 'wasm' : 'unloaded'),
+      provider: neuralEngine.provider, weights: neuralEngine.nativeWeights,
+      pending: neuralEngine.pending.size, cachedClips: neuralEngine.wavCache.size,
+      cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
+      resources: Object.assign({}, resources), events: voiceEvents.slice() };
+  }
+  let resourceResumeAfter = 0;
+  function updateResources(value) {
+    if (!value) return;
+    resources.thermal = value.thermal || 'unknown';
+    resources.lowPower = !!value.lowPower;
+    const hot = resources.thermal === 'serious' || resources.thermal === 'critical';
+    if (hot) resourceResumeAfter = Date.now() + 30000;
+    resources.blocked = hot || Date.now() < resourceResumeAfter;
+    voiceEvent('resources', { thermal: resources.thermal, lowPower: resources.lowPower, memoryWarning: !!value.memoryWarning });
+    if (hot || value.memoryWarning) {
+      if (state.playing && state.prefs.narrator === 'natural') pause();
+      neuralEngine.dispose();
+      if (state.active) toast(hot ? 'Natural voice paused to let your phone cool. Device voice is available in voice settings.' : 'Natural voice paused to free memory. Press play to reload it.');
+    }
+  }
+  if (window.Platform && window.Platform.ready) Promise.resolve(window.Platform.ready).then(async function () {
+    const P = window.Platform;
+    if (P.buildInfo) buildInfo = await P.buildInfo();
+    if (P.kokoro && P.kokoro.onResources) await P.kokoro.onResources(updateResources);
+  }).catch(function () { /* diagnostics cannot prevent reading */ });
+
   const neuralEngine = {
     worker: null,
     local: null,           // true once a load proved the weights are bundled
@@ -1174,9 +1215,13 @@
     pending: new Map(),    // id → { resolve, reject, timer }
     inFlight: new Map(),   // cacheKey → Promise<blob URL> not yet settled
     wavCache: new Map(),   // cacheKey → blob URL (bounded LRU)
+    clipBytes: new Map(),
     clipSeconds: new Map(),// cacheKey → audio seconds (same lifetime as wavCache)
     onprogress: null,      // sheet download/init-progress hook
     idleTimer: 0,          // scheduled teardown after release()
+    epoch: 0,
+    initFinish: null,
+    speedSamples: [],
     activeId: 0,           // job already inside the unabortable ONNX forward pass
 
     available: function () { return !!window.Worker; },
@@ -1205,6 +1250,7 @@
 
         const finish = function (err) {
           if (settled) return;
+          self.initFinish = null;
           settled = true;
           clearTimeout(stall);
           // Reaching a verdict at all — ready OR a clean error — means the
@@ -1220,6 +1266,7 @@
         // finishes. A silence watchdog turns that into a real failure the
         // fallback can act on. Any message from the worker resets it, so a
         // slow download and a slow session compile both keep their time.
+        self.initFinish = finish;
         const bump = function () {
           clearTimeout(stall);
           stall = setTimeout(function () {
@@ -1239,6 +1286,7 @@
           finish(new Error(e && e.message ? e.message : 'Worker failed to start'));
         };
         w.onmessage = function (ev) {
+          if (self.worker !== w) return;
           const m = ev.data || {};
           if (!settled) bump();
           if (m.type === 'source') { self.local = !!m.local; if (self.onprogress) self.onprogress(m); }
@@ -1247,12 +1295,17 @@
           // comes here and goes back. One bridge hop against an inference
           // measured in seconds.
           else if (m.type === 'infer') {
+            const bridgeStarted = Date.now();
             nativeKokoro().infer(m.ids, m.style, m.speed).then(function (r) {
               if (!r || !r.pcm) throw new Error('native inference returned nothing');
+              if (self.worker !== w) return;
+              voiceEvent('inference', { nativeMs: r.ms, bridgeRoundTripMs: Date.now() - bridgeStarted });
+              if (r.resources) updateResources(r.resources);
               self.provider = r.provider || '';
               self.nativeWeights = r.weights || '';
               w.postMessage({ type: 'infer-result', id: m.id, pcm: r.pcm });
             }).catch(function (e) {
+              if (self.worker !== w) return;
               w.postMessage({ type: 'infer-error', id: m.id,
                               message: (e && e.message) || 'native inference failed' });
             });
@@ -1265,6 +1318,7 @@
             // supersedes the main thread's guess in the line a reader reads.
             if (m.heapPages) noteHeapPages(m.heapPages);
             self.native = !!m.native;
+            voiceEvent('ready', { native: self.native, initMs: m.initMs });
             self.stage = '';       // init is over; the step it ended on is stale
             finish(null);
             if (self.onprogress) self.onprogress({ type: 'ready' });
@@ -1364,25 +1418,36 @@
       // That doubling is what a slower-than-realtime phone hears as stuttering.
       const live = this.inFlight.get(cacheKey);
       if (live) return live;
+      if (this.pending.size >= MAX_PENDING_GENERATIONS) return Promise.reject(new Error('Voice queue is full'));
 
       const self = this;
       const id = this.nextId++;
+      const epoch = this.epoch;
       const job = new Promise(function (resolve, reject) {
         const timer = setTimeout(function () {
           self.pending.delete(id);
           reject(new Error('Timed out generating audio'));
+          voiceEvent('timeout', {});
+          self.dispose();
         }, NEURAL_TIMEOUT_MS);
         self.pending.set(id, { resolve: resolve, reject: reject, timer: timer, cacheKey: cacheKey });
         self.worker.postMessage({ type: 'generate', id: id, text: text, voice: voice });
       }).then(function (msg) {
+        if (epoch !== self.epoch) throw new Error('cancelled');
         const url = URL.createObjectURL(new Blob([msg.wav], { type: 'audio/wav' }));
         self.wavCache.set(cacheKey, url);
         self.clipSeconds.set(cacheKey, msg.seconds || 0);
-        while (self.wavCache.size > WAV_CACHE_MAX) {
-          const oldest = self.wavCache.keys().next().value;
+        self.clipBytes.set(cacheKey, msg.wav.byteLength);
+        while (self.wavCache.size > WAV_CACHE_MAX || Array.from(self.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0) > WAV_CACHE_BYTES) {
+          const oldest = Array.from(self.wavCache.keys()).find(function (k) {
+            const url = self.wavCache.get(k);
+            return k !== cacheKey && !self.inFlight.has(k) && !(channel.pool || []).some(function (a) { return a.src === url; });
+          });
+          if (oldest === undefined) break;
           const u = self.wavCache.get(oldest);
           self.wavCache.delete(oldest);
           self.clipSeconds.delete(oldest);
+          self.clipBytes.delete(oldest);
           try { URL.revokeObjectURL(u); } catch (e) {}
         }
         return url;
@@ -1405,6 +1470,9 @@
      */
     noteSpeed: function (m) {
       if (!m || !m.ms) return;
+      this.speedSamples.push({ ms: m.ms, seconds: m.seconds || 0, chars: m.chars || 0 });
+      if (this.speedSamples.length > 6) this.speedSamples.shift();
+      voiceEvent('generated', { ms: m.ms, seconds: m.seconds || 0, pending: this.pending.size });
       this.speed = {
         ms: m.ms,
         seconds: m.seconds || 0,
@@ -1437,7 +1505,10 @@
     },
 
     dispose: function () {
+      this.epoch++;
       const hadNative = this.native;
+      if (this.initFinish) this.initFinish(new Error('Voice startup cancelled'));
+      voiceEvent('released', { native: hadNative });
       clearTimeout(this.idleTimer); this.idleTimer = 0;
       this.cancelPending();
       if (this.worker) { try { this.worker.terminate(); } catch (e) {} }
@@ -1453,6 +1524,9 @@
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();
       this.clipSeconds.clear();
+      this.clipBytes.clear();
+      this.speedSamples = [];
+      this.speed = null;
       // The native ORT session lives outside the worker. Terminating the worker
       // without this leaves the model and its thread pool resident indefinitely.
       if (hadNative) {
@@ -1801,7 +1875,8 @@
     // While the deficit is being paid up front, the target IS the lookahead.
     if (state.prebuffer) return state.prebuffer.target;
     const margin = neuralMargin();
-    if (!margin) return NEURAL_LOOKAHEAD_SEC;   // unmeasured: assume the good case
+    if (resources.lowPower || resources.thermal === 'fair') return 0;
+    if (!margin) return 0;   // unmeasured: assume the good case
 
     // Below break-even, keep only the mandatory next group in flight (the
     // loop's NEURAL_LOOKAHEAD_MIN). A deeper queue cannot make a device that
@@ -2049,7 +2124,7 @@
    * Safe to call repeatedly, and the pump does.
    */
   function prefetchNeural(currentGroup) {
-    if (!neuralEngine.worker || !currentGroup) return;
+    if (!neuralEngine.worker || !currentGroup || resources.blocked) return;
     const rate = state.prefs.rate || 1;
     const want = lookaheadSeconds();
     let from = currentGroup.to + 1;
@@ -2061,6 +2136,7 @@
       const key = neuralKey(state.chapterId, g);
       const known = neuralEngine.clipSeconds.get(key);
       if (!neuralEngine.wavCache.has(key) && !neuralEngine.inFlight.has(key)) {
+        if (neuralEngine.pending.size >= MAX_PENDING_GENERATIONS) break;
         neuralEngine.generate(key, normalizeForSpeech(g.text, 'neural'), state.prefs.neuralVoice)
           // Generated is not the same as ready to play. The clip still has to
           // be decoded, and paying for that while the current one plays is the
@@ -2209,6 +2285,11 @@
   function play() {
     if (!state.bridge) return;
     if (state.playing) return;
+    if (Date.now() >= resourceResumeAfter && resources.thermal !== 'serious' && resources.thermal !== 'critical') resources.blocked = false;
+    if (resources.blocked && state.prefs.narrator === 'natural') {
+      toast('Natural voice is paused while your phone cools. You can select the device voice.');
+      return;
+    }
     state.playing = true;
     syncBarWithReaderChrome();
     state.errors = 0;
@@ -2300,6 +2381,7 @@
     // so a quick resume joins that work instead of rendering the same group a
     // second time; queued lookahead is still cancelled by the worker.
     cancelSpeech(true);
+    neuralEngine.release();
     const s = currentSentence();
     if (s) highlighter.apply(s);   // keep the place visible while paused
     mediaSessionUpdate();
@@ -2443,6 +2525,7 @@
     if (kind === 'close') {
       cancelNeuralPrewarm();
       stopSession();
+      neuralEngine.release();
       closeSheet();
       state.bridge = null;
       return;
@@ -2784,6 +2867,13 @@
     const preview2 = previewBtn();
     preview2.addEventListener('click', function () { previewVoice(); });
     natTools.append(preview2);
+    const diagnostics = el('details', 'vc-hint');
+    diagnostics.appendChild(el('summary', '', 'Voice diagnostics'));
+    const report = el('pre');
+    report.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto';
+    diagnostics.appendChild(report);
+    diagnostics.addEventListener('toggle', function () { if (diagnostics.open) report.textContent = JSON.stringify(voiceDiagnostics(), null, 2); });
+    natTools.appendChild(diagnostics);
     natRow.appendChild(natTools);
     body.appendChild(natRow);
 
@@ -3113,6 +3203,8 @@
 
 
   function prewarmNeural() {
+    // Memory capacity alone is not permission for speculative computation.
+    if ((window.Platform && window.Platform.isNative) || resources.lowPower || resources.blocked) return;
     if (!neuralEngine.available()) return;
     if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
     if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
@@ -3368,6 +3460,7 @@
     },
 
     /** Pure pieces exposed for the test page; not API for other modules. */
+    diagnostics: voiceDiagnostics,
     _test: {
       segmentBlocks: segmentBlocks,
       sentenceIndexAt: sentenceIndexAt,
@@ -3394,6 +3487,8 @@
       encodeWav: encodeWav,
       readPrefs: readPrefs,
       neuralEngine: neuralEngine,
+      updateResources: updateResources,
+      voiceDiagnostics: voiceDiagnostics,
       channel: channel,
       forceSheetFlag: function (v) { sheetOpen = !!v; },
       skip: skip,

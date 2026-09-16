@@ -1,14 +1,16 @@
 {
   "name": "offline-reader",
   "version": "1.0.0",
-  "description": "Native (Capacitor) packaging for the Offline Reader static web app. The web app itself has no build step and none of this is needed to serve it \u2014 these dependencies exist only to wrap it into the iOS/Android shells. See docs/mobile/NATIVE_BUILD.md.",
+  "description": "Native (Capacitor) packaging for the Offline Reader static web app. The web app itself has no build step and none of this is needed to serve it \u00e2\u20ac\u201d these dependencies exist only to wrap it into the iOS/Android shells. See docs/mobile/NATIVE_BUILD.md.",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "sync": "bash scripts/sync-www.sh && cap sync && node scripts/apply-native-config.mjs",
     "native:config": "node scripts/apply-native-config.mjs --verbose",
     "ios": "npm run sync && cap open ios",
-    "android": "npm run sync && cap open android"
+    "android": "npm run sync && cap open android",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:performance": "node --test test/performance.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
@@ -29,6 +31,7 @@
     "or-zip": "file:native/or-zip"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.0"
+    "@capacitor/cli": "^8.5.0",
+    "playwright": "1.62.1"
   }
 }

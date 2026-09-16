@@ -263,47 +263,29 @@ function pcmFromBase64(b64) {
   return out;
 }
 
-/**
- * Point the engine's forward pass at the native plugin.
- *
- * `tts.model` is a plain property the engine calls as
- * `const { waveform } = await this.model({ input_ids, style, speed })`, which
- * makes it the one seam worth taking: everything before it — phonemisation,
- * tokenisation, the voice style slice, the text splitter — stays exactly as the
- * vendored code wrote it, and only the tensor maths moves.
- *
- * Returns false when nothing was swapped, so the caller can say plainly that
- * this session is running the slow path.
- */
-function useNativeModel(tts) {
-  if (!tts || typeof tts.model !== 'function') return false;
-  // from_pretrained has already built an ONNX Runtime *wasm* session by the
-  // time we get here, and once the forward pass goes native that session is
-  // several hundred megabytes of resident memory doing nothing. Holding it
-  // alongside the native one is how a phone gets its web content process
-  // killed mid-chapter. transformers.js models are Callables with a dispose(),
-  // so the old one can be released the moment the new one is in place.
-  const superseded = tts.model;
-  tts.model = async function (inputs) {
-    // input_ids arrives as int64, so its data is a BigInt64Array; the bridge
-    // carries numbers. Phoneme ids are small — nothing is lost narrowing them.
-    const ids = Array.prototype.map.call(inputs.input_ids.data, Number);
-    const style = Array.prototype.slice.call(inputs.style.data);
-    const speed = Number(inputs.speed.data[0]) || 1;
-    const res = await nativeInfer(ids, style, speed);
-    return { waveform: { data: pcmFromBase64(res.pcm) } };
+// Reuse the public constructor without constructing a browser inference model.
+async function createNativeEngine(mod, model) {
+  const base = localModelsBase() + model + '/';
+  const read = async function (name) {
+    const res = await fetch(base + name);
+    if (!res.ok) throw new Error('Missing bundled voice resource: ' + name);
+    return res.json();
   };
-  try {
-    if (superseded && typeof superseded.dispose === 'function') superseded.dispose();
-  } catch (e) {
-    note('could not release the superseded wasm session: ' + (e && e.message));
-  }
-  return true;
+  const [adapter, json, config] = await Promise.all([
+    import(new URL('./voice-native-tokenizer.mjs', self.location.href).href),
+    read('tokenizer.json'), read('tokenizer_config.json'),
+  ]);
+  return new mod.KokoroTTS(async function (inputs) {
+    const result = await nativeInfer(Array.from(inputs.input_ids.data, Number),
+      Array.from(inputs.style.data), Number(inputs.speed.data[0]) || 1);
+    return { waveform: { data: pcmFromBase64(result.pcm) } };
+  }, adapter.nativeTokenizer(json, config));
 }
 
 async function init(msg) {
   try {
-    const heapGranted = capWasmMemory(
+    const started = performance.now();
+    const heapGranted = msg.native ? null : capWasmMemory(
       Array.isArray(msg.heapPages) && msg.heapPages.length
         ? msg.heapPages : [65536, 16384, 8192, 4096],
     );
@@ -327,7 +309,7 @@ async function init(msg) {
     await seedVoices(msg.model, msg.voices);
 
     mark(local ? 'reading weights from the app' : 'downloading weights');
-    tts = await mod.KokoroTTS.from_pretrained(msg.model, {
+    tts = msg.native ? await createNativeEngine(mod, msg.model) : await mod.KokoroTTS.from_pretrained(msg.model, {
       dtype: msg.dtype,
       device: msg.device,
       progress_callback: function (p) {
@@ -351,9 +333,9 @@ async function init(msg) {
     // Native inference if the app offers it, wasm if it does not. Announced
     // either way: "which engine am I actually hearing" is the first question
     // when a voice is too slow, and it should never need a rebuild to answer.
-    const native = msg.native ? useNativeModel(tts) : false;
+    const native = !!msg.native;
     mark(native ? 'ready (native inference)' : 'ready (wasm inference)');
-    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0, native: native });
+    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0, native: native, initMs: Math.round(performance.now() - started) });
     pump();
   } catch (e) {
     // Name the step. "init failed" sends someone back to the logs; "at
@@ -450,6 +432,7 @@ self.onmessage = function (ev) {
   const msg = ev.data || {};
   if (msg.type === 'init') { init(msg); return; }
   if (msg.type === 'generate') {
+    if (queue.length >= 4) { post({ type: 'error', id: msg.id, message: 'Voice queue is full' }); return; }
     if (typeof msg.text !== 'string' || !msg.text.trim()) {
       post({ type: 'error', id: msg.id, message: 'empty text' });
       return;

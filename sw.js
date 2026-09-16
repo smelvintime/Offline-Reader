@@ -6,7 +6,7 @@
 // v5.08 without a bump and reached nobody; the code was right and the readers
 // still had the bug. If you touched styles.css, css/**, or any js/** file in
 // the list below, this line changes too.
-const CACHE_NAME = 'cbz-reader-v5.43';
+const CACHE_NAME = 'cbz-reader-v5.44';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [
@@ -29,6 +29,8 @@ const SHELL_ASSETS = [
   './js/image-zoom.js',
   './js/reader.js',
   './js/novel-voice.js',
+  './js/novel-voice-worker.js',
+  './js/voice-native-tokenizer.mjs',
   './js/novel-reader.js',
   './js/importer.js',
   './js/goals.js',
@@ -106,7 +108,7 @@ function isFont(url) {
 // model weights are cross-origin (huggingface.co) and never pass through
 // here — transformers.js keeps those in its own Cache API bucket.
 function isVoiceEngine(url) {
-  return url.pathname.includes('/vendor/tts/') || url.pathname.endsWith('/js/novel-voice-worker.js');
+  return url.pathname.includes('/vendor/tts/');
 }
 
 self.addEventListener('fetch', event => {
@@ -116,6 +118,12 @@ self.addEventListener('fetch', event => {
   let url;
   try { url = new URL(request.url); } catch (e) { return; }
   if (url.origin !== self.location.origin) return;  // gateway/CDN traffic is not ours to cache
+
+  // Application-owned voice code must win over legacy vendor-cache entries.
+  if (url.pathname.endsWith('/js/novel-voice-worker.js') || url.pathname.endsWith('/js/voice-native-tokenizer.mjs')) {
+    event.respondWith(caches.open(CACHE_NAME).then(c => c.match(request)).then(hit => hit || fetch(request)));
+    return;
+  }
 
   if (isData(url)) {
     event.respondWith(

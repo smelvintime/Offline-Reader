@@ -136,7 +136,7 @@
   // up front and the rest plays through without a gap. One wait a reader can
   // see the end of beats a stutter every few seconds, which is the actual
   // complaint.
-  const NEURAL_PREBUFFER_MAX_SEC = 60;    // wall seconds anyone is asked to wait
+  const NEURAL_PREBUFFER_MAX_SEC = 15;    // thermal-bounded startup generation
   const NEURAL_PREBUFFER_SAFETY = 1.35;   // the margin drifts, and phones throttle
   const NEURAL_PREBUFFER_FLOOR = 1.05;    // above this there is no deficit to pay
   const NEURAL_PREBUFFER_TICK_MS = 400;
@@ -940,6 +940,7 @@
     onended: null,
     primed: null,          // url sitting decoded in the spare
     revokeUrl: null,
+    started: false,          // current element reached audible playback
 
     ensure: function () {
       if (this.pool.length) return this.pool[this.slot];
@@ -953,9 +954,14 @@
           // this too — it is primed with real audio and a stray play() or a
           // torn-down session would otherwise advance the reader twice.
           if (self.pool[self.slot] !== a) return;
+          self.started = false;
           const fn = self.onended;
           if (fn) fn();
         });
+        a.addEventListener('playing', function () {
+          if (self.pool[self.slot] === a) self.started = true;
+        });
+        a.addEventListener('pause', function () { self.handlePause(a); });
         this.pool.push(a);
       }
       return this.pool[this.slot];
@@ -963,6 +969,17 @@
 
     /** The element actually playing. Callers should not index the pool. */
     current: function () { return this.pool[this.slot] || null; },
+
+    // iOS pauses the media element when another app takes the audio session.
+    // Mirror that interruption into narration state so the prefetch pump does
+    // not keep synthesising into silence. Programmatic stops clear `started`
+    // first, and a primed element is never the current slot, so neither is
+    // mistaken for an external interruption.
+    handlePause: function (a) {
+      if (this.pool[this.slot] !== a || !this.started || !state.playing || a.ended) return;
+      this.started = false;
+      pause();
+    },
 
     /**
      * iOS blesses ELEMENTS, not the page: audio may only start from a user
@@ -1010,6 +1027,7 @@
       }
 
       const a = this.pool[this.slot];
+      this.started = false;
       if (this.revokeUrl && this.revokeUrl !== url) {
         try { URL.revokeObjectURL(this.revokeUrl); } catch (e) {}
       }
@@ -1040,6 +1058,7 @@
     stop: function () {
       this.onended = null;
       this.primed = null;
+      this.started = false;
       for (let i = 0; i < this.pool.length; i++) {
         const a = this.pool[i];
         try { a.pause(); } catch (e) {}
@@ -1158,6 +1177,7 @@
     clipSeconds: new Map(),// cacheKey → audio seconds (same lifetime as wavCache)
     onprogress: null,      // sheet download/init-progress hook
     idleTimer: 0,          // scheduled teardown after release()
+    activeId: 0,           // job already inside the unabortable ONNX forward pass
 
     available: function () { return !!window.Worker; },
 
@@ -1251,6 +1271,7 @@
           }
           else if (m.type === 'init-error') { finish(new Error(m.message || 'Could not load the voice model')); }
           else if (m.type === 'progress') { if (self.onprogress) self.onprogress(m); }
+          else if (m.type === 'generating') { self.markGenerating(m.id); }
           else if (m.type === 'audio') { self.noteSpeed(m); self.settle(m.id, null, m); }
           else if (m.type === 'error') self.settle(m.id, new Error(m.message || 'Generation failed'), null);
         };
@@ -1293,10 +1314,26 @@
     },
 
     disposeIfNotReady: function (w) {
-      if (this.worker === w) { this.worker = null; this.readyPromise = null; this.device = null; }
+      if (this.worker === w) {
+        try { w.terminate(); } catch (e) {}
+        this.worker = null;
+        this.readyPromise = null;
+        this.device = null;
+      }
+    },
+
+    markGenerating: function (id) {
+      // A worker message can cross a pause/cancel boundary. Only a job whose
+      // promise is still pending is allowed to become the active forward pass;
+      // otherwise a delayed notification can make the next pause preserve a
+      // stale id and cancel the paragraph the reader actually resumed.
+      if (this.pending.has(id)) this.activeId = id;
     },
 
     settle: function (id, err, msg) {
+      // Clear this before looking up the promise. A cancelled job can still
+      // finish natively and report late, after its pending entry was removed.
+      if (this.activeId === id) this.activeId = 0;
       const p = this.pending.get(id);
       if (!p) return;                      // cancelled long ago
       this.pending.delete(id);
@@ -1335,7 +1372,7 @@
           self.pending.delete(id);
           reject(new Error('Timed out generating audio'));
         }, NEURAL_TIMEOUT_MS);
-        self.pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+        self.pending.set(id, { resolve: resolve, reject: reject, timer: timer, cacheKey: cacheKey });
         self.worker.postMessage({ type: 'generate', id: id, text: text, voice: voice });
       }).then(function (msg) {
         const url = URL.createObjectURL(new Blob([msg.wav], { type: 'audio/wav' }));
@@ -1376,15 +1413,31 @@
       };
     },
 
-    cancelPending: function () {
+    cancelPending: function (preserveActive, preserveKey) {
       const self = this;
-      this.pending.forEach(function (p) { clearTimeout(p.timer); p.reject(new Error('cancelled')); });
-      this.pending.clear();
-      this.inFlight.clear();
-      if (this.worker) { try { this.worker.postMessage({ type: 'cancel' }); } catch (e) {} }
+      let preserveId = this.activeId || 0;
+      if (preserveActive && preserveKey) {
+        this.pending.forEach(function (p, id) {
+          if (p.cacheKey === preserveKey) preserveId = id;
+        });
+      }
+      this.pending.forEach(function (p, id) {
+        if (preserveActive && id === preserveId) return;
+        clearTimeout(p.timer);
+        p.reject(new Error('cancelled'));
+        self.pending.delete(id);
+      });
+      if (!preserveActive) {
+        this.activeId = 0;
+        this.inFlight.clear();
+      }
+      if (this.worker) {
+        try { this.worker.postMessage({ type: 'cancel', preserveId: preserveActive ? preserveId : 0 }); } catch (e) {}
+      }
     },
 
     dispose: function () {
+      const hadNative = this.native;
       clearTimeout(this.idleTimer); this.idleTimer = 0;
       this.cancelPending();
       if (this.worker) { try { this.worker.terminate(); } catch (e) {} }
@@ -1400,6 +1453,14 @@
       this.wavCache.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
       this.wavCache.clear();
       this.clipSeconds.clear();
+      // The native ORT session lives outside the worker. Terminating the worker
+      // without this leaves the model and its thread pool resident indefinitely.
+      if (hadNative) {
+        try {
+          const released = nativeKokoro().release();
+          if (released && released.catch) released.catch(function () {});
+        } catch (e) {}
+      }
     },
 
     // "Is the model on this device?" — bundled counts, and is asked first: a
@@ -1794,6 +1855,10 @@
     return Math.min(deficit, affordable);
   }
 
+  function startupPrebufferDeadline() {
+    return Date.now() + NEURAL_PREBUFFER_MAX_SEC * 1000;
+  }
+
   /**
    * Playback seconds sitting generated in an unbroken run after `group`.
    *
@@ -1882,10 +1947,13 @@
    * wait and start the audio: a short buffer is worse than no buffer only in
    * theory, and a reader staring at a stuck progress number is worse than both.
    */
-  function awaitPrebuffer(group, token) {
+  function awaitPrebuffer(group, token, startupDeadline) {
     const target = prebufferTargetSeconds();
     if (target <= 0) return Promise.resolve(true);
-    const deadline = Date.now() + NEURAL_PREBUFFER_MAX_SEC * 1500;
+    // The first clip is part of the same full-load startup burst. Its generation
+    // begins before this function, so carry the original deadline through
+    // rather than granting a fresh fifteen seconds after that work completes.
+    const deadline = startupDeadline || startupPrebufferDeadline();
     state.prebuffer = { target: target, got: 0 };
     updateBar();
     return new Promise(function (resolve) {
@@ -1913,8 +1981,8 @@
     highlighter.apply(group);
     setPreparingSoon();
     state.group = group;         // the pump tops up from here while this plays
-    startPrefetchPump();
     const chapterId = state.chapterId;
+    const startupDeadline = state.fastStart ? startupPrebufferDeadline() : 0;
     const groupDone = function () {
       if (token !== state.speakToken || !state.playing) return;
       state.index = group.to;      // land on the group's last sentence…
@@ -1930,12 +1998,26 @@
         // groups mid-queue changes their cache keys, so playback misses audio
         // that is already prepared and starts generating it again.
         if (!state.groupCaps) state.groupCaps = neuralGroupCaps();
-        prefetchNeural(group);
+        // During startup awaitPrebuffer owns the queue and the shared thermal
+        // deadline. Starting the steady-state pump, or doing an unconditional
+        // top-up here, lets lookahead escape that budget while the first clip
+        // is still rendering. Later groups are already in steady state.
+        if (!first) {
+          prefetchNeural(group);
+          startPrefetchPump();
+        }
         // Only the group a reader tapped for pays the deficit up front. Every
         // group after it is playing off a buffer that is already built, or off
         // one that was never needed.
-        return (first ? awaitPrebuffer(group, token) : Promise.resolve(true)).then(function (go) {
+        return (first ? awaitPrebuffer(group, token, startupDeadline) : Promise.resolve(true)).then(function (go) {
           if (!go || token !== state.speakToken || !state.playing) return;
+          // A fast first clip still benefits from immediate overlap. A clip
+          // that consumed the whole startup budget does not get to queue more
+          // full-load work before playback begins.
+          if (first) {
+            if (Date.now() < startupDeadline) prefetchNeural(group);
+            startPrefetchPump();
+          }
           setPreparing(false);
           primeNextClip(group);
           return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
@@ -2106,7 +2188,9 @@
     return bits.join(' ');
   }
 
-  function cancelSpeech() {
+  function cancelSpeech(preserveActive) {
+    const preserveKey = preserveActive && state.group
+      ? neuralKey(state.chapterId, state.group) : null;
     state.speakToken++;
     clearTimeout(preparingTimer); preparingTimer = 0;
     // The pump generates from state.group, so a cursor left behind here would
@@ -2114,7 +2198,7 @@
     stopPrefetchPump();
     state.group = null;
     state.prebuffer = null;
-    neuralEngine.cancelPending();
+    neuralEngine.cancelPending(!!preserveActive, preserveKey);
     systemSpeech().stop();
     channel.stop();
     setPreparing(false);
@@ -2212,7 +2296,10 @@
     state.playing = false;
     syncBarWithReaderChrome();
     guardClear();    // we are demonstrably alive — no crash to guard against
-    cancelSpeech();
+    // ONNX cannot abort the forward pass already running. Preserve its promise
+    // so a quick resume joins that work instead of rendering the same group a
+    // second time; queued lookahead is still cancelled by the worker.
+    cancelSpeech(true);
     const s = currentSentence();
     if (s) highlighter.apply(s);   // keep the place visible while paused
     mediaSessionUpdate();
@@ -3293,6 +3380,9 @@
       estimateSeconds: estimateSeconds,
       chapterSecondsLeft: chapterSecondsLeft,
       prebufferTargetSeconds: prebufferTargetSeconds,
+      startupPrebufferDeadline: startupPrebufferDeadline,
+      awaitPrebuffer: awaitPrebuffer,
+      speakNeural: speakNeural,
       bufferedAhead: bufferedAhead,
       NEURAL_PREBUFFER_MAX_SEC: NEURAL_PREBUFFER_MAX_SEC,
       PREWARM_DELAY_MS: PREWARM_DELAY_MS,
@@ -3325,6 +3415,7 @@
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
       NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,
       NEURAL_LOOKAHEAD_MAX: NEURAL_LOOKAHEAD_MAX,
+      NEURAL_PUMP_MS: NEURAL_PUMP_MS,
     },
   };
 })();

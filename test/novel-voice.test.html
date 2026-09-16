@@ -52,6 +52,7 @@
   <button onclick="T.testGrouping().then(T.report)">grouping</button>
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
+  <button onclick="T.testThermalLifecycle().then(T.report)">thermal lifecycle</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
 </div>
@@ -1658,6 +1659,9 @@ const T = {
     const held = {
       speed: ne.speed, sentences: st.sentences, chapterId: st.chapterId,
       rate: st.prefs.rate, index: st.index, prebuffer: st.prebuffer,
+      playing: st.playing, worker: ne.worker, generate: ne.generate,
+      fastStart: st.fastStart, group: st.group, groupCaps: st.groupCaps,
+      channelPlay: VT().channel.play,
     };
     try {
       // 20 characters per second of audio. 200 sentences of 200 characters is
@@ -1694,12 +1698,13 @@ const T = {
 
       // ── a real deficit, capped at what anyone will sit through ──────────
       // The phone's own number. 0.92x over a 2000-second chapter is 160
-      // seconds short, which is far past the cap, so the cap is what applies:
-      // 60 wall seconds of generating buys 60 x 0.92 seconds of audio.
+      // seconds short, which is far past the cap, so the cap is what applies.
+      // Startup is intentionally thermal-bounded: fifteen wall seconds of
+      // generating buys 15 x 0.92 seconds of audio, then playback begins.
       ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
       const capped = VT().prebufferTargetSeconds();
-      pass = ok(Math.abs(capped - VT().NEURAL_PREBUFFER_MAX_SEC * 0.92) < 0.5,
-        'a long chapter buffers as much as the cap allows and no more',
+      pass = ok(VT().NEURAL_PREBUFFER_MAX_SEC === 15 && Math.abs(capped - 15 * 0.92) < 0.5,
+        'a long chapter gets at most fifteen wall seconds of startup generation',
         capped.toFixed(1) + 's') && pass;
 
       // A short chapter's whole deficit fits inside the cap, so it is paid in
@@ -1713,12 +1718,94 @@ const T = {
       pass = ok(full < capped, 'and a short chapter never waits longer than a long one',
         full.toFixed(1) + 's < ' + capped.toFixed(1) + 's') && pass;
 
+      // The fifteen-second heat budget starts before the first clip renders.
+      // Advancing a fake clock through that first render must not buy a fresh
+      // fifteen seconds for speculative clips behind it.
+      pass = ok(typeof VT().startupPrebufferDeadline === 'function',
+        'the startup budget has one deadline shared by first clip and lookahead') && pass;
+      if (typeof VT().startupPrebufferDeadline === 'function') {
+        const realNow = Date.now;
+        let fakeNow = 100000;
+        Date.now = function () { return fakeNow; };
+        const deadline = VT().startupPrebufferDeadline();
+        fakeNow += 12000;              // first clip consumed twelve seconds
+        pass = ok(deadline - Date.now() === 3000,
+          'first-clip generation is charged against the fifteen-second startup budget',
+          (deadline - Date.now()) + 'ms remain') && pass;
+        Date.now = realNow;
+      }
+
       // ── what counts as buffered ─────────────────────────────────────────
       // Unbroken is the point: audio past a hole cannot be played through it.
       st.sentences = list;
       const g0 = VT().groupSentences(list, 0);
       const g1 = VT().groupSentences(list, 1);
       const g2 = VT().groupSentences(list, 2);
+      pass = ok(typeof VT().awaitPrebuffer === 'function',
+        'prebuffer enforcement is directly regression-testable') && pass;
+      if (typeof VT().awaitPrebuffer === 'function') {
+        let generatedAfterBudget = 0;
+        const realNow = Date.now;
+        Date.now = function () { return 50000; };
+        st.playing = true;
+        ne.worker = {};
+        ne.generate = function () { generatedAfterBudget++; return Promise.resolve('blob:none'); };
+        await VT().awaitPrebuffer(g0, st.speakToken, 49999);
+        pass = ok(generatedAfterBudget === 0,
+          'an expired shared startup deadline schedules no lookahead generation',
+          'extra jobs=' + generatedAfterBudget) && pass;
+        Date.now = realNow;
+        st.playing = held.playing;
+        ne.worker = held.worker;
+        ne.generate = held.generate;
+      }
+
+      pass = ok(typeof VT().speakNeural === 'function',
+        'first-clip scheduling is directly regression-testable') && pass;
+      if (typeof VT().speakNeural === 'function') {
+        const realNow = Date.now;
+        let fakeNow = 80000;
+        Date.now = function () { return fakeNow; };
+        let finishFirst;
+        const firstClip = new Promise(function (resolve) { finishFirst = resolve; });
+        const generated = [];
+        ne.worker = {};
+        ne.generate = function (key) {
+          generated.push(key);
+          return generated.length === 1 ? firstClip : Promise.resolve('blob:lookahead');
+        };
+        VT().channel.play = function () { return Promise.resolve(); };
+        st.sentences = list.slice(0, 4);
+        st.chapterId = 'prebuffer-caller';
+        st.index = 0;
+        st.fastStart = true;
+        st.groupCaps = null;
+        st.playing = true;
+        const token = st.speakToken;
+        VT().speakNeural(st.sentences[0], token, function () {}, function () {});
+        await pause(VT().NEURAL_PUMP_MS + 100);
+        pass = ok(generated.length === 1,
+          'the prefetch pump stays off while the first clip consumes startup budget',
+          'generation calls=' + generated.length) && pass;
+        fakeNow += 16000;           // first clip finished after the budget expired
+        finishFirst('blob:first');
+        await pause(50);
+        pass = ok(generated.length === 1,
+          'an over-budget first clip does not trigger unconditional lookahead',
+          'generation calls=' + generated.length) && pass;
+        VT().pause();               // also clears any pump the completed call started
+        Date.now = realNow;
+        VT().channel.play = held.channelPlay;
+        ne.worker = held.worker;
+        ne.generate = held.generate;
+        st.sentences = list;
+        st.chapterId = 'prebuffer-test';
+        st.index = 0;
+        st.playing = held.playing;
+        st.fastStart = held.fastStart;
+        st.group = held.group;
+        st.groupCaps = held.groupCaps;
+      }
       const key = function (g) {
         return 'prebuffer-test:' + g.blockIdx + ':' + g.start + ':' + g.end + ':' + st.prefs.neuralVoice;
       };
@@ -1756,6 +1843,13 @@ const T = {
       st.prefs.rate = held.rate;
       st.index = held.index;
       st.prebuffer = held.prebuffer;
+      st.playing = held.playing;
+      ne.worker = held.worker;
+      ne.generate = held.generate;
+      st.fastStart = held.fastStart;
+      st.group = held.group;
+      st.groupCaps = held.groupCaps;
+      VT().channel.play = held.channelPlay;
     }
     return { name: 'prebuffer', pass };
   },
@@ -2106,6 +2200,177 @@ const T = {
     return { name: 'neural dedupe', pass };
   },
 
+  // A paused or interrupted narrator must become idle without throwing away
+  // the one expensive forward pass that ONNX Runtime cannot abort. Discarding
+  // that promise makes resume render the same paragraph again, so the phone
+  // pays twice for audio it only plays once.
+  async testThermalLifecycle() {
+    let pass = true;
+    neuralStub.restore();
+    const ne = VT().neuralEngine;
+    const ch = VT().channel;
+    const st = VT().state;
+    const heldPlatform = window.Platform;
+    const held = {
+      worker: ne.worker, native: ne.native, activeId: ne.activeId,
+      playing: st.playing, active: st.active, group: st.group,
+      pool: ch.pool, slot: ch.slot, started: ch.started,
+    };
+    let releases = 0;
+    try {
+      // A native session owns hundreds of megabytes outside the worker. Killing
+      // only the worker leaves that allocation resident after narration stops.
+      window.Platform = window.Platform || {};
+      window.Platform.kokoro = {
+        available: function () { return true; },
+        release: function () { releases++; return Promise.resolve(); },
+      };
+      ne.worker = { postMessage: function () {}, terminate: function () {} };
+      ne.native = true;
+      ne.dispose();
+      ne.dispose();
+      pass = ok(releases === 1,
+        'disposing a native engine releases its native session exactly once',
+        'release calls=' + releases) && pass;
+
+      let failedWorkerStops = 0;
+      const failedWorker = { terminate: function () { failedWorkerStops++; } };
+      ne.worker = failedWorker;
+      ne.disposeIfNotReady(failedWorker);
+      pass = ok(failedWorkerStops === 1 && ne.worker === null,
+        'a failed model initialization terminates its abandoned worker') && pass;
+
+      // Model one unabortable job already inside ONNX Runtime. Pausing may drop
+      // queued lookahead, but resume must join this same promise rather than
+      // posting another generate for the same cache key.
+      let calls = 0;
+      let activeJob = 0;
+      ne.worker = {
+        postMessage: function (m) {
+          // Deliberately do not announce `generating`: this is the race between
+          // posting a job and receiving the worker's started notification.
+          if (m.type === 'generate') { calls++; activeJob = m.id; }
+        },
+        terminate: function () {},
+      };
+      const wav = VT().encodeWav(new Float32Array(2400), 24000);
+      const first = ne.generate('thermal:same-group', 'Same paragraph.', 'af_heart');
+      first.catch(function () {});
+      ne.cancelPending(true, 'thermal:same-group');
+      const resumed = ne.generate('thermal:same-group', 'Same paragraph.', 'af_heart');
+      pass = ok(first === resumed && calls === 1,
+        'pause and resume reuse the active synthesis instead of rendering twice',
+        'calls=' + calls) && pass;
+      ne.settle(activeJob, null, { wav: wav.slice(0), seconds: 0.1, ms: 10, chars: 15 });
+      await resumed;
+
+      // Cancel, resume, then receive the old worker's delayed "generating"
+      // notification. It must not become the active job again or the next pause
+      // will preserve stale work and cancel the paragraph now being requested.
+      let posted = [];
+      ne.worker = {
+        postMessage: function (m) { if (m.type === 'generate') posted.push(m.id); },
+        terminate: function () {},
+      };
+      const stale = ne.generate('thermal:late-start', 'Late start.', 'af_heart');
+      stale.catch(function () {});
+      const staleId = posted[0];
+      ne.cancelPending();
+      await pause(0);                  // let inFlight forget the cancelled job
+      const current = ne.generate('thermal:late-start', 'Late start.', 'af_heart');
+      const currentId = posted[1];
+      pass = ok(typeof ne.markGenerating === 'function',
+        'worker start notifications are validated against pending jobs') && pass;
+      if (typeof ne.markGenerating === 'function') {
+        ne.markGenerating(staleId);    // arrives after cancel and resume
+        pass = ok(ne.activeId !== staleId,
+          'a late generating notification cannot resurrect a cancelled job') && pass;
+        ne.markGenerating(currentId);
+        ne.cancelPending(true, 'thermal:late-start'); // second pause
+        const secondResume = ne.generate('thermal:late-start', 'Late start.', 'af_heart');
+        pass = ok(secondResume === current && posted.length === 2,
+          'the second pause still preserves the resumed current job',
+          'generate calls=' + posted.length) && pass;
+        ne.settle(currentId, null, { wav: wav.slice(0), seconds: 0.1, ms: 10, chars: 11 });
+        await secondResume;
+
+        // A result can arrive after its promise was cancelled. Even then the
+        // matching active marker must be cleared rather than left stale.
+        ne.activeId = staleId;
+        ne.settle(staleId, null, { wav: wav.slice(0), seconds: 0.1 });
+        pass = ok(ne.activeId === 0,
+          'a late settlement clears its matching active marker') && pass;
+      } else {
+        current.catch(function () {});
+        ne.cancelPending();
+      }
+
+      // Exercise the actual worker queue with one active job and two behind it.
+      // The model line is replaced in-memory with a slow deterministic fake;
+      // cancellation, queue filtering, pumping, WAV encoding and messages are
+      // still the production worker code loaded from disk.
+      const workerMessages = [];
+      const workerSource = await fetch('../js/novel-voice-worker.js').then(function (r) { return r.text(); });
+      const fakeModel = "let tts = { generate: async function () { "
+        + "await new Promise(function (r) { setTimeout(r, 100); }); "
+        + "return { audio: new Float32Array(2400), sampling_rate: 24000 }; } };";
+      const queueWorkerUrl = URL.createObjectURL(new Blob([
+        workerSource.replace('let tts = null;', fakeModel),
+      ], { type: 'text/javascript' }));
+      const queueWorker = new Worker(queueWorkerUrl, { type: 'module' });
+      queueWorker.onmessage = function (ev) { workerMessages.push(ev.data || {}); };
+      queueWorker.postMessage({ type: 'generate', id: 9101, text: 'one', voice: 'af_heart' });
+      queueWorker.postMessage({ type: 'generate', id: 9102, text: 'two', voice: 'af_heart' });
+      queueWorker.postMessage({ type: 'generate', id: 9103, text: 'three', voice: 'af_heart' });
+      await waitFor(function () {
+        return workerMessages.some(function (m) { return m.type === 'generating' && m.id === 9101; });
+      }, 2000, 'worker begins first active job');
+      queueWorker.postMessage({ type: 'cancel', preserveId: 9102 });
+      await waitFor(function () {
+        return workerMessages.some(function (m) { return m.type === 'error' && m.id === 9103; });
+      }, 2000, 'worker drops unpreserved queued job');
+      const firstDrop = workerMessages.filter(function (m) { return m.type === 'error'; }).map(function (m) { return m.id; });
+      pass = ok(firstDrop.indexOf(9103) !== -1 && firstDrop.indexOf(9101) === -1 && firstDrop.indexOf(9102) === -1,
+        'worker cancellation leaves the active job and preserveId, dropping other queued work',
+        firstDrop.join(',')) && pass;
+      // Cancel again while the first job remains active. The previously
+      // preserved id must still be in the queue, so this second cancel reports
+      // it; the active id is already shifted out and remains untouched.
+      queueWorker.postMessage({ type: 'cancel' });
+      await waitFor(function () {
+        return workerMessages.some(function (m) { return m.type === 'error' && m.id === 9102; });
+      }, 2000, 'worker later drops preserved queued job');
+      pass = ok(!workerMessages.some(function (m) { return m.type === 'error' && m.id === 9101; }),
+        'the active worker job remains untouched across both queue cancellations') && pass;
+      queueWorker.terminate();
+      URL.revokeObjectURL(queueWorkerUrl);
+
+      // iOS can pause the element when another app takes the audio session.
+      // The reader must mirror that state immediately so its two-second pump
+      // cannot keep filling a silent queue while the phone heats in a pocket.
+      const marker = {};
+      const messages = [];
+      ne.worker = { postMessage: function (m) { messages.push(m.type); }, terminate: function () {} };
+      ch.pool = [marker]; ch.slot = 0; ch.started = true;
+      st.active = true; st.playing = true; st.group = { from: 0, to: 0 };
+      ch.handlePause(marker);
+      pass = ok(!st.playing && st.group === null,
+        'an unexpected audio pause stops playback and clears prefetch state') && pass;
+      pass = ok(messages.indexOf('cancel') !== -1,
+        'an unexpected audio pause drops queued inference work') && pass;
+    } finally {
+      ne.cancelPending();
+      ne.worker = held.worker;
+      ne.native = held.native;
+      ne.activeId = held.activeId;
+      ch.pool = held.pool; ch.slot = held.slot; ch.started = held.started;
+      st.playing = held.playing; st.active = held.active; st.group = held.group;
+      window.Platform = heldPlatform;
+      neuralStub.resume();
+    }
+    return { name: 'thermal lifecycle', pass };
+  },
+
   async testClose() {
     let pass = true;
     await freshOpen();
@@ -2129,7 +2394,7 @@ const T = {
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier,
-      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe,
+      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
       T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;
@@ -2148,6 +2413,24 @@ const T = {
   },
 };
 window.T = T;
+// Headless smoke entry point: `?run=thermal` executes the regression without
+// needing a click and leaves the verdict in the DOM for --dump-dom runners.
+const headlessRun = new URLSearchParams(location.search).get('run');
+const headlessTest = headlessRun === 'thermal' ? T.testThermalLifecycle
+  : headlessRun === 'prebuffer' ? T.testPrebuffer
+  : headlessRun === 'dedupe' ? T.testNeuralDedupe
+  : headlessRun === 'memory' ? T.testMemoryTier
+  : headlessRun === 'playback' ? T.testPlayback
+  : headlessRun === 'all' ? T.all : null;
+if (headlessTest) {
+  headlessTest().then(function (result) {
+    T.report(result);
+    document.body.dataset.testResult = result.pass ? 'pass' : 'fail';
+  }).catch(function (e) {
+    log('FAIL  ' + headlessRun + ' threw: ' + (e && e.message));
+    document.body.dataset.testResult = 'fail';
+  });
+}
 </script>
 </body>
 </html>

@@ -211,6 +211,13 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
         let threads = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
         try? options.setIntraOpNumThreads(Int32(threads))
 
+        // ORT worker threads spin-wait by default between operators and between
+        // requests. That improves micro-benchmarks but burns CPU and battery
+        // while narration is playing or paused. Sleeping while idle changes no
+        // model output and keeps the existing thread count and QoS intact.
+        try? options.addConfigEntry(withKey: "session.intra_op.allow_spinning", value: "0")
+        try? options.addConfigEntry(withKey: "session.inter_op.allow_spinning", value: "0")
+
         // No Core ML execution provider, deliberately.
         //
         // This used to append one unconditionally, on the assumption that a

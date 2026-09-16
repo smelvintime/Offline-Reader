@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>image-reader — test harness</title>
+
+  <!-- The production skin, so a page wrapper measures and hides the way it
+       does in the app. These tests assert lifecycle, not layout, but a torn
+       down reader that still has visible nodes is a failure worth seeing. -->
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    #summary { position: fixed; z-index: 9000; top: 0; left: 0; right: 0; padding: 6px;
+               background: #111; color: #eee; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    #log { position: fixed; z-index: 9000; bottom: 0; left: 0; right: 0; max-height: 60vh; overflow: auto;
+           margin: 0; padding: 6px; background: #000d; color: #9f9;
+           font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<!-- ──────────────────────────────────────────────────────────────────────────
+     The reader's DOM, copied from index.html. reader.js binds these at parse
+     time and #close-btn's listener is unguarded, so every id has to be here.
+     ────────────────────────────────────────────────────────────────────── -->
+<div id="home-screen"><div id="library-list"></div></div>
+<div id="series-screen"></div>
+<div id="upload-screen">
+  <input type="file" id="file-input" multiple hidden>
+  <button id="mobile-upload-btn">Open</button>
+</div>
+<div id="loading-screen"><p id="loading-text">Processing archive...</p></div>
+
+<div id="reader-screen">
+  <header id="reader-header">
+    <button class="icon-btn" id="close-btn">close</button>
+    <button class="icon-btn" id="home-btn" aria-label="Home">home</button>
+    <span id="comic-title">Comic</span>
+    <button id="mode-toggle" class="hidden">Chapter</button>
+  </header>
+
+  <div id="reader-pages"></div>
+
+  <footer id="reader-footer">
+    <span id="page-indicator">0/0</span>
+    <div id="chapter-nav" class="hidden">
+      <button class="icon-btn" id="prev-ch">&lt;</button>
+      <button class="icon-btn" id="chapter-label-btn">1/1</button>
+      <button class="icon-btn" id="next-ch">&gt;</button>
+    </div>
+    <!-- applyGap() rewrites the gap button's <svg> children, so the element
+         has to be shaped like index.html's, not a bare label. -->
+    <button class="icon-btn" id="gap-toggle"><svg viewBox="0 0 20 20"><rect x="2" y="2" width="16" height="6"/><rect x="2" y="12" width="16" height="6"/></svg></button>
+    <button class="icon-btn" id="autoscroll-toggle"><svg viewBox="0 0 24 24"></svg></button>
+  </footer>
+
+  <div id="autoscroll-bar" class="ui-hidden">
+    <button class="as-btn" id="as-mode-toggle">mode</button>
+    <button class="as-btn" id="as-slower">&minus;</button>
+    <button class="as-btn" id="as-playpause">play</button>
+    <span id="as-speed-label">&bull;</span>
+    <button class="as-btn" id="as-faster">+</button>
+  </div>
+
+  <div id="cs-overlay" class="ui-hidden">
+    <div id="cs-modal">
+      <div class="cs-header"><h3>Select Chapter</h3><button id="cs-close">x</button></div>
+      <div id="cs-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="size-notice" class="hidden">
+  <span id="size-notice-text"></span><button id="size-notice-dismiss">x</button>
+</div>
+<div id="order-notice" class="hidden">
+  <span id="order-notice-text"></span><button id="order-notice-dismiss">x</button>
+</div>
+
+<div id="summary">running…</div>
+<pre id="log"></pre>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Instrumentation, installed BEFORE reader.js so every call it makes is seen.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Timers. The reader schedules a debounced save, a deferred chapter render, a
+// lookahead pass, a windowed-scroll recentre and an idle-chrome hide; an exit
+// that leaves any of them armed is an exit that can still run against cleared
+// state. The harness keeps its own waits on the untouched original, so
+// anything left in `liveTimers` belongs to the app.
+const _setTimeout = window.setTimeout, _clearTimeout = window.clearTimeout;
+const rawTimeout = function (fn, ms) { return _setTimeout.call(window, fn, ms); };
+const liveTimers = new Set();
+window.setTimeout = function (fn, ms) {
+  let id;
+  id = _setTimeout.call(window, function () { liveTimers.delete(id); if (typeof fn === 'function') fn(); }, ms);
+  liveTimers.add(id);
+  return id;
+};
+window.clearTimeout = function (id) { liveTimers.delete(id); return _clearTimeout.call(window, id); };
+
+// Object URLs: revoked exactly once, and never for a direct (file/CDN) URL.
+const created = new Set(), revoked = [];
+const _create = URL.createObjectURL.bind(URL), _revoke = URL.revokeObjectURL.bind(URL);
+URL.createObjectURL = function (b) { const u = _create(b); created.add(u); return u; };
+URL.revokeObjectURL = function (u) { revoked.push(u); return _revoke(u); };
+
+// The native bridge. `extract` hands back a promise the test resolves by hand,
+// so a reply can be made to land after the session that asked for it is gone.
+const released = [], removed = [];
+let pendingExtract = null;
+window.Platform = {
+  isNative: true,
+  appVersion: function () { return Promise.resolve('test'); },
+  tuning: function () { return { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10 }; },
+  pageUrl: function (rel) { return 'capacitor://localhost/_pages/' + rel; },
+  archives: {
+    releasePages: function (key) { released.push(key); return Promise.resolve(); },
+    remove: function (key) { removed.push(key); return Promise.resolve(); },
+  },
+  zip: {
+    extract: function (src, names, dirKey) {
+      return new Promise(function (resolve, reject) {
+        pendingExtract = { src: src, names: names, dirKey: dirKey, resolve: resolve, reject: reject };
+      });
+    },
+  },
+};
+
+// The catalogue half of the exit contract: reader.js must call the flush while
+// the pages it reads are still there.
+let flushCalls = [], goHomeCalls = 0;
+window.Catalogue = {
+  flushImageProgress: function () { flushCalls.push({ pages: pages.length, chapters: chapters.length }); },
+  goHome: function () { goHomeCalls++; window.showScreen('home-screen'); },
+};
+</script>
+
+<script src="../js/image-zoom.js"></script>
+<script src="../js/reader.js"></script>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Harness
+// ─────────────────────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+let passed = 0, failed = 0;
+function log(s) { logEl.textContent += s + '\n'; }
+function ok(cond, name) { if (cond) { passed++; log('  ok   ' + name); } else { failed++; log('  FAIL ' + name); } }
+function eq(a, b, name) { ok(a === b, name + ' (got ' + JSON.stringify(a) + ', want ' + JSON.stringify(b) + ')'); }
+function tick() { return new Promise(function (r) { rawTimeout(r, 0); }); }
+
+function resetInstrumentation() {
+  revoked.length = 0; released.length = 0; removed.length = 0;
+  flushCalls = []; goHomeCalls = 0; pendingExtract = null;
+  liveTimers.forEach(function (id) { _clearTimeout.call(window, id); });
+  liveTimers.clear();
+  try { localStorage.removeItem('or.library'); } catch (e) {}
+}
+
+// A reading session the way the app builds one: real reset, real shell, real
+// observers, real wrappers. Loaded pages get an object URL like the web path,
+// or a directUrl like an extracted native page, which must never be revoked.
+function openSession(opts) {
+  opts = opts || {};
+  const chapterCount = opts.chapters || 2, perChapter = opts.perChapter || 3;
+  window.readerOrigin = opts.origin || 'series';
+  showScreen('reader-screen');
+  resetReaderState();
+  readerOrigin = window.readerOrigin;
+  lastLoadedFileNames = ['Test Series Ch 1.cbz'];
+  comicTitle.textContent = opts.title || 'Test Series';
+  nativeCacheDirBase = opts.dirBase || 'upload-test';
+
+  pages = []; chapters = [];
+  for (let c = 0; c < chapterCount; c++) {
+    const start = c * perChapter;
+    for (let i = 0; i < perChapter; i++) {
+      pages.push({
+        entry: null, entryName: 'page-' + c + '-' + i + '.jpg', archiveUri: 'file:///archives/ch' + c + '.cbz',
+        url: null, directUrl: null, loading: false, aspectLocked: false, gen: 0, el: null, wrap: null,
+      });
+    }
+    chapters.push({ name: 'Chapter ' + (c + 1), displayNum: c + 1, start: start, end: start + perChapter - 1,
+                    wrappers: [], dividerEl: null, spacerEl: null });
+  }
+  currentPage = 0; currentChIdx = 0;
+
+  renderShell();
+  setupObservers();
+  renderChapter(0);
+
+  // Give the rendered chapter the state a lookahead pass would have left.
+  const imgs = [];
+  for (let i = chapters[0].start; i <= chapters[0].end; i++) {
+    const p = pages[i];
+    if (opts.native) { p.directUrl = 'capacitor://localhost/_pages/ch0/' + i + '.jpg'; p.el.src = p.directUrl; }
+    else { p.url = URL.createObjectURL(new Blob(['x'], { type: 'image/jpeg' })); p.el.src = p.url; }
+    p.loading = false;
+    visiblePages.add(i);
+    imgs.push(p.el);
+  }
+  const urls = [];
+  for (let i = chapters[0].start; i <= chapters[0].end; i++) urls.push(pages[i].url);
+  return { imgs: imgs, urls: urls };
+}
+
+// Everything an exit is supposed to have settled, in one comparable shape.
+function snapshot(session) {
+  const slot = document.getElementById('chapter-slot');
+  return {
+    pages: pages.length,
+    chapters: chapters.length,
+    visiblePages: visiblePages.size,
+    observerDisconnected: pageObserver === null,
+    autoRunning: autoRunning,
+    slotEmptied: !slot || slot.innerHTML === '',
+    imgSrcsCleared: session.imgs.every(function (el) { return el.getAttribute('src') === ''; }),
+    imgsDetached: session.imgs.every(function (el) { return !el.isConnected; }),
+    blobUrlsRevoked: revoked.length,
+    nativeDirsReleased: released.length,
+    liveTimers: liveTimers.size,
+    libraryWritten: !!localStorage.getItem('or.library'),
+  };
+}
+
+const tests = {};
+
+// ── 1. The contract catalogue.js depends on ─────────────────────────────────
+tests['the exit routine is exported for the back gesture'] = async function () {
+  eq(typeof window.exitReaderSession, 'function', 'window.exitReaderSession is a function');
+};
+
+// ── 2. Close and Home settle identically ────────────────────────────────────
+// The defect this suite exists for: Close revoked the URLs and emptied the
+// arrays, Home ran the full teardown, and the difference was invisible until a
+// phone ran out of memory holding the decoded bitmaps of a closed session.
+tests['Close and Home leave the same state behind'] = async function () {
+  resetInstrumentation();
+  let s = openSession({});
+  startAutoScroll();
+  document.getElementById('close-btn').click();
+  const afterClose = snapshot(s);
+
+  resetInstrumentation();
+  s = openSession({});
+  startAutoScroll();
+  document.getElementById('home-btn').click();
+  const afterHome = snapshot(s);
+
+  Object.keys(afterClose).forEach(function (k) {
+    eq(afterHome[k], afterClose[k], 'Home matches Close on ' + k);
+  });
+  ok(afterClose.pages === 0 && afterClose.chapters === 0, 'session arrays emptied');
+  ok(afterClose.observerDisconnected, 'page observer disconnected');
+  ok(afterClose.imgSrcsCleared && afterClose.imgsDetached, 'decoded bitmaps released');
+  eq(afterClose.autoRunning, false, 'autoscroll stopped');
+  eq(afterClose.liveTimers, 0, 'no reader timer left armed');
+  eq(goHomeCalls, 1, 'Home handed off to the catalogue');
+  eq(document.body.dataset.screen, 'home-screen', 'Home landed on the home screen');
+};
+
+// ── 3. The flush happens before the state it reads is cleared ───────────────
+tests['Close flushes image progress while the pages still exist'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  document.getElementById('close-btn').click();
+  eq(flushCalls.length, 1, 'catalogue flush called exactly once on Close');
+  ok(flushCalls[0] && flushCalls[0].pages === 6, 'flush saw the session pages (' + JSON.stringify(flushCalls[0]) + ')');
+  ok(flushCalls[0] && flushCalls[0].chapters === 2, 'flush saw the session chapters');
+  eq(document.body.dataset.screen, 'series-screen', 'Close returned to the series screen');
+};
+
+tests['Home flushes image progress before tearing down'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  document.getElementById('home-btn').click();
+  eq(flushCalls.length, 1, 'catalogue flush called exactly once on Home');
+  ok(flushCalls[0] && flushCalls[0].pages === 6, 'flush saw the session pages');
+};
+
+// ── 4. The library position survives a Close ────────────────────────────────
+tests['Close writes the leaving position to the library'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  currentPage = 4; currentChIdx = 1;
+  document.getElementById('close-btn').click();
+  const lib = JSON.parse(localStorage.getItem('or.library') || '[]');
+  eq(lib.length, 1, 'one library entry written');
+  eq(lib[0] && lib[0].maxPageIdx, 4, 'the page the reader left on');
+  eq(lib[0] && lib[0].chIdx, 1, 'the chapter the reader left on');
+};
+
+// ── 5. Blob URLs: revoked once, direct URLs never ───────────────────────────
+tests['blob URLs are revoked exactly once and native URLs never'] = async function () {
+  resetInstrumentation();
+  const s = openSession({});
+  document.getElementById('close-btn').click();
+  eq(revoked.length, 3, 'one revoke per loaded blob page');
+  ok(s.urls.every(function (u) { return revoked.filter(function (r) { return r === u; }).length === 1; }),
+     'no URL revoked twice');
+
+  resetInstrumentation();
+  openSession({ native: true });
+  document.getElementById('close-btn').click();
+  eq(revoked.length, 0, 'an extracted native page URL is not an object URL to revoke');
+};
+
+// ── 6. Native page directories come back at the end of the session ──────────
+tests['extracted page directories are released on exit, not on the next open'] = async function () {
+  resetInstrumentation();
+  openSession({ native: true, dirBase: 'upload-A' });
+  registerNativeDir(0, 'upload-A/ch-0');
+  registerNativeDir(1, 'upload-A/ch-1');
+  document.getElementById('close-btn').click();
+  ok(released.indexOf('upload-A/ch-0') !== -1 && released.indexOf('upload-A/ch-1') !== -1,
+     'both extracted chapter dirs released (' + JSON.stringify(released) + ')');
+  eq(nativePageDirs.length, 0, 'no dir still owned by the closed session');
+};
+
+// ── 7. A late extraction cannot write into the next session ─────────────────
+// The reply outlives the session that asked for it: the reader is closed, a
+// different set is opened, and `pages` is a different array whose indices mean
+// something else entirely.
+tests['a native extraction that lands after the exit is discarded'] = async function () {
+  resetInstrumentation();
+  openSession({ native: true, dirBase: 'upload-A' });
+  const job = ensureChapterExtracted(0);
+  ok(!!pendingExtract, 'extraction started');
+  const stale = pendingExtract;
+
+  document.getElementById('close-btn').click();
+  const next = openSession({ native: false, dirBase: 'upload-B', title: 'Another Series' });
+  const before = pages.map(function (p) { return p.directUrl; });
+
+  stale.resolve(stale.names.map(function (n) { return 'ch0/' + n; }));
+  await job;
+  await tick();
+
+  ok(pages.every(function (p, i) { return p.directUrl === before[i]; }),
+     'the new session pages were not rewritten');
+  ok(released.indexOf('upload-A/ch-0') !== -1, 'the orphaned directory was handed back');
+  eq(nativePageDirs.length, 0, 'the stale dir was not registered against the new session');
+  ok(next.imgs.every(function (el) { return el.isConnected; }), 'the new session is still intact');
+};
+
+// ── 8. The same extraction, in its own session, still works ─────────────────
+tests['a native extraction that lands in its own session still fills the pages'] = async function () {
+  resetInstrumentation();
+  openSession({ native: false, dirBase: 'upload-C' });
+  const job = ensureChapterExtracted(0);
+  pendingExtract.resolve(pendingExtract.names.map(function (n) { return 'ch0/' + n; }));
+  await job;
+  ok(pages.slice(0, 3).every(function (p) { return !!p.directUrl; }), 'directUrls written');
+  eq(nativePageDirs.length, 1, 'the dir is owned by this session');
+  eq(released.length, 0, 'nothing released while the session still uses it');
+  document.getElementById('close-btn').click();
+  ok(released.indexOf('upload-C/ch-0') !== -1, 'and released when the session ends');
+};
+
+// ── 9. Exiting twice is not a second teardown ───────────────────────────────
+// Close, then goHome(), reaches the exit a second time for one user action,
+// and the back gesture can arrive on an already-closed reader.
+tests['exiting an already-exited session does nothing'] = async function () {
+  resetInstrumentation();
+  const s = openSession({});
+  document.getElementById('close-btn').click();
+  const first = snapshot(s);
+  window.exitReaderSession();
+  window.exitReaderSession();
+  const after = snapshot(s);
+  Object.keys(first).forEach(function (k) { eq(after[k], first[k], 'unchanged by a repeat exit: ' + k); });
+  eq(flushCalls.length, 1, 'no second progress flush');
+};
+
+// ── 10. Reopening after an exit is a clean session ──────────────────────────
+tests['a session opened after an exit starts clean'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  document.getElementById('close-btn').click();
+  const s = openSession({ title: 'Second Series' });
+  eq(pages.length, 6, 'the new session has its own pages');
+  eq(chapters.length, 2, 'and its own chapters');
+  ok(pageObserver !== null, 'a fresh observer');
+  ok(s.imgs.every(function (el) { return el.isConnected && el.getAttribute('src') !== ''; }),
+     'its images are attached and loaded');
+  eq(document.querySelectorAll('#chapter-slot .comic-page').length, 3, 'exactly one chapter rendered');
+  document.getElementById('close-btn').click();
+};
+
+// ── 11. An upload session ends the same way, before its reload ──────────────
+// #close-btn reloads for an upload-origin session, and `location.reload` is
+// non-configurable in Chrome, so clicking it here would reload the harness
+// instead of testing it. The click ordering is covered by the series-origin
+// tests above; what is specific to an upload session is that its position is
+// written on the way out, so the exit itself is what this exercises.
+tests['an upload session writes its position on the way out'] = async function () {
+  resetInstrumentation();
+  const s = openSession({ origin: 'upload' });
+  currentPage = 2;
+  window.exitReaderSession();
+  const lib = JSON.parse(localStorage.getItem('or.library') || '[]');
+  eq(lib.length, 1, 'the upload session wrote its position');
+  eq(lib[0] && lib[0].maxPageIdx, 2, 'at the page it left on');
+  eq(pages.length, 0, 'and tore the session down');
+  ok(s.imgs.every(function (el) { return el.getAttribute('src') === ''; }), 'with its bitmaps released');
+};
+
+(async function run() {
+  for (const name of Object.keys(tests)) {
+    log(name);
+    try { await tests[name](); }
+    catch (e) { failed++; log('  FAIL threw: ' + ((e && e.stack) || e)); }
+  }
+  const line = (failed ? 'FAIL' : 'PASS') + ' image-reader — ' + passed + ' passed, ' + failed + ' failed';
+  document.getElementById('summary').textContent = line;
+  document.title = line;
+})();
+</script>
+</body>
+</html>

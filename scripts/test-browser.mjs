@@ -17,7 +17,7 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   const suites = process.argv.slice(2);
-  for (const suite of (suites.length ? suites : ['platform', 'image-zoom', 'novel-reader', 'novel-voice', 'voice-worker', 'importer'])) {
+  for (const suite of (suites.length ? suites : ['platform', 'image-zoom', 'image-reader', 'novel-reader', 'novel-voice', 'voice-worker', 'importer'])) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();
     page.setDefaultTimeout(180000);

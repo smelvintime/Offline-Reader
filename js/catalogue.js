@@ -2349,6 +2349,17 @@
     }], null);
   }
 
+  // reader.js calls this at the top of its exit routine, before the state this
+  // reads is cleared. It is the authoritative flush: the click listeners below
+  // fire in registration order after reader.js's own, which is too late.
+  function flushImageProgress() { syncImageProgress(true); }
+
+  // Only the image reader: the novel reader owns its own screen and teardown.
+  function exitImageReaderIfOpen() {
+    if (document.body.dataset.screen !== 'reader-screen') return;
+    if (typeof window.exitReaderSession === 'function') window.exitReaderSession();
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Routing
   // ─────────────────────────────────────────────────────────────────────────
@@ -2360,6 +2371,10 @@
 
   function goHome() {
     ensureDom();
+    // Reached directly (the home rail, a deep link) as well as from reader.js's
+    // own Home button, which has already exited; exitReaderSession is
+    // idempotent, so the second call is a no-op.
+    exitImageReaderIfOpen();
     navStack = ['home-screen'];
     activeImageSession = null;
     window.readerOrigin = 'upload';
@@ -2388,6 +2403,10 @@
   }
 
   function goBack() {
+    // The back gesture is a third way out of the image reader, next to Close
+    // and Home, and it used to be the one that tore nothing down: no progress
+    // flush, no revoked URLs, no released page dirs. reader.js owns that work.
+    exitImageReaderIfOpen();
     navStack.pop();
     const prev = navStack[navStack.length - 1];
     if (prev === 'series-screen' && currentSeries) {
@@ -2547,31 +2566,28 @@
     window.addEventListener('pagehide', function () { syncImageProgress(true); });
     const closeBtn = document.getElementById('close-btn');
     if (closeBtn) closeBtn.addEventListener('click', function () {
-      syncImageProgress(true);
-      // The close handler in reader.js shows the series screen; refresh the
-      // chapter list so read-state and the resume button reflect this session.
+      // No flush here: reader.js's exit routine runs one before it clears the
+      // pages this would read. This listener only refreshes the chapter list,
+      // after that handler has shown the series screen, so read-state and the
+      // resume button reflect the session that just ended.
       setTimeout(refreshSeriesProgress, 0);
     });
 
-    // #home-btn — the flush half of the two-listener contract (PLAN7
-    // §2.11-C). reader.js wired its teardown+goHome listener at PARSE time,
-    // before this module ever runs, and same-node listeners fire in
-    // registration order — a plain listener here would run AFTER the
-    // teardown, when pages and activeImageSession are already gone and there
-    // is nothing left to flush. Capturing on document is what makes "flush
-    // image progress first" true: the capture phase visits document before
-    // any listener on the button itself fires.
+    // #home-btn — the refresh half of the two-listener contract (PLAN7
+    // §2.11-C). The flush used to live here, in a capture-phase listener on
+    // document, because reader.js wired its teardown listener at PARSE time and
+    // same-node listeners fire in registration order: a plain listener here
+    // would have run after the teardown, with nothing left to flush. The
+    // ordering is explicit now — reader.js flushes inside its exit routine,
+    // before it clears anything — so this is an ordinary listener again.
     const homeBtn = document.getElementById('home-btn');
     if (homeBtn) {
-      document.addEventListener('click', function (e) {
-        const t = e.target;
-        if (!t || !(t === homeBtn || (homeBtn.contains && homeBtn.contains(t)))) return;
-        syncImageProgress(true);
+      homeBtn.addEventListener('click', function () {
         // reader.js's own listener tears the session down and hands off to
         // goHome(); refresh the series screen's cached progress after that
         // hand-off has run (the #close-btn pattern above).
         setTimeout(refreshSeriesProgress, 0);
-      }, true);
+      });
     }
 
     // Live home-layout changes (§2.12): re-place the five registry sections
@@ -2700,6 +2716,7 @@
 
   window.Catalogue = {
     boot: boot,
+    flushImageProgress: flushImageProgress,
     openSeries: openSeries,
     openChapter: openChapter,
     goBack: goBack,

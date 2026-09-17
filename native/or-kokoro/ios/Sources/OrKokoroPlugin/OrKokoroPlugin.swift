@@ -78,7 +78,12 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
                 var info = self.resourceStatus()
                 info["memoryWarning"] = note.name == UIApplication.didReceiveMemoryWarningNotification
                 self.notifyListeners("resources", data: info)
-                if note.name == UIApplication.didReceiveMemoryWarningNotification || ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+                // Memory warnings only. Heat used to tear the session down and
+                // cancel queued work here, which meant a phone that runs hot
+                // while charging rebuilt the model over and over and narration
+                // stopped for good. The JS side throttles generation on the
+                // same signal instead; this notification now just reports.
+                if note.name == UIApplication.didReceiveMemoryWarningNotification {
                     self.invalidateQueuedWork()
                     self.queue.async { self.session = nil; self.env = nil }
                 }
@@ -199,9 +204,6 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 guard requestGeneration == self.currentGeneration() else {
                     call.reject("infer: cancelled"); return
-                }
-                guard ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue else {
-                    call.reject("infer: phone needs to cool before Natural voice can continue"); return
                 }
                 let session = try self.ensureSession()
                 let started = Date()

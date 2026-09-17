@@ -1164,7 +1164,7 @@
 
   const voiceEvents = [];
   let buildInfo = null;
-  const resources = { thermal: 'unknown', lowPower: false, blocked: false };
+  const resources = { thermal: 'unknown', lowPower: false };
   function voiceEvent(event, data) {
     voiceEvents.push(Object.assign({ event: event, at: Date.now() }, data));
     if (voiceEvents.length > 100) voiceEvents.shift();
@@ -1178,19 +1178,35 @@
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
       resources: Object.assign({}, resources), events: voiceEvents.slice() };
   }
-  let resourceResumeAfter = 0;
+  function thermalHot() {
+    return resources.thermal === 'serious' || resources.thermal === 'critical';
+  }
+
+  // Heat throttles Natural voice; it no longer stops it.
+  //
+  // The previous rule paused playback, disposed the engine and refused to start
+  // again for thirty seconds after the last serious reading. On a phone that
+  // sits at serious while it is being held, and hotter still on a charger,
+  // "wait for it to cool" is a state that never arrives: the feature simply
+  // stopped working, and the user is told to use the device voice instead of
+  // the narrator they chose. Stopping playback also does not buy much — iOS
+  // throttles the CPU itself at this point, and the expensive part is not the
+  // audio, it is generating ahead of it.
+  //
+  // So heat now costs speculation instead: lookaheadSeconds() and
+  // prebufferTargetSeconds() both drop to zero while hot, which means one group
+  // generated at a time, no startup burst, and no prefetching. Narration keeps
+  // playing. A memory warning is a different problem — the process is about to
+  // be killed rather than slowed — and still releases the engine.
   function updateResources(value) {
     if (!value) return;
     resources.thermal = value.thermal || 'unknown';
     resources.lowPower = !!value.lowPower;
-    const hot = resources.thermal === 'serious' || resources.thermal === 'critical';
-    if (hot) resourceResumeAfter = Date.now() + 30000;
-    resources.blocked = hot || Date.now() < resourceResumeAfter;
     voiceEvent('resources', { thermal: resources.thermal, lowPower: resources.lowPower, memoryWarning: !!value.memoryWarning });
-    if (hot || value.memoryWarning) {
+    if (value.memoryWarning) {
       if (state.playing && state.prefs.narrator === 'natural') pause();
       neuralEngine.dispose();
-      if (state.active) toast(hot ? 'Natural voice paused to let your phone cool. Device voice is available in voice settings.' : 'Natural voice paused to free memory. Press play to reload it.');
+      if (state.active) toast('Natural voice paused to free memory. Press play to reload it.');
     }
   }
   if (window.Platform && window.Platform.ready) Promise.resolve(window.Platform.ready).then(async function () {
@@ -1875,7 +1891,7 @@
     // While the deficit is being paid up front, the target IS the lookahead.
     if (state.prebuffer) return state.prebuffer.target;
     const margin = neuralMargin();
-    if (resources.lowPower || resources.thermal === 'fair') return 0;
+    if (resources.lowPower || resources.thermal === 'fair' || thermalHot()) return 0;
     if (!margin) return 0;   // unmeasured: assume the good case
 
     // Below break-even, keep only the mandatory next group in flight (the
@@ -1923,6 +1939,9 @@
    * of it as the cap allows, and the gaps that remain come later and fewer.
    */
   function prebufferTargetSeconds() {
+    // The startup burst is the single hottest thing the voice does. While the
+    // phone is already hot, skip it and start speaking on the first group.
+    if (thermalHot() || resources.lowPower) return 0;
     const margin = neuralMargin();
     if (!margin || margin >= NEURAL_PREBUFFER_FLOOR) return 0;
     const deficit = (1 - margin) * chapterSecondsLeft(state.index) * NEURAL_PREBUFFER_SAFETY;
@@ -2124,7 +2143,7 @@
    * Safe to call repeatedly, and the pump does.
    */
   function prefetchNeural(currentGroup) {
-    if (!neuralEngine.worker || !currentGroup || resources.blocked) return;
+    if (!neuralEngine.worker || !currentGroup) return;
     const rate = state.prefs.rate || 1;
     const want = lookaheadSeconds();
     let from = currentGroup.to + 1;
@@ -2285,11 +2304,6 @@
   function play() {
     if (!state.bridge) return;
     if (state.playing) return;
-    if (Date.now() >= resourceResumeAfter && resources.thermal !== 'serious' && resources.thermal !== 'critical') resources.blocked = false;
-    if (resources.blocked && state.prefs.narrator === 'natural') {
-      toast('Natural voice is paused while your phone cools. You can select the device voice.');
-      return;
-    }
     state.playing = true;
     syncBarWithReaderChrome();
     state.errors = 0;
@@ -3204,7 +3218,7 @@
 
   function prewarmNeural() {
     // Memory capacity alone is not permission for speculative computation.
-    if ((window.Platform && window.Platform.isNative) || resources.lowPower || resources.blocked) return;
+    if ((window.Platform && window.Platform.isNative) || resources.lowPower || thermalHot()) return;
     if (!neuralEngine.available()) return;
     if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
     if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
@@ -3473,6 +3487,7 @@
       estimateSeconds: estimateSeconds,
       chapterSecondsLeft: chapterSecondsLeft,
       prebufferTargetSeconds: prebufferTargetSeconds,
+      thermalHot: thermalHot,
       startupPrebufferDeadline: startupPrebufferDeadline,
       awaitPrebuffer: awaitPrebuffer,
       speakNeural: speakNeural,

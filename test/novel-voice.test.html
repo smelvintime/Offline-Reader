@@ -2394,6 +2394,20 @@ const T = {
       ne.dispose(); await Promise.all(jobs);
       t.updateResources({ thermal: 'fair', lowPower: true });
       pass = ok(t.lookaheadSeconds() === 0, 'power pressure disables speculative depth') && pass;
+
+      // Heat throttles Natural voice; it must not stop it. A phone that sits at
+      // serious while it is held — hotter still on a charger — would otherwise
+      // never narrate again, because "wait until it cools" never arrives.
+      ne.worker = { postMessage: function () {}, terminate: function () {} };
+      const hotWorker = ne.worker;
+      t.updateResources({ thermal: 'critical', lowPower: false });
+      pass = ok(ne.worker === hotWorker, 'a critical thermal reading does not dispose the engine') && pass;
+      pass = ok(t.thermalHot() && t.lookaheadSeconds() === 0 && t.prebufferTargetSeconds() === 0,
+        'heat costs speculation instead: no lookahead, no startup prebuffer') && pass;
+      // A memory warning is a different problem — the process is about to be
+      // killed rather than slowed — and still releases the engine.
+      t.updateResources({ thermal: 'critical', lowPower: false, memoryWarning: true });
+      pass = ok(ne.worker === null, 'a memory warning still disposes the engine') && pass;
       for (let i = 0; i < 120; i++) ne.noteSpeed({ ms: 100, seconds: 1, chars: 10 });
       const d = t.voiceDiagnostics();
       pass = ok(d.events.length <= 100 && !JSON.stringify(d).includes('Short text.'), 'diagnostics are bounded and omit spoken text') && pass;

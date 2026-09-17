@@ -20,7 +20,7 @@ would need a profile, a device, or a guess about what desktop readers want is in
 | D01 | A desktop device class | IMPLEMENTED |
 | D02 | Desktop coverage in the test harness | NOT STARTED |
 | D03 | Keyboard and mouse in the image reader | NOT STARTED |
-| D04 | Measure the voice path on a desktop before tuning it | PARTIAL, one defect fixed |
+| D04 | Measure the voice path on a desktop before tuning it | MEASURED, GPU path added |
 | D05 | Window-width layout audit | NOT STARTED |
 
 ## D01: A desktop device class
@@ -148,6 +148,28 @@ pending jobs). Mobile is untouched, and the test asserts both halves.
 The margin measurement above is still worth taking. It answers the remaining
 question, which is whether the desktop should also bank a bigger startup
 prebuffer than the phone's thermal-bounded fifteen seconds.
+
+**Measured, 2026-09-17, and it changed the answer.** Chrome on the reporting
+desktop: `neuralMargin()` **0.23**, `lookaheadSeconds()` 40, `backend` wasm. The
+machine produces 0.23 seconds of audio per second of compute, four times slower
+than speech. That kills both remaining scheduling ideas: a deficit that
+compounds cannot be absorbed by queue depth, and the prebuffer that would cover
+a 30-minute chapter would itself take over 30 minutes to generate.
+
+The cause is the engine, not the schedule. `NEURAL_DEVICE` was hardcoded to
+`wasm`, wasm threads need cross-origin isolation (false on this deploy) so ORT
+ran on one core, and four cores would still land under 1x. The bundle already
+ships `ort-wasm-simd-threaded.jsep.wasm`, the WebGPU-capable runtime, so the GPU
+path costs no new asset.
+
+So the GPU path is back, **desktop only and opt-in only**: `navigator.gpu` plus
+the `desktop` tuning flag, a toggle in voice settings that names the ~330 MB
+fp32 download, and a fallback to wasm (once per session) if the GPU init fails.
+The comment that deleted it is preserved, because every word of it was a phone
+argument and phones still take the wasm path.
+
+Still open: whether a desktop on the GPU wants a bigger prebuffer. Re-measure
+`neuralMargin()` with the GPU on before touching that constant.
 
 ## D05: Window-width layout audit
 

@@ -2399,6 +2399,37 @@ const T = {
       // off the thermal ceiling. A computer has no such ceiling, and its wasm
       // engine is usually slower than playback, so that same rule produced a
       // wait before every sentence. Desktop keeps generating instead.
+      // The GPU path: desktop only, opt-in only, and fp32 because that is what
+      // WebGPU runs. Single-core wasm measured 0.23x realtime on a computer,
+      // which no amount of queue depth can rescue.
+      const hadGpu = 'gpu' in navigator;
+      let gpuStubbed = false;
+      try {
+        if (!hadGpu) { Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} }); gpuStubbed = true; }
+      } catch (e) { /* some engines refuse; the assertions below adapt */ }
+      const gpuPresent = !!navigator.gpu;
+      const platformBefore = window.Platform;
+      const gpuPrefBefore = t.state.prefs.gpu;
+      try {
+        window.Platform = { tuning: function () { return { desktop: true }; } };
+        t.state.prefs.gpu = true;
+        if (gpuPresent) {
+          pass = ok(t.neuralDevice() === 'webgpu', 'a desktop that opted in uses the GPU') && pass;
+          pass = ok(t.neuralDtype('webgpu') === 'fp32', 'and the full-precision weights WebGPU needs') && pass;
+        }
+        t.state.prefs.gpu = false;
+        pass = ok(t.neuralDevice() === 'wasm', 'a desktop that did not opt in stays on wasm') && pass;
+        t.state.prefs.gpu = true;
+        window.Platform = { tuning: function () { return { desktop: false }; } };
+        pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),
+          'a phone never takes the GPU path, opted in or not') && pass;
+        pass = ok(t.neuralDtype('wasm') === 'q8', 'and keeps the quantized bundle') && pass;
+      } finally {
+        window.Platform = platformBefore;
+        t.state.prefs.gpu = gpuPrefBefore;
+        if (gpuStubbed) { try { delete navigator.gpu; } catch (e) {} }
+      }
+
       t.updateResources({ thermal: 'nominal', lowPower: false });
       const realPlatform = window.Platform;
       const slow = { ms: 1200, seconds: 1, chars: 15 };   // 0.83x realtime

@@ -58,10 +58,43 @@
   // speech synthesiser, it sounded like one, and having it as a silent
   // fallback meant a broken natural voice could masquerade as a working app.
   // When the natural voice cannot run, that is now said, not papered over.
-  // One path only. The GPU path needed the fp32 weights — four times the size,
-  // never bundled, and on a phone a dead process rather than a faster one. It
-  // was a 330 MB download sitting behind a toggle that read as an upgrade.
+  //
+  // wasm is the only path on a phone, for the reasons that deleted the GPU one:
+  // fp32 weights are four times the size, never bundled, and on a phone the
+  // result was a dead process rather than a faster one.
+  //
+  // A desktop inverts every term of that. Measured in Chrome on a computer,
+  // single-core wasm generates 0.23 seconds of audio per second of compute —
+  // four times slower than speech — so the narrator waits before every
+  // sentence and no amount of queue depth or prebuffering can fix a deficit
+  // that compounds. Threads would need cross-origin isolation, and four cores
+  // would still land under 1x. The bundle already ships the jsep runtime,
+  // which is the WebGPU-capable build, so the GPU path costs no new asset.
+  // It stays behind an explicit opt-in because the fp32 weights are a ~330 MB
+  // download, and it falls back to wasm the moment it fails.
   const NEURAL_DEVICE = 'wasm';
+  const GPU_DEVICE = 'webgpu';
+
+  // One failed GPU init per session is enough; after that this session is a
+  // wasm session. Not persisted: a driver update or another machine deserves
+  // a fresh try, and the pref is the user's answer, not this flag.
+  let gpuInitFailed = false;
+
+  function gpuCapable() {
+    if (gpuInitFailed) return false;
+    if (typeof navigator === 'undefined' || !navigator.gpu) return false;
+    try {
+      return !!(window.Platform && typeof window.Platform.tuning === 'function'
+        && window.Platform.tuning().desktop);
+    } catch (e) { return false; }
+  }
+
+  function neuralDevice() {
+    return (gpuCapable() && state.prefs && state.prefs.gpu) ? GPU_DEVICE : NEURAL_DEVICE;
+  }
+
+  // WebGPU runs the fp32 weights; q8 is the wasm bundle's format.
+  function neuralDtype(device) { return device === GPU_DEVICE ? 'fp32' : 'q8'; }
 
   const RATE_MIN = 0.6, RATE_MAX = 1.6, RATE_STEP = 0.05;
   const PITCH_MIN = 0.8, PITCH_MAX = 1.2, PITCH_STEP = 0.05;
@@ -346,6 +379,7 @@
     follow:       'voice.follow',
     autoNext:     'voice.autoNext',
     highlight:    'voice.highlight',
+    gpu:          'voice.gpu',
   };
 
   // 'natural' is Kokoro in a worker; 'iphone' is the OS through Platform.speech.
@@ -409,6 +443,8 @@
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
+      // Opt-in, and off by default: it is a 330 MB download.
+      gpu:          prefGet(PREF.gpu, false) === true,
     };
   }
 
@@ -1172,7 +1208,8 @@
   function voiceDiagnostics() {
     return { revision: 'mobile-efficiency-1', build: buildInfo,
       voice: state.prefs.neuralVoice, rate: state.prefs.rate, memoryClass: memoryClass(),
-      backend: neuralEngine.native ? 'native' : (neuralEngine.ready ? 'wasm' : 'unloaded'),
+      backend: neuralEngine.native ? 'native' : (neuralEngine.ready ? (neuralEngine.device || 'wasm') : 'unloaded'),
+      gpu: { capable: gpuCapable(), enabled: !!(state.prefs && state.prefs.gpu), failed: gpuInitFailed },
       provider: neuralEngine.provider, weights: neuralEngine.nativeWeights,
       pending: neuralEngine.pending.size, cachedClips: neuralEngine.wavCache.size,
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
@@ -1252,6 +1289,9 @@
     available: function () { return !!window.Worker; },
 
     ensureReady: function (device) {
+      // Every caller asks for "the engine"; which device that means is decided
+      // here, once, from the pref and what the machine can actually do.
+      device = device || neuralDevice();
       // Any acquisition cancels a scheduled idle teardown — the engine is
       // wanted again.
       clearTimeout(this.idleTimer); this.idleTimer = 0;
@@ -1358,7 +1398,7 @@
           type: 'init',
           model: MODEL_ID,
           device: device,
-          dtype: 'q8',
+          dtype: neuralDtype(device),
           // The worker seeds these into the cache kokoro-js reads, from the
           // copies in the bundle. Only the voices this app offers — the pack
           // has fifty-odd and nobody is served by shipping the rest.
@@ -1373,6 +1413,17 @@
           heapPages: NEURAL_HEAP_PAGES,
         });
       });
+      // A GPU that cannot start is a slower narrator, not a broken one. Retry
+      // once on wasm and stay there for the session, so a machine with a
+      // hostile driver still reads the book.
+      if (device === GPU_DEVICE) {
+        this.readyPromise = this.readyPromise.catch(function (e) {
+          gpuInitFailed = true;
+          voiceEvent('gpu-fallback', { message: String((e && e.message) || e) });
+          self.dispose();
+          return self.ensureReady(NEURAL_DEVICE);
+        });
+      }
       return this.readyPromise;
     },
 
@@ -2909,6 +2960,25 @@
 
     natAction.addEventListener('click', function () { downloadNeural(); });
 
+    // Desktop only, and only where the browser actually has WebGPU. Off by
+    // default: the speed comes from full-precision weights, and downloading
+    // 330 MB is the reader's decision to make, not a default to discover.
+    if (gpuCapable()) {
+      body.appendChild(toggleRow(
+        'Use this computer’s GPU',
+        'Much faster narration. Downloads ~330 MB of full-precision voice once.',
+        'gpu', PREF.gpu,
+        function () {
+          // The device is fixed when the engine is built, so the running one
+          // has to go. Stopping is honest; a tap starts the new one.
+          if (state.playing) pause();
+          neuralEngine.dispose();
+          toast(state.prefs.gpu
+            ? 'GPU narration on — the first chapter downloads the full-precision voice.'
+            : 'Back to the standard voice engine.');
+        }));
+    }
+
     // ── Speed / pitch ─────────────────────────────────────────────────────
     body.appendChild(stepRow('Speed', {
       get: function () { return state.prefs.rate; },
@@ -3503,6 +3573,9 @@
       estimateSeconds: estimateSeconds,
       chapterSecondsLeft: chapterSecondsLeft,
       prebufferTargetSeconds: prebufferTargetSeconds,
+      neuralDevice: neuralDevice,
+      neuralDtype: neuralDtype,
+      gpuCapable: gpuCapable,
       thermalHot: thermalHot,
       startupPrebufferDeadline: startupPrebufferDeadline,
       awaitPrebuffer: awaitPrebuffer,

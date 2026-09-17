@@ -30,6 +30,17 @@ let chapterLabelTotal = 0;   // highest number shown in the chapter list; footer
 // pageObserver is module-level so it can be disconnected before recreation on reload.
 let pageObserver = null;
 
+// --- Reading-session identity ---
+// Every async job that will write back into `pages` captures sessionGen first
+// and re-checks it after its await. A native chapter extraction can outlive the
+// session that asked for it — the reader is closed, another chapter or another
+// series is opened, `pages` is a different array — and without this check the
+// late reply writes its directUrls into whatever now sits at those indices.
+// readerSessionActive makes exitReaderSession() idempotent: Close, Home and the
+// back gesture can all reach it, and two of them can reach it for one exit.
+let sessionGen = 0;
+let readerSessionActive = false;
+
 // chapterJumpTimer guards the 150 ms deferred render in jumpToChapter so that
 // rapid taps cancel the previous pending render before queueing a new one.
 let chapterJumpTimer = null;
@@ -886,6 +897,70 @@ function teardownAll() {
   scrollWindowCenter = -1; // the slot is empty; any window is gone with it
 }
 
+// Release this session's extracted native directories: per-chapter page dirs
+// and the inner CBZs of a zip-of-CBZs set. Fire-and-forget — a failed delete is
+// reclaimed by the LRU prune later — but it must happen at the END of a
+// session, not only at the start of the next one, or a reader who closes the
+// app after reading leaves the whole set on disk until they open another.
+function releaseNativeSessionDirs() {
+  nativePageDirs.forEach(d => {
+    try { if (window.Platform) window.Platform.archives.releasePages(d.dirKey); } catch (e) {}
+  });
+  nativePageDirs = [];
+  nativeInnerDirs.forEach(d => {
+    try { if (window.Platform) window.Platform.archives.releasePages(d); } catch (e) {}
+  });
+  nativeInnerDirs = [];
+  nativeExtractInflight = {};
+}
+
+// The one way out of a reading session, whatever the destination.
+//
+// Close and Home used to differ by accident rather than by design: Home flushed
+// progress, stopped autoscroll and ran teardownAll's bitmap-release discipline,
+// while Close revoked the blob URLs and emptied the arrays. Everything else —
+// the decoded bitmaps WebKit holds for a disconnected <img>, the pending
+// chapter render, the debounced lookahead, the observer, the extracted native
+// page dirs — survived a Close and was only reclaimed when the NEXT session
+// happened to start. Both now come through here; the caller picks where to go.
+//
+// Order matters. Everything that READS session state (the progress flush, the
+// library write) runs before anything that clears it: the previous shape of
+// this, two independently registered click listeners, lost the final image
+// position on Close precisely because the teardown ran first.
+function exitReaderSession() {
+  if (!readerSessionActive) return; // already exited; Close→goHome can arrive twice
+  readerSessionActive = false;
+
+  // 1. Flush, while the state a flush reads still exists.
+  if (window.Catalogue && typeof window.Catalogue.flushImageProgress === 'function') {
+    try { window.Catalogue.flushImageProgress(); } catch (e) { /* never block the exit */ }
+  }
+  clearTimeout(sessionSaveTimer);
+  saveToLibrary();
+
+  // 2. Nothing scheduled may land on the state cleared below.
+  sessionGen++;
+  clearTimeout(chapterJumpTimer);
+  clearTimeout(scrollDebounce);
+  clearTimeout(windowedScrollTimer);
+  if (autoRunning) stopAutoScroll();
+  clearTimeout(idleTimer); // after stopAutoScroll: resetIdle() re-arms it
+
+  // 3. Bitmaps, blob URLs, DOM, observer.
+  teardownAll();
+  if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+
+  // 4. Disk.
+  releaseNativeSessionDirs();
+
+  pages = [];
+  chapters = [];
+  sessionArchiveManifest = null;
+  nativeCacheDirBase = '';
+}
+window.exitReaderSession = exitReaderSession;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // File Loading
 // ─────────────────────────────────────────────────────────────────────────────
@@ -907,19 +982,12 @@ function resetReaderState() {
   chapterDisplayShift = 0;
   chapterLabelTotal = 0;
   scrollWindowCenter = -1;
-  // Native session leftovers: release the previous set's extracted page dirs
-  // (fire-and-forget — a failed delete is reclaimed by the LRU prune later).
-  nativePageDirs.forEach(d => {
-    try { if (window.Platform) window.Platform.archives.releasePages(d.dirKey); } catch (e) {}
-  });
-  nativePageDirs = [];
-  // Same discipline for extracted inner archives (zip-of-CBZs sets): a new
-  // session re-extracts what it needs, so the old copies are pure disk weight.
-  nativeInnerDirs.forEach(d => {
-    try { if (window.Platform) window.Platform.archives.releasePages(d); } catch (e) {}
-  });
-  nativeInnerDirs = [];
-  nativeExtractInflight = {};
+  // A new session invalidates the old one's in-flight work even when the reader
+  // was never formally exited (entering from the upload screen, a resume, a
+  // native relaunch), and releases any native leftovers it still owns.
+  sessionGen++;
+  readerSessionActive = true;
+  releaseNativeSessionDirs();
   sessionArchiveManifest = null;
   nativeCacheDirBase = '';
   // Stale resume UI and notices from a previous load.
@@ -1436,6 +1504,7 @@ async function ensureChapterExtracted(chIdx) {
   if (nativeExtractInflight[chIdx]) return nativeExtractInflight[chIdx];
   const P = window.Platform;
   if (!P) return;
+  const gen = sessionGen; // this extraction belongs to THIS session only
   const job = (async () => {
     try {
       const first = pages[ch.start];
@@ -1446,6 +1515,16 @@ async function ensureChapterExtracted(chIdx) {
       for (let i = ch.start; i <= ch.end; i++) names.push(pages[i].entryName);
       const dirKey = nativeCacheDirBase + '/ch-' + chIdx;
       const rels = await P.zip.extract(src, names, dirKey);
+      // The session can have ended, or moved on to other content, during that
+      // extraction. `pages` is then a different array and ch.start..ch.end index
+      // someone else's pages, so writing directUrls here would point the new
+      // session's images at files this one is about to delete. Hand the dir
+      // straight back instead: nothing references it, and the session that
+      // would have released it is gone.
+      if (gen !== sessionGen || chapters[chIdx] !== ch) {
+        try { P.archives.releasePages(dirKey); } catch (e) {}
+        return;
+      }
       if (!rels || rels.length !== names.length) {
         console.warn('[reader] native extract failed for chapter', chIdx);
         return;
@@ -1461,8 +1540,12 @@ async function ensureChapterExtracted(chIdx) {
       console.warn('[reader] native extract failed for chapter', chIdx);
     }
   })();
-  nativeExtractInflight[chIdx] = job;
-  try { await job; } finally { delete nativeExtractInflight[chIdx]; }
+  // Register in the map this session owns, and only ever clear our own entry
+  // from it: a session change swaps the map, and a late `delete` against the
+  // new one would drop a live job and let the same chapter extract twice.
+  const registry = nativeExtractInflight;
+  registry[chIdx] = job;
+  try { await job; } finally { if (registry[chIdx] === job) delete registry[chIdx]; }
 }
 
 // LRU of extracted chapter dirs, capped at 2 (current + previous — the same
@@ -2177,14 +2260,14 @@ readerPages.addEventListener('click', (e) => {
 });
 
 document.getElementById('close-btn').addEventListener('click', () => {
-  // If reading an online chapter, go back to the series detail screen
-  if (readerOrigin === 'series') {
-    pages.forEach(p => { if (p.url && !p.directUrl) URL.revokeObjectURL(p.url); });
-    pages = []; chapters = [];
-    showScreen('series-screen');
-  } else {
-    location.reload();
-  }
+  // One teardown, two destinations: back to the series screen for an online
+  // chapter, a reload for an upload session (which is how an upload session has
+  // always been ended — the reload is the reset). The exit runs first either
+  // way, so the final page position is written before the state it is read from
+  // disappears; on the reload path that write is the only thing that survives.
+  exitReaderSession();
+  if (readerOrigin === 'series') showScreen('series-screen');
+  else location.reload();
 });
 
 // Home button — the second header affordance (PLAN7 §2.11-C), shown by
@@ -2198,15 +2281,7 @@ document.getElementById('close-btn').addEventListener('click', () => {
   const homeBtn = document.getElementById('home-btn');
   if (homeBtn) homeBtn.addEventListener('click', () => {
     if (window.readerOrigin !== 'series') return; // hidden outside series sessions; belt and braces
-    // A queued 150 ms renderChapter must not fire against the cleared state.
-    clearTimeout(chapterJumpTimer);
-    // Flush the debounced position write while chapters still exist, so the
-    // library entry reflects the exact leaving position.
-    clearTimeout(sessionSaveTimer);
-    saveToLibrary();
-    if (autoRunning) stopAutoScroll();
-    teardownAll();
-    pages = []; chapters = [];
+    exitReaderSession();
     if (window.Catalogue && typeof window.Catalogue.goHome === 'function') window.Catalogue.goHome();
   });
 }

@@ -166,12 +166,22 @@ Files: `js/novel-voice.js` (`pause`, `play`, `stopSession`, `readerEvent`,
    epochs must prevent stale callbacks from restoring state or populating caches.
 4. Test startup silence and generation timeout. Reject promises and reset the
    engine; do not allow repeated retries to queue behind an abandoned job.
-5. Verify native severe thermal pressure blocks new inference; memory pressure
-   releases inactive resources. Already-running native inference may finish.
-   Native cancellation must invalidate queued work before it starts.
-6. Test low-power/fair/serious/critical/nominal transitions, cooldown and explicit
-   resume. Do not strand the app blocked after it cools; do not auto-resume when
-   the user paused. Cover pressure while initializing and during voice preview.
+5. **Superseded by a device report, 2026-09-17.** This said severe thermal
+   pressure must block new inference. On the reporting iPhone 15 Pro that made
+   Natural voice unusable: the phone sits at serious while it is being held and
+   hotter again on a charger, so the cooled state the resume waited for never
+   arrived, and the app answered every play with "wait for your phone to cool".
+   Heat now throttles instead: serious and critical disable lookahead and the
+   startup prebuffer, so generation runs one group at a time while playback
+   continues. Memory pressure is unchanged and still releases inactive
+   resources, since that signal means the process is about to be killed rather
+   than slowed. Native cancellation must still invalidate queued work before it
+   starts.
+6. Test low-power/fair/serious/critical/nominal transitions. Heat must never
+   strand the app: no blocked state, no cooldown to wait out, no auto-pause.
+   Cover pressure while initializing and during voice preview. If a future
+   measurement argues for suspending playback again, it needs the thermal
+   numbers from P01 behind it and a way to turn it off on the device (§P04.7).
 7. Distinguish intentional background listening from a paused/inactive session.
    Test screen lock, system audio interruptions and returning to the app.
 8. Verify observers are not duplicated and shared state is read/written on

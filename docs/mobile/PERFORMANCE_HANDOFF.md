@@ -103,6 +103,48 @@ Next exact task and starting files: P08 — js/novel-reader.js (onScroll,
   captureScroll, prefixChars), js/reader.js (autoStep).
 ```
 
+## P08 record: 2026-09-16
+
+```text
+Task ID / date: P08 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-scroll, stacked on
+  codex/mobile-reader-memory (P07)
+Behavior changed:
+  - Jump autoscroll waits on a timer instead of running an animation frame
+    sixty times a second to watch a clock. Frames now run only during the
+    ~600 ms jump itself, so a 30-second interval costs 1800 fewer frames.
+    Speed and mode changes re-arm the pending wait; a repeated start cannot
+    open a second loop; stop and reader-exit clear the timer.
+  - stagePadTop() memoised. It was a getComputedStyle (a forced style
+    resolution) on every scroll frame for a value that only moves when the
+    layout does; settleLayout() and resetSession() drop it.
+  - updateChrome() no longer rewrites what is already on screen: the title and
+    subtitle text nodes, and the six-node status line, are keyed and rebuilt
+    only when a displayed value changed.
+ATTEMPTED AND REVERTED — the anchor-capture split (plan items 2 and 4):
+  Capturing a block-only anchor during motion and resolving the character on
+  settle broke the LRU refill drill in test/novel-reader.test.html, first with
+  a 125 px position jump across a refill, then also failing the refill itself.
+  The module states the invariant plainly ("the anchor is the reader's cursor;
+  only the reader gets to move it") and the refill path reads the anchor
+  synchronously while the target chapter is a collapsed spacer, which is
+  exactly when a coarse anchor cannot be upgraded. The plan asks for a profile
+  FIRST; there is no profile and no device here, so this is deferred rather
+  than forced. Anyone resuming it: start from testLru in the novel-reader
+  suite, and expect to touch the refill path, not just capture.
+Tests actually run and outcomes: 2 new cases in test/image-reader.test.html
+  (idle frame cost measured as a delta against a baseline, because other page
+  work draws too; stop and exit cancel the pending jump). novel-reader and
+  novel-voice suites pass unchanged, which is the check that matters for the
+  chrome and padding changes.
+Device evidence: NOT RUN.
+Remaining risks/dependencies: the frame saving is arithmetic, not a measured
+  battery number. P08's blur/compositing item is untouched and stays
+  explicitly profile-gated.
+Next exact task and starting files: P09 — js/reader.js (loadArchives,
+  extractEntries), js/importer.js (openZip and the cancel paths).
+```
+
 ## Next actions
 
 1. Follow the plan's restart commands and inspect changes since this checkpoint.

@@ -158,6 +158,19 @@
   const RUBBER        = 0.34;      // end-of-book drag resistance
   const TURN_MS       = 220;       // upper bound on the flip animation
 
+  // ── Immersive chrome on a desktop (docs/desktop/PLAN.md D06) ──────────────
+  // Hiding the chrome is a tap gesture, and a tap is something a phone reader
+  // makes every few pages anyway. A mouse makes none: the pointer sits still
+  // for a whole chapter, so on a computer the header, the footer and the voice
+  // transport stay lit over prose nobody asked them to cover. So on a desktop
+  // the chrome puts itself away once the pointer has been still, and comes back
+  // when the pointer goes looking for it at the top or the bottom of the
+  // window. Nothing here runs on a touch device, and every manual toggle — the
+  // middle zone, a click on the prose, `h` — keeps working exactly as it did.
+  const IMMERSIVE_IDLE_MS   = 2600; // pointer still this long → chrome away
+  const IMMERSIVE_TOP_PX    = 96;   // reveal band below the top edge
+  const IMMERSIVE_BOTTOM_PX = 168;  // …and above the bottom: footer + voice bar
+
   const BLOCK_TAGS = { p: 'p', h2: 'h2', h3: 'h3', h4: 'h4', pre: 'pre', ul: 'ul', ol: 'ol' };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -382,6 +395,11 @@
   let fontToken = 0;              // guards out-of-order webfont settle passes
   let maxLoaded = MAX_LOADED_DEFAULT; // state.loaded cap — re-read once per open()
   let layoutCount = 0;            // diagnostics: how many layout() passes have run
+  let immersive = false;          // desktop auto-hide — re-read once per open()
+  let immersiveTimer = 0;
+  let immersiveAtEdge = false;    // pointer is in a reveal band right now
+  let immersiveRaf = 0;
+  let immersiveY = 0;
 
   function on(target, type, fn, opts) {
     target.addEventListener(type, fn, opts);
@@ -2165,10 +2183,83 @@
 
   function round4(n) { return Math.round(n * 10000) / 10000; }
 
+  function chromeHidden() {
+    return !!(dom.root && dom.root.classList.contains('nv-chrome-hidden'));
+  }
+
   function toggleChrome(force) {
-    const hide = force === undefined ? !dom.root.classList.contains('nv-chrome-hidden') : !!force;
+    const hide = force === undefined ? !chromeHidden() : !!force;
     dom.root.classList.toggle('nv-chrome-hidden', hide);
+    // One call covers both directions: arming is a no-op while the chrome is
+    // already away, and a countdown the moment it is back.
+    armImmersive();
     voiceNotify('chrome', { hidden: hide });
+  }
+
+  // ── Immersive chrome on a desktop ────────────────────────────────────────
+
+  function readImmersive() {
+    try {
+      if (window.Platform && typeof window.Platform.tuning === 'function') {
+        return !!window.Platform.tuning().desktop;
+      }
+    } catch (e) { /* tuning is advisory; without it nothing auto-hides */ }
+    return false;
+  }
+
+  function cancelImmersive() { clearTimeout(immersiveTimer); immersiveTimer = 0; }
+
+  function armImmersive() {
+    cancelImmersive();
+    if (!immersive || !state.open || chromeHidden()) return;
+    immersiveTimer = setTimeout(function () {
+      immersiveTimer = 0;
+      if (!immersive || !state.open || chromeHidden()) return;
+      // Something on screen still has a claim on the chrome. Re-arm rather than
+      // give up, so it goes away by itself the moment the claim is dropped.
+      if (chromeClaimed()) { armImmersive(); return; }
+      toggleChrome(true);
+    }, IMMERSIVE_IDLE_MS);
+  }
+
+  // Who gets to keep the chrome up: a sheet that is open over it, keyboard
+  // focus inside it, and a pointer resting in one of the reveal bands — which
+  // is where someone aiming for a button holds it while they decide.
+  function chromeClaimed() {
+    if (immersiveAtEdge) return true;
+    if (readerSheetVisible() || voiceSheetVisible()) return true;
+    const a = document.activeElement;
+    if (!a || a === document.body) return false;
+    if (dom.header && dom.header.contains(a)) return true;
+    if (dom.footer && dom.footer.contains(a)) return true;
+    // The voice transport is chrome too (§2.14); it just lives outside both.
+    return !!(a.closest && a.closest('#novel-screen .vc-bar'));
+  }
+
+  // Deciding this needs the root's box, which is a layout read, and pointermove
+  // fires far faster than anything that could move that box. So the decision is
+  // batched into a frame — the same shape onScroll uses.
+  function onImmersiveMove(e) {
+    if (!immersive || !state.open) return;
+    // A finger has the tap toggle already, and would reveal the chrome on
+    // every page turn — the tap zones live inside the bands at the edges.
+    if (e.pointerType === 'touch') return;
+    immersiveY = e.clientY;
+    if (immersiveRaf) return;
+    immersiveRaf = requestAnimationFrame(function () {
+      immersiveRaf = 0;
+      if (!immersive || !state.open) return;
+      const r = dom.root.getBoundingClientRect();
+      immersiveAtEdge = immersiveY <= r.top + IMMERSIVE_TOP_PX
+                     || immersiveY >= r.bottom - IMMERSIVE_BOTTOM_PX;
+      if (immersiveAtEdge && chromeHidden()) toggleChrome(false);
+      else armImmersive();
+    });
+  }
+
+  function onImmersiveLeave() {
+    immersiveAtEdge = false;
+    armImmersive();
   }
 
   function toast(msg, ms) {
@@ -2746,6 +2837,11 @@
     on(dom.zones, 'pointerup', onPointerUp);
     on(dom.zones, 'pointercancel', onPointerUp);
 
+    // Immersive chrome on a desktop. One listener on the root sees the zones
+    // overlay, the prose and the chrome itself, whichever is under the pointer.
+    on(dom.root, 'pointermove', onImmersiveMove, { passive: true });
+    on(dom.root, 'pointerleave', onImmersiveLeave);
+
     on(document, 'visibilitychange', function () { if (document.hidden) flushProgress(); });
     on(window, 'pagehide', function () { flushProgress(); });
 
@@ -2877,11 +2973,17 @@
 
   let drag = null;
 
+  // Capture is taken when a drag is RECOGNISED, not when the pointer goes down.
+  // Capturing on pointerdown retargets the compatibility mouse events too, so
+  // the `click` that follows was delivered to .nv-zones instead of the
+  // .nv-zone-* child that owns the listener — which made every tap zone dead
+  // under a mouse: clicking to turn a page, and clicking the middle to hide the
+  // chrome, both did nothing on a desktop. Touch is unaffected either way: the
+  // browser sets implicit capture for direct-manipulation pointers itself.
   function onPointerDown(e) {
     if (state.mode !== 'paged' || !state.open) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: (performance || Date).now(), active: false };
-    try { dom.zones.setPointerCapture(e.pointerId); } catch (err) {}
   }
 
   function onPointerMove(e) {
@@ -2891,6 +2993,9 @@
     if (!drag.active) {
       if (Math.abs(dx) < SWIPE_SLOP || Math.abs(dx) <= Math.abs(dy)) return;
       drag.active = true;
+      // Now that this is a drag, hold the pointer: the rest of it must reach us
+      // even if it leaves the overlay or the window.
+      try { dom.zones.setPointerCapture(e.pointerId); } catch (err) {}
       dom.doc.classList.remove('nv-animate');
     }
     drag.dx = resist(dx);
@@ -3081,6 +3186,7 @@
     clearTimeout(resizeTimer);
     clearTimeout(prefetchTimer); prefetchTimer = 0;
     if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = 0; }
+    if (immersiveRaf) { cancelAnimationFrame(immersiveRaf); immersiveRaf = 0; }
     stagePadCache = -1;
     state.stack = [];
     state.loaded.clear();
@@ -3129,6 +3235,9 @@
       // The §9 budget for this session, read exactly once — tuning() consumers
       // re-read at session start, never per frame.
       maxLoaded = readMaxLoadedChapters();
+      // Same contract as the cap above: read once per session, never per frame.
+      immersive = readImmersive();
+      immersiveAtEdge = false;
       closeSheet();
       toggleChrome(false);
 
@@ -3209,6 +3318,8 @@
 
       clearTimeout(toastTimer);
       clearTimeout(turnTimer);
+      cancelImmersive();
+      immersiveAtEdge = false;
       if (progressTimer) { clearTimeout(progressTimer); progressTimer = 0; }
       progressDirty = false;
 
@@ -3242,7 +3353,8 @@
         loadedCount: state.loaded.size,
         loadedIds: Array.from(state.loaded.keys()),
         maxLoadedChapters: maxLoaded,
-        chromeHidden: !!(dom.root && dom.root.classList.contains('nv-chrome-hidden')),
+        chromeHidden: chromeHidden(),
+        immersive: immersive,
         sheetOpen: sheetOpen,
         layoutCount: layoutCount,
         prefs: Object.assign({}, state.prefs),

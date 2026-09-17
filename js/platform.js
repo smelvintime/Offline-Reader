@@ -286,6 +286,11 @@
   // is native-only — neither gets more generous for having a mouse). These are
   // the in-memory windows, and the ceiling that matters is decodedMB.
   const DESKTOP_TUNING = {
+    // The flag is part of the row on purpose: consumers that need to know they
+    // are on a computer (novel-voice.js schedules generation differently) read
+    // it from the same call that gives them their budgets, instead of
+    // re-deriving "is this a desktop" with their own copy of the rule.
+    desktop: true,
     memoryWindow: 50, cacheWindow: 150, lookBehind: 8, lookAhead: 16,
     maxLoadedChapters: 20, decodedMB: 512,
   };

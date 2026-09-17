@@ -80,6 +80,7 @@ const DESKTOP = (function () {
   } catch (e) { return false; }
 })();
 const DESKTOP_ROW = Object.assign({}, ROWS.high, {
+  desktop: true,
   memoryWindow: 50, cacheWindow: 150, lookBehind: 8, lookAhead: 16,
   maxLoadedChapters: 20, decodedMB: 512,
 });
@@ -185,6 +186,7 @@ window.__done = (async function main() {
     assertEq(t.chapterCacheMB, ROWS.high.chapterCacheMB, 'the IndexedDB budget is not widened by having a mouse');
     assertEq(t.pageCacheMB, ROWS.high.pageCacheMB, 'nor is the on-disk page budget');
     assert(t.decodedMB > ROWS.high.decodedMB, 'but the in-memory bitmap budget is');
+    assertEq(t.desktop, true, 'and the row says it is a desktop, which novel-voice.js schedules on');
   }
 
   // tuning() hands out copies — mutating one must not poison the table.

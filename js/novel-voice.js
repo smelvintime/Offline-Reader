@@ -1178,6 +1178,15 @@
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
       resources: Object.assign({}, resources), events: voiceEvents.slice() };
   }
+  // A computer, per Platform's tuning row. Not cached: the row is cheap, and a
+  // cached answer would outlive the stubbed Platform the tests swap in.
+  function isDesktop() {
+    try {
+      return !!(window.Platform && typeof window.Platform.tuning === 'function'
+        && window.Platform.tuning().desktop);
+    } catch (e) { return false; }
+  }
+
   function thermalHot() {
     return resources.thermal === 'serious' || resources.thermal === 'critical';
   }
@@ -1900,7 +1909,14 @@
     // keeps inference pinned at full load and turns the phone's battery into
     // heat. The initial chapter prebuffer still banks the useful head start,
     // and the next clip is still generated concurrently with playback.
-    if (margin < 1.05) return 0;
+    //
+    // A computer is the case that argument does not cover. There is no battery
+    // to spend and no thermal ceiling to back away from, and the wasm engine is
+    // usually slower than playback there, so "only the next group" is not a
+    // conservative choice, it is a wait before every single sentence. Keep
+    // generating: the queue caps it at four jobs, and a machine that is behind
+    // is exactly the one that should be working.
+    if (margin < 1.05) return isDesktop() ? NEURAL_LOOKAHEAD_SEC : 0;
 
     // Above it the generator really will go idle, and idle is worth
     // protecting: it is most of the difference between a warm phone and a hot

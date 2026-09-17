@@ -22,6 +22,7 @@ would need a profile, a device, or a guess about what desktop readers want is in
 | D03 | Keyboard and mouse in the image reader | NOT STARTED |
 | D04 | Measure the voice path on a desktop before tuning it | MEASURED, GPU path added |
 | D05 | Window-width layout audit | NOT STARTED |
+| D06 | Immersive chrome in the novel reader | IMPLEMENTED |
 
 ## D01: A desktop device class
 
@@ -186,6 +187,51 @@ pre-emptively redesign.
 
 **Acceptance.** A written list of real defects with screenshots, then fixes for
 the ones worth fixing.
+
+## D06: Immersive chrome in the novel reader
+
+**Reported from a desktop, 2026-09-17:** the reading UI never goes away, so the
+voice transport sits over the prose for the whole book. Two separate causes,
+both verified in a real Chromium at 1440x900 before anything was written.
+
+**The tap zones were dead under a mouse.** `onPointerDown` in
+`js/novel-reader.js` called `dom.zones.setPointerCapture(e.pointerId)` on every
+pointerdown. For a mouse, the compatibility `click` is then retargeted to the
+capture element, so it was delivered to `.nv-zones` rather than the
+`.nv-zone-*` child that owns the listener. Measured: a real click on
+`.nv-zone-next` did not turn the page and the click's target read `nv-zones`.
+So on a desktop, clicking the middle to hide the chrome did nothing, clicking
+to turn a page did nothing, and `h` was the only way in — undiscoverable.
+Capture now happens when a drag is *recognised*, in `onPointerMove`, which is
+the only moment it is needed. Touch is unaffected either way: the browser sets
+implicit capture for direct-manipulation pointers itself.
+
+This half is **not** covered by the in-page suite, and honestly so: the
+retargeting is a property of real input, and a synthesised `click` is delivered
+to whatever element it is dispatched on whether the bug is present or not. It
+was verified by driving the app with Playwright's mouse and touchscreen — zone
+click turns the page, middle zone toggles the chrome, drag-to-turn still turns —
+at 1440x900 and at 390x844. A standing regression test for it needs the harness
+to deliver real input at a desktop viewport, which is D02's job.
+
+**Nothing hid the chrome on its own.** Hiding is a tap gesture, and a tap is
+something a phone reader makes every few pages anyway. A mouse makes none — the
+pointer sits still for a whole chapter — so the design simply never fired on a
+computer. On a desktop (`Platform.tuning().desktop`, the D01 flag, read once
+per `open()`) the chrome now hides itself after 2.6 s of a still pointer and
+returns when the pointer enters the reveal band at the top or the bottom. See
+§4 of ARCHITECTURE.md for the contract, including what holds the chrome up.
+
+Deliberately not part of this: any new preference (the behaviour is keyed off
+detection that already exists), any change to the image reader, and hiding the
+cursor. `nv-chrome-hidden` already carries the voice transport and the goals
+pill with it, so neither module changed.
+
+**Acceptance.** A desktop reader sees prose and nothing else while the pointer
+is still; the chrome is one mouse-move to the edge away; a phone behaves
+exactly as before. The auto-hide half is covered by `T.testDesktopImmersive()`
+in `test/novel-reader.test.html` (15 assertions, both branches of the gate);
+the capture half is covered as described above.
 
 ## 6. Not doing
 

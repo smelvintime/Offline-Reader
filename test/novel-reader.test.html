@@ -40,6 +40,7 @@
   <button onclick="T.testPresetNameXss().then(T.report)">presets xss</button>
   <button onclick="T.testThoughtsCta().then(T.report)">thoughts cta</button>
   <button onclick="T.testHomeButton().then(T.report)">home button</button>
+  <button onclick="T.testDesktopImmersive().then(T.report)">desktop immersive</button>
 </div>
 <div id="log"></div>
 
@@ -337,12 +338,13 @@ const T = {
 
   /** Fake Platform with only what novel-reader.js reads: tuning(). Installed
       BEFORE open() because the cap is read exactly once per session. */
-  stubTuning(maxLoadedChapters) {
+  stubTuning(maxLoadedChapters, desktop) {
     window.Platform = {
       isNative: false,
       tuning: function () {
         return { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10,
-                 maxLoadedChapters: maxLoadedChapters, chapterCacheMB: 200, pageCacheMB: 400 };
+                 maxLoadedChapters: maxLoadedChapters, chapterCacheMB: 200, pageCacheMB: 400,
+                 desktop: !!desktop };
       },
     };
   },
@@ -849,6 +851,91 @@ const T = {
     const p = await Store.getProgress(SERIES.id);
     ok(!!p && p.chapterId === 'c-0001' && p.pct > 0, 'progress flushed before leaving',
        p && (p.chapterId + '@' + p.pct));
+    return out;
+  },
+
+  /** One pointer move over the reader, as a mouse or as a finger. The reader
+      decides on the next frame, so settle before asserting. */
+  async movePointer(y, pointerType) {
+    const root = document.getElementById('novel-screen');
+    root.dispatchEvent(new PointerEvent('pointermove', {
+      pointerId: 1, pointerType: pointerType || 'mouse', isPrimary: true,
+      clientX: Math.round(window.innerWidth / 2), clientY: y,
+      bubbles: true, cancelable: true,
+    }));
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  },
+
+  /**
+   * Immersive chrome on a desktop (docs/desktop/PLAN.md D06). The whole
+   * feature is gated on Platform.tuning().desktop, so it is testable at any
+   * viewport — the stub decides, not the window. The waits are real: the idle
+   * delay is 2.6 s and there is no seam to shorten it through.
+   */
+  async testDesktopImmersive() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const IDLE = 2900;                     // one idle period plus slack
+    const hidden = () => window.NovelReader.state().chromeHidden;
+
+    // ── A desktop ──────────────────────────────────────────────────────────
+    await this.reset();
+    this.stubTuning(10, true);
+    await this.open(1);
+    ok(window.NovelReader.state().immersive === true,
+       'a desktop session reads immersive from tuning()', window.NovelReader.state().immersive);
+    ok(hidden() === false, 'the chrome is up when the book opens');
+
+    await wait(IDLE);
+    ok(hidden() === true, 'the chrome hides itself once the pointer has been still');
+
+    await this.movePointer(10);
+    ok(hidden() === false, 'a mouse in the top band brings it back');
+
+    await wait(IDLE);
+    ok(hidden() === false, 'it stays up while the pointer rests in the band');
+
+    await this.movePointer(Math.round(window.innerHeight / 2));
+    await wait(IDLE);
+    ok(hidden() === true, 'it leaves again once the pointer moves off the band');
+
+    await this.movePointer(window.innerHeight - 20, 'touch');
+    ok(hidden() === true, 'a finger in the band reveals nothing — touch keeps the tap toggle');
+
+    await this.movePointer(window.innerHeight - 20);
+    ok(hidden() === false, 'a mouse in the bottom band — where the voice transport sits — reveals it');
+
+    // A manual toggle still wins, and the countdown picks up from it. The
+    // pointer goes back over the prose first: resting in a band is itself a
+    // claim on the chrome, and this is about the toggle, not the claim.
+    await this.movePointer(Math.round(window.innerHeight / 2));
+    this.press('h');
+    ok(hidden() === true, '`h` still hides the chrome outright');
+    this.press('h');
+    ok(hidden() === false, '…and shows it again');
+    await wait(IDLE);
+    ok(hidden() === true, 'a manual reveal re-arms the countdown');
+
+    window.NovelReader.close({ navigate: false });
+
+    // ── Everything that is not a desktop ───────────────────────────────────
+    this.stubTuning(10, false);
+    await this.open(1);
+    ok(window.NovelReader.state().immersive === false, 'a touch device is never immersive');
+    await wait(IDLE);
+    ok(hidden() === false, 'and its chrome stays exactly where the reader left it');
+    window.NovelReader.close({ navigate: false });
+
+    this.unstubTuning();
+    await this.open(1);
+    ok(window.NovelReader.state().immersive === false, 'with Platform absent, nothing auto-hides');
+    await wait(IDLE);
+    ok(hidden() === false, 'and the chrome stays up');
+    window.NovelReader.close({ navigate: false });
     return out;
   },
 

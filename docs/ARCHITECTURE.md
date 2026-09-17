@@ -1592,6 +1592,23 @@ DOM ceilings, enforced here: chapter lists render 250 rows before an inline
 (covers stay `loading="lazy"`); range selects populate lazily on first open
 of the range panel.
 
+**Chrome, and immersive chrome on a desktop.** The header, the footer and
+anything that travels with them (the voice transport §2.14, the goals pill
+§2.4) hide together behind `nv-chrome-hidden` on the reader root. A touch
+device toggles it by tapping the middle zone or the prose, or with `h`; that is
+unchanged. On a **desktop** — `Platform.tuning().desktop`, read once per
+`open()` exactly like `maxLoadedChapters` — the chrome also puts itself away
+after the pointer has been still for 2.6 s, and comes back when the pointer
+enters the reveal band at the top (96 px) or the bottom (168 px: footer plus
+the transport). It stays up while the pointer rests in a band, while a sheet is
+open, or while focus is inside the chrome; each of those re-arms the countdown
+rather than cancelling it, so the chrome leaves on its own the moment the claim
+is dropped. A finger never drives any of this: the tap zones live inside the
+bands. `api.state().immersive` reports whether the session took the desktop
+branch. **The tap zones take pointer capture when a drag is recognised, never
+on pointerdown** — capturing on pointerdown retargets the compatibility `click`
+to `.nv-zones` and makes every zone dead under a mouse.
+
 **Reader voice (§2.14).** The reader renders a header Listen button iff
 `window.NovelVoice` exists, notifies the voice module through `voiceNotify`
 (`'open'` / `'close'` / `'chapter'`, try/caught), and hands it `voiceBridge()`

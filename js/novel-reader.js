@@ -371,6 +371,7 @@
   let tailIO = null;
   let resizeObs = null;
   let scrollRaf = 0;
+  let stagePadCache = -1;
   let turnTimer = 0;
   let toastTimer = 0;
   let progressTimer = 0;
@@ -1947,8 +1948,13 @@
   function stagePadTop() {
     // The chrome floats over the prose, so this padding is constant — but it is
     // expressed in rem + env() and only the engine knows what that resolves to.
+    // getComputedStyle forces a style resolution, and syncPosition() asks for
+    // this on every scroll frame. Cached, and dropped by settleLayout(), which
+    // is what runs when the layout this describes has changed.
+    if (stagePadCache >= 0) return stagePadCache;
     const v = parseFloat(getComputedStyle(dom.stage).paddingTop);
-    return Number.isFinite(v) ? v : 0;
+    stagePadCache = Number.isFinite(v) ? v : 0;
+    return stagePadCache;
   }
 
   // The viewport-space rect the anchor points at, or null when the anchor's
@@ -2097,8 +2103,12 @@
     const entry = anchorEntry();
     const ch = entry ? entry.chapter : state.chapters[state.chIndex];
 
-    dom.title.textContent = (state.series && state.series.title) || 'Reading';
-    dom.subtitle.textContent = chapterLabel(ch);
+    // Assigning textContent replaces the text node even when the string is
+    // identical, and this runs on every scroll frame.
+    const titleText = (state.series && state.series.title) || 'Reading';
+    if (dom.title.textContent !== titleText) dom.title.textContent = titleText;
+    const subtitleText = chapterLabel(ch);
+    if (dom.subtitle.textContent !== subtitleText) dom.subtitle.textContent = subtitleText;
 
     const idx = ch ? chapterIndexOf(ch.id) : -1;
     dom.prevCh.disabled = idx <= 0;
@@ -2129,19 +2139,25 @@
     // Visually three columns separated by flex gap; for a screen reader that is
     // one run-on string, so the labels and commas are supplied out-of-band.
     // .nv-sr-only is absolutely positioned, so it costs no flex gap.
-    dom.statusLine.textContent = '';
-    if (idx >= 0) {
+    // Six nodes rebuilt per scroll frame, for three values that change at most
+    // a hundred times a chapter. Rebuild only when one of them actually moved.
+    const statusKey = idx + '/' + state.chapters.length + '|' + position + '|' + mins;
+    if (dom.statusLine.dataset.k !== statusKey) {
+      dom.statusLine.dataset.k = statusKey;
+      dom.statusLine.textContent = '';
+      if (idx >= 0) {
+        dom.statusLine.append(
+          el('span', 'nv-sr-only', 'Chapter '),
+          el('span', null, (idx + 1) + ' / ' + state.chapters.length),
+          el('span', 'nv-sr-only', ', ')
+        );
+      }
       dom.statusLine.append(
-        el('span', 'nv-sr-only', 'Chapter '),
-        el('span', null, (idx + 1) + ' / ' + state.chapters.length),
-        el('span', 'nv-sr-only', ', ')
+        el('b', null, position),
+        el('span', 'nv-sr-only', ', '),
+        el('span', null, mins > 0 ? mins + ' min left' : 'Finished')
       );
     }
-    dom.statusLine.append(
-      el('b', null, position),
-      el('span', 'nv-sr-only', ', '),
-      el('span', null, mins > 0 ? mins + ' min left' : 'Finished')
-    );
 
     dom.bar.style.setProperty('--nv-pct', String(round4(pct)));
     dom.bar.setAttribute('aria-valuenow', String(Math.round(pct * 100)));
@@ -2208,6 +2224,7 @@
   // blocks. The anchor is the reader's cursor; only the reader gets to move it.
   function settleLayout(anchor, write) {
     if (!state.open) return;
+    stagePadCache = -1;   // font size, mode, viewport: the padding may have moved
     restoreAnchor(anchor);
     updateChrome();
     if (write !== false) scheduleProgress();
@@ -3064,6 +3081,7 @@
     clearTimeout(resizeTimer);
     clearTimeout(prefetchTimer); prefetchTimer = 0;
     if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = 0; }
+    stagePadCache = -1;
     state.stack = [];
     state.loaded.clear();
     state.pending.clear();

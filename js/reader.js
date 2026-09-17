@@ -56,6 +56,7 @@ if (!Number.isInteger(gapLevel) || gapLevel < 0 || gapLevel >= GAP_LEVELS.length
 // --- Jump Mode State ---
 let scrollMode = 'smooth';
 let jumpIntervalIdx = 3;
+let autoJumpTimer = 0;   // the wait between jumps; rAF only runs during one
 let isJumping = false;
 let jumpStartY = 0;
 let jumpTargetY = 0;
@@ -2178,14 +2179,12 @@ function autoStep(timestamp) {
         lastTime  = timestamp;
       }
     } else {
-      const dt = timestamp - lastTime;
-      const currentInterval = JUMP_LEVELS[jumpIntervalIdx] * 1000;
-      if (dt >= currentInterval) {
-        isJumping      = true;
-        jumpStartTime  = timestamp;
-        jumpStartY     = window.scrollY;
-        jumpTargetY    = jumpStartY + (window.innerHeight * 0.70);
-      }
+      // Waiting for the next jump. This used to run an animation frame sixty
+      // times a second for up to half a minute to watch a clock: the frames
+      // scrolled nothing, and on a phone that is the screen and the JS thread
+      // kept awake for the whole gap. A timer says the same thing asleep.
+      scheduleJump();
+      return;
     }
   }
 
@@ -2196,7 +2195,36 @@ function autoStep(timestamp) {
   }
 }
 
+// Owns the gap between jumps. Always clears before arming, so a re-arm from a
+// speed change replaces the pending wait instead of racing it.
+function scheduleJump() {
+  clearTimeout(autoJumpTimer);
+  autoJumpTimer = setTimeout(() => {
+    autoJumpTimer = 0;
+    if (!autoRunning || scrollMode !== 'jump') return;
+    if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+      stopAutoScroll();
+      return;
+    }
+    isJumping     = true;
+    jumpStartTime = performance.now();
+    jumpStartY    = window.scrollY;
+    jumpTargetY   = jumpStartY + (window.innerHeight * 0.70);
+    requestAnimationFrame(autoStep);
+  }, JUMP_LEVELS[jumpIntervalIdx] * 1000);
+}
+
+// A pending wait holds the OLD interval, so changing speed or mode mid-wait
+// has to replace it or the change appears to do nothing until the next jump.
+function rearmAutoScroll() {
+  if (!autoRunning) return;
+  clearTimeout(autoJumpTimer); autoJumpTimer = 0;
+  if (scrollMode === 'jump') { if (!isJumping) scheduleJump(); }
+  else { lastTime = 0; requestAnimationFrame(autoStep); }
+}
+
 function startAutoScroll() {
+  if (autoRunning) return;   // a second start would run a second loop
   autoRunning = true; lastTime = 0; scrollAccumulator = 0;
   document.getElementById('as-playpause').innerHTML = pauseIcon;
   uiHidden = true;
@@ -2206,6 +2234,7 @@ function startAutoScroll() {
 function stopAutoScroll() {
   autoRunning = false;
   isJumping   = false;
+  clearTimeout(autoJumpTimer); autoJumpTimer = 0;
   document.getElementById('as-playpause').innerHTML = playIcon;
   resetIdle();
 }
@@ -2241,6 +2270,7 @@ document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
   applyAutoscrollUI();
   isJumping = false;
   lastTime  = 0;
+  rearmAutoScroll();
   saveAutoscroll();
   resetIdle();
 });
@@ -2251,6 +2281,7 @@ document.getElementById('as-faster').addEventListener('click', (e) => {
   e.stopPropagation();
   if (scrollMode === 'smooth') { if (speedIdx < SPEED_LEVELS.length - 1) speedIdx++; }
   else { if (jumpIntervalIdx < JUMP_LEVELS.length - 1) jumpIntervalIdx++; }
+  rearmAutoScroll();
   updateSpeedLabel();
   saveAutoscroll();
   resetIdle();
@@ -2260,6 +2291,7 @@ document.getElementById('as-slower').addEventListener('click', (e) => {
   e.stopPropagation();
   if (scrollMode === 'smooth') { if (speedIdx > 0) speedIdx--; }
   else { if (jumpIntervalIdx > 0) jumpIntervalIdx--; }
+  rearmAutoScroll();
   updateSpeedLabel();
   saveAutoscroll();
   resetIdle();

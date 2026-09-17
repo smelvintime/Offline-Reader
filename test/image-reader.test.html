@@ -463,6 +463,51 @@ tests['nothing is evicted while under budget'] = async function () {
   document.getElementById('close-btn').click();
 };
 
+// ── 15. Jump autoscroll waits on a timer, not on animation frames ──────────
+// The wait between jumps used to re-request an animation frame sixty times a
+// second to compare two timestamps. Both call sites pass autoStep itself, so
+// counting frames requested FOR IT is exact — no baseline, no jitter.
+tests['jump autoscroll does not spin animation frames while waiting'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  const realRaf = window.requestAnimationFrame;
+  let steps = 0;
+  window.requestAnimationFrame = function (fn) { if (fn === autoStep) steps++; return realRaf.call(window, fn); };
+  scrollMode = 'jump';
+  jumpIntervalIdx = JUMP_LEVELS.length - 1;     // the longest wait: no jump should fire
+  try {
+    startAutoScroll();
+    await new Promise(function (r) { rawTimeout(r, 250); });
+    ok(steps <= 1, 'the whole wait cost one frame, not one per vsync (got ' + steps + ')');
+    ok(autoRunning === true && autoJumpTimer !== 0, 'parked on the jump timer instead');
+
+    const before = steps;
+    startAutoScroll();                          // a second start must not add a loop
+    startAutoScroll();
+    await new Promise(function (r) { rawTimeout(r, 200); });
+    eq(steps, before, 'repeated starts opened no parallel loop');
+  } finally {
+    stopAutoScroll();
+    window.requestAnimationFrame = realRaf;
+    scrollMode = 'smooth';
+  }
+  document.getElementById('close-btn').click();
+};
+
+tests['stopping and exiting cancel the pending jump'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  scrollMode = 'jump';
+  startAutoScroll();
+  stopAutoScroll();
+  eq(autoJumpTimer, 0, 'stop cleared the pending wait');
+  startAutoScroll();
+  document.getElementById('close-btn').click();
+  eq(autoRunning, false, 'the exit stopped autoscroll');
+  eq(autoJumpTimer, 0, 'and cleared its timer');
+  scrollMode = 'smooth';
+};
+
 (async function run() {
   for (const name of Object.keys(tests)) {
     log(name);

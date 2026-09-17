@@ -199,6 +199,7 @@ function openSession(opts) {
     if (opts.native) { p.directUrl = 'capacitor://localhost/_pages/ch0/' + i + '.jpg'; p.el.src = p.directUrl; }
     else { p.url = URL.createObjectURL(new Blob(['x'], { type: 'image/jpeg' })); p.el.src = p.url; }
     p.loading = false;
+    p.aspectLocked = true;   // loadPage locks the ratio once the image reports one
     visiblePages.add(i);
     imgs.push(p.el);
   }
@@ -406,6 +407,60 @@ tests['an upload session writes its position on the way out'] = async function (
   eq(lib[0] && lib[0].maxPageIdx, 2, 'at the page it left on');
   eq(pages.length, 0, 'and tore the session down');
   ok(s.imgs.every(function (el) { return el.getAttribute('src') === ''; }), 'with its bitmaps released');
+};
+
+// ── 12. The decoded-bitmap budget ──────────────────────────────────────────
+// naturalWidth/Height are defined on the instances rather than decoded from
+// real images: the eviction rule is what is under test, not the decoder.
+function sizePages(w, h) {
+  pages.forEach(function (p) {
+    if (!p.el) return;
+    Object.defineProperty(p.el, 'naturalWidth', { configurable: true, value: w });
+    Object.defineProperty(p.el, 'naturalHeight', { configurable: true, value: h });
+  });
+}
+
+tests['pages are evicted by decoded bytes, farthest first'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 6 });
+  sizePages(1000, 1000);                 // 4 MB a page, 24 MB loaded
+  currentPage = 0;
+  visiblePages.clear(); visiblePages.add(0);
+  DECODED_BUDGET = 12 * 1024 * 1024;     // room for three
+  unloadDistant();
+  const loaded = pages.map(function (p) { return p.el.getAttribute('src') !== ''; });
+  eq(loaded.filter(Boolean).length, 3, 'evicted down to the budget');
+  ok(loaded[0] && loaded[1] && loaded[2], 'kept the nearest pages (' + JSON.stringify(loaded) + ')');
+  ok(pages[5].url === null && pages[5].loading === false, 'the evicted page is reloadable');
+  ok(pages[5].el.getAttribute('src') === '' && pages[5].aspectLocked === true,
+     'its wrapper keeps its height, so scrolling back does not jump');
+  document.getElementById('close-btn').click();
+};
+
+tests['the visible page is never evicted, even alone over budget'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 3 });
+  sizePages(4000, 4000);                 // 64 MB a page
+  currentPage = 1;
+  visiblePages.clear(); visiblePages.add(1);
+  DECODED_BUDGET = 1024;                 // nothing fits
+  unloadDistant();
+  ok(pages[1].el.getAttribute('src') !== '', 'the page being read survives its own budget');
+  ok(pages[0].el.getAttribute('src') === '' && pages[2].el.getAttribute('src') === '',
+     'everything else went');
+  document.getElementById('close-btn').click();
+};
+
+tests['nothing is evicted while under budget'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 3 });
+  sizePages(100, 100);
+  currentPage = 0;
+  DECODED_BUDGET = 192 * 1024 * 1024;
+  unloadDistant();
+  ok(pages.every(function (p) { return p.el.getAttribute('src') !== ''; }), 'all three still loaded');
+  eq(revoked.length, 0, 'no URL revoked');
+  document.getElementById('close-btn').click();
 };
 
 (async function run() {

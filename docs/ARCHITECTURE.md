@@ -381,7 +381,8 @@ window.Platform = {
                   //       static generation table (resolved once during init);
                   //   (4) default 'mid'.
   tuning(),       // → { memoryWindow, cacheWindow, lookBehind, lookAhead,
-                  //     maxLoadedChapters, chapterCacheMB, pageCacheMB }
+                  //     maxLoadedChapters, chapterCacheMB, pageCacheMB,
+                  //     decodedMB }
                   //   — the PLAN.md §9 budget row for the current class
                   //   (a copy; consumers re-read at session start, not per frame).
 

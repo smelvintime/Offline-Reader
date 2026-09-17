@@ -236,9 +236,13 @@
   // The §9 memory-budget table, copied exactly. Consumers re-read at session
   // start, not per frame; a copy is returned so nobody can mutate the rows.
   const TUNING = {
-    low:  { memoryWindow: 12, cacheWindow: 30, lookBehind: 2, lookAhead: 6,  maxLoadedChapters: 6,  chapterCacheMB: 100, pageCacheMB: 200 },
-    mid:  { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10, maxLoadedChapters: 10, chapterCacheMB: 200, pageCacheMB: 400 },
-    high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600 },
+    // decodedMB bounds DECODED BITMAPS held in the webview, which is a
+    // different budget from pageCacheMB (extracted page files on disk): the
+    // windows above are page counts, and a count only bounds memory when every
+    // page is the same size.
+    low:  { memoryWindow: 12, cacheWindow: 30, lookBehind: 2, lookAhead: 6,  maxLoadedChapters: 6,  chapterCacheMB: 100, pageCacheMB: 200, decodedMB: 96 },
+    mid:  { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10, maxLoadedChapters: 10, chapterCacheMB: 200, pageCacheMB: 400, decodedMB: 192 },
+    high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600, decodedMB: 320 },
   };
 
   function tuning() {

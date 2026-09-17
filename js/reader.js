@@ -95,6 +95,10 @@ let MEMORY_WINDOW = 25; // Pages within this distance keep their URL active
 let CACHE_WINDOW  = 60; // Pages within this distance keep decoded bitmap (no flash on scroll-back); beyond this src is cleared to free memory
 let LOOK_BEHIND   = 4;  // Lookahead window: pages decoded behind currentPage…
 let LOOK_AHEAD    = 10; // …and ahead of it, so scrolling stays silky-smooth.
+// Decoded-bitmap budget in bytes. The three windows above are page COUNTS,
+// which only bound memory when every page is the same size: sixty 2000x3000
+// manga pages are 1.4 GB of decoded bitmap and the count never noticed.
+let DECODED_BUDGET = 192 * 1024 * 1024;
 
 function applyTuning() {
   if (!(window.Platform && typeof window.Platform.tuning === 'function')) return;
@@ -104,6 +108,7 @@ function applyTuning() {
     if (Number.isInteger(t.cacheWindow)  && t.cacheWindow  > 0) CACHE_WINDOW  = t.cacheWindow;
     if (Number.isInteger(t.lookBehind)   && t.lookBehind   > 0) LOOK_BEHIND   = t.lookBehind;
     if (Number.isInteger(t.lookAhead)    && t.lookAhead    > 0) LOOK_AHEAD    = t.lookAhead;
+    if (Number.isFinite(t.decodedMB)     && t.decodedMB    > 0) DECODED_BUDGET = t.decodedMB * 1024 * 1024;
   } catch (e) { /* a broken bridge must never break reading — keep mid defaults */ }
 }
 
@@ -1669,6 +1674,47 @@ function unloadDistant() {
       p.url = null; p.loading = false; p.gen++;
     }
   });
+  evictToDecodedBudget();
+}
+
+// What a browser keeps for a decoded image: four bytes a pixel. An estimate,
+// not a reading — the real figure lives in the compositor — but it is the only
+// number that moves with page SIZE, which is what the count windows miss. A
+// page that has not decoded yet reports 0 and simply counts on the next pass.
+// ponytail: estimate from natural dimensions; swap in a measured figure if a
+// platform ever exposes one.
+function decodedBytes(p) {
+  if (!p.el || !p.el.getAttribute('src')) return 0;
+  return (p.el.naturalWidth || 0) * (p.el.naturalHeight || 0) * 4;
+}
+
+// Farthest-first eviction until the estimate is back under budget. Visible
+// pages and the current page are never evicted: a single spread larger than
+// the whole budget still has to render, so the budget is a target the reader
+// returns to, not a guarantee it never crosses.
+function evictToDecodedBudget() {
+  if (!(DECODED_BUDGET > 0)) return;
+  let total = 0;
+  const evictable = [];
+  pages.forEach((p, i) => {
+    const bytes = decodedBytes(p);
+    if (!bytes) return;
+    total += bytes;
+    if (i !== currentPage && !visiblePages.has(i)) evictable.push({ i: i, bytes: bytes, dist: Math.abs(i - currentPage) });
+  });
+  if (total <= DECODED_BUDGET) return;
+
+  evictable.sort((a, b) => b.dist - a.dist);
+  for (const cand of evictable) {
+    if (total <= DECODED_BUDGET) break;
+    const p = pages[cand.i];
+    if (p.url && !p.directUrl) URL.revokeObjectURL(p.url);
+    p.url = null;
+    if (p.el) p.el.src = '';   // aspectLocked stays set, so the wrapper keeps its height
+    p.loading = false;
+    p.gen++;
+    total -= cand.bytes;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

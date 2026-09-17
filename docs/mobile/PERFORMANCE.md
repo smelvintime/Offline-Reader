@@ -15,10 +15,15 @@ separate comparison, not a silent replacement for the selected narrator.
   most 30 seconds (15 seconds for mid memory, immediately for low memory).
 - Generation is bounded to four pending jobs; audio cache targets 16 MiB and
   32 clips. Current/in-flight audio is protected during eviction.
-- Severe native thermal pressure pauses Natural voice and releases resources;
-  memory warnings release expendable voice state. Resume remains explicit,
-  with a 30-second thermal cooldown. Low Power Mode/fair thermal state use
-  next-clip-only scheduling. Intentional locked-screen listening is preserved.
+- Thermal pressure throttles Natural voice; it does not stop it. Serious and
+  critical readings disable lookahead and the startup prebuffer, so generation
+  runs one group at a time and playback continues. Pausing on heat was removed
+  after a device report: a phone that sits at serious while held, hotter still
+  on a charger, never reaches the cooled state the resume waited for, so the
+  narrator simply stopped working. Low Power Mode and fair thermal state use
+  the same next-clip-only scheduling. Memory warnings are a separate signal and
+  still release the engine, since the process is about to be killed rather than
+  slowed. Intentional locked-screen listening is preserved.
 - Disposal invalidates startup and late audio results. Timeouts reset the
   engine instead of leaving retries behind stalled work. The native queue
   rejects invalidated requests before starting another forward pass.

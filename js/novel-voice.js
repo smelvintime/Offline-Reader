@@ -96,6 +96,17 @@
   // WebGPU runs the fp32 weights; q8 is the wasm bundle's format.
   function neuralDtype(device) { return device === GPU_DEVICE ? 'fp32' : 'q8'; }
 
+  // The narrator used to breathe by accident. Generating a clip took longer
+  // than the one before it played, so a gap sat between every sentence and
+  // nobody had to ask for it. On a GPU the next clip is ready before the
+  // current one ends, groupDone() advances the moment audio stops, and the
+  // sentences run into each other — which reads as "too fast" even at 1x.
+  //
+  // So the pause is deliberate now, and scaled by rate: someone reading at
+  // 1.6x asked for less air, not the same air stretched.
+  const SENTENCE_GAP_MS  = 220;   // between sentences
+  const PARAGRAPH_GAP_MS = 420;   // between blocks, where a reader's eye rests
+
   const RATE_MIN = 0.6, RATE_MAX = 1.6, RATE_STEP = 0.05;
   const PITCH_MIN = 0.8, PITCH_MAX = 1.2, PITCH_STEP = 0.05;
 
@@ -943,6 +954,7 @@
   let syncError = '';
   let sheetOpen = false;
   let prewarmTimer = 0;
+  let gapTimer = 0;      // the breath between sentences; cleared by every stop
   let prewarmIdle = 0;
   const sheetSync = [];    // fn() → refresh a control from prefs/session
 
@@ -1847,6 +1859,24 @@
    */
   const SYSTEM_GROUP_CAPS = { target: 900, max: 1400, contMax: 1600 };
 
+  /**
+   * How long to wait before the next clip, in ms.
+   *
+   * Zero when the group does not end a sentence: long sentences are split at a
+   * clause boundary to keep clips short, and a comma is not a place to breathe.
+   * Terminal punctuation is what tells those two apart, since a clause split
+   * ends on the clause's own comma or semicolon.
+   */
+  function sentenceGapMs(group) {
+    if (!group) return 0;
+    const text = String(group.text || '').trim();
+    if (!/[.!?…][")’”»\]]*$/.test(text)) return 0;
+    const next = state.sentences[group.to + 1];
+    const paragraph = !next || next.blockIdx !== group.blockIdx;
+    const base = paragraph ? PARAGRAPH_GAP_MS : SENTENCE_GAP_MS;
+    return Math.round(base / (state.prefs.rate || 1));
+  }
+
   function speakSystem(s, token, done, fail) {
     const group = groupSentences(state.sentences, state.index, SYSTEM_GROUP_CAPS)
       || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
@@ -2147,7 +2177,15 @@
     const groupDone = function () {
       if (token !== state.speakToken || !state.playing) return;
       state.index = group.to;      // land on the group's last sentence…
-      done();                      // …then done() advances past it as usual
+      const gap = sentenceGapMs(group);
+      if (gap <= 0) { done(); return; }   // …then done() advances past it as usual
+      clearTimeout(gapTimer);
+      gapTimer = setTimeout(function () {
+        gapTimer = 0;
+        // The reader can pause, stop or leave during the pause itself.
+        if (token !== state.speakToken || !state.playing) return;
+        done();
+      }, gap);
     };
     neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text, 'neural'), state.prefs.neuralVoice)
       .then(function (url) {
@@ -2456,6 +2494,7 @@
   function pause() {
     if (!state.playing) return;
     state.playing = false;
+    clearTimeout(gapTimer); gapTimer = 0;   // do not resume out of a breath
     syncBarWithReaderChrome();
     guardClear();    // we are demonstrably alive — no crash to guard against
     // ONNX cannot abort the forward pass already running. Preserve its promise
@@ -2540,6 +2579,7 @@
     if (!state.active) return;
     state.playing = false;
     state.active = false;
+    clearTimeout(gapTimer); gapTimer = 0;
     guardClear();    // a clean stop is proof of life, same as pause
     cancelSpeech();
     highlighter.clear();
@@ -3573,6 +3613,7 @@
       estimateSeconds: estimateSeconds,
       chapterSecondsLeft: chapterSecondsLeft,
       prebufferTargetSeconds: prebufferTargetSeconds,
+      sentenceGapMs: sentenceGapMs,
       neuralDevice: neuralDevice,
       neuralDtype: neuralDtype,
       gpuCapable: gpuCapable,

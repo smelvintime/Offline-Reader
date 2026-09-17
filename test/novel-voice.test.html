@@ -2399,6 +2399,27 @@ const T = {
       // off the thermal ceiling. A computer has no such ceiling, and its wasm
       // engine is usually slower than playback, so that same rule produced a
       // wait before every sentence. Desktop keeps generating instead.
+      // The breath between sentences. Generation latency used to supply it by
+      // accident; on a GPU the next clip is ready before the current one ends.
+      const gapSentences = t.state.sentences, gapRate = t.state.prefs.rate;
+      try {
+        t.state.sentences = [
+          { blockIdx: 0, text: 'One.' }, { blockIdx: 0, text: 'Two.' }, { blockIdx: 1, text: 'Three.' },
+        ];
+        t.state.prefs.rate = 1;
+        pass = ok(t.sentenceGapMs({ to: 0, blockIdx: 0, text: 'A finished sentence.' }) === 220,
+          'a sentence end gets a breath') && pass;
+        pass = ok(t.sentenceGapMs({ to: 1, blockIdx: 0, text: 'The last of the block.' }) === 420,
+          'a paragraph end gets a longer one') && pass;
+        pass = ok(t.sentenceGapMs({ to: 0, blockIdx: 0, text: 'a clause split here,' }) === 0,
+          'a clause split is not a place to breathe') && pass;
+        pass = ok(t.sentenceGapMs({ to: 0, blockIdx: 0, text: '“Quoted speech.”' }) === 220,
+          'a closing quote still counts as the end') && pass;
+        t.state.prefs.rate = 1.6;
+        pass = ok(t.sentenceGapMs({ to: 0, blockIdx: 0, text: 'A finished sentence.' }) < 220,
+          'reading faster asks for less air, not the same air stretched') && pass;
+      } finally { t.state.sentences = gapSentences; t.state.prefs.rate = gapRate; }
+
       // The GPU path: desktop only, opt-in only, and fp32 because that is what
       // WebGPU runs. Single-core wasm measured 0.23x realtime on a computer,
       // which no amount of queue depth can rescue.

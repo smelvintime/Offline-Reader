@@ -137,6 +137,20 @@
   // next generation, so seconds are what the lookahead counts.
   const NEURAL_LOOKAHEAD_MIN = 1;    // groups, however long they are
   const NEURAL_LOOKAHEAD_MAX = 4;   // groups; bounded by WAV_CACHE_MAX
+
+  // A desktop on the GPU is fast on average and occasionally is not. Measured
+  // over one chapter in Chrome: most clips 300-1000 ms, but a scattered tail at
+  // 6-9 seconds and one at 25. The average says "no cushion needed"; the tail
+  // is what the reader actually hears, and a 20-second cushion four clips deep
+  // does not cover a 25-second stall.
+  //
+  // So the machine with the memory banks more of it. Ninety seconds of 24 kHz
+  // mono is about four megabytes — nothing next to the model already resident —
+  // and the group cap has to rise with it or the seconds target is decorative.
+  const DESKTOP_LOOKAHEAD_SEC = 90;
+  const DESKTOP_LOOKAHEAD_MAX = 12;  // groups
+  const DESKTOP_WAV_CACHE_MAX = 64;
+  const DESKTOP_WAV_CACHE_BYTES = 64 * 1024 * 1024;
   // …and how many of those seconds are worth chasing depends entirely on
   // whether this device can ever get ahead. See lookaheadSeconds().
   const NEURAL_LOOKAHEAD_SEC = 40;   // playback seconds of cushion, to absorb wobble
@@ -1526,7 +1540,8 @@
         self.wavCache.set(cacheKey, url);
         self.clipSeconds.set(cacheKey, msg.seconds || 0);
         self.clipBytes.set(cacheKey, msg.wav.byteLength);
-        while (self.wavCache.size > WAV_CACHE_MAX || Array.from(self.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0) > WAV_CACHE_BYTES) {
+        const capClips = wavCacheMax(), capBytes = wavCacheBytes();
+        while (self.wavCache.size > capClips || Array.from(self.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0) > capBytes) {
           const oldest = Array.from(self.wavCache.keys()).find(function (k) {
             const url = self.wavCache.get(k);
             return k !== cacheKey && !self.inFlight.has(k) && !(channel.pool || []).some(function (a) { return a.src === url; });
@@ -1936,6 +1951,10 @@
    * 0 means not measured yet: no group has finished, so there is nothing to
    * compare and the callers keep their optimistic defaults.
    */
+  function lookaheadMaxGroups() { return isDesktop() ? DESKTOP_LOOKAHEAD_MAX : NEURAL_LOOKAHEAD_MAX; }
+  function wavCacheMax()       { return isDesktop() ? DESKTOP_WAV_CACHE_MAX : WAV_CACHE_MAX; }
+  function wavCacheBytes()     { return isDesktop() ? DESKTOP_WAV_CACHE_BYTES : WAV_CACHE_BYTES; }
+
   function neuralMargin() {
     const sp = neuralEngine.speed;
     if (!sp || !sp.ratio) return 0;
@@ -2003,6 +2022,11 @@
     // protecting: it is most of the difference between a warm phone and a hot
     // one. A cushion only has to absorb the wobble, so the further ahead the
     // engine is, the less of one it needs.
+    // A fast engine normally needs less cushion, not more — it will go idle
+    // and idle is what keeps a phone cool. A desktop on the GPU is the
+    // exception: its average is fast and its tail is seconds long, so the
+    // cushion is there for the tail, not the average.
+    if (isDesktop()) return DESKTOP_LOOKAHEAD_SEC;
     if (margin >= 1.5) return NEURAL_LOOKAHEAD_SEC / 2;
     return NEURAL_LOOKAHEAD_SEC;
   }
@@ -2253,7 +2277,8 @@
     const want = lookaheadSeconds();
     let from = currentGroup.to + 1;
     let ahead = 0;               // playback seconds already in hand or coming
-    for (let k = 0; k < NEURAL_LOOKAHEAD_MAX; k++) {
+    const maxGroups = lookaheadMaxGroups();
+    for (let k = 0; k < maxGroups; k++) {
       if (k >= NEURAL_LOOKAHEAD_MIN && ahead >= want) break;
       const g = neuralGroupAt(from);
       if (!g) break;
@@ -3613,6 +3638,8 @@
       estimateSeconds: estimateSeconds,
       chapterSecondsLeft: chapterSecondsLeft,
       prebufferTargetSeconds: prebufferTargetSeconds,
+      lookaheadMaxGroups: lookaheadMaxGroups,
+      wavCacheMax: wavCacheMax,
       sentenceGapMs: sentenceGapMs,
       neuralDevice: neuralDevice,
       neuralDtype: neuralDtype,

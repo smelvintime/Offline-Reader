@@ -208,30 +208,65 @@
     return 'mid';
   }
 
-  function memoryClass() {
+  // A mouse-driven machine that is not a phone OS. Pointer media queries are
+  // the platform's own answer to this and work in every engine, where
+  // navigator.deviceMemory is Chromium-only — a Safari window on a Mac is still
+  // a desktop. Touch laptops report both coarse and fine pointers and resolve
+  // `(pointer: fine)` to the primary one, so a tablet does not match.
+  function isDesktopEnv() {
+    if (os === 'ios' || os === 'android') return false;
+    try {
+      return !!(window.matchMedia
+        && window.matchMedia('(pointer: fine)').matches
+        && window.matchMedia('(hover: hover)').matches);
+    } catch (e) { return false; }
+  }
+
+  // The class AND whether it was reached by detecting a desktop. Kept together
+  // because only the second one may widen the tuning row, and only when the
+  // user has not overridden the first: the override is the escape hatch and
+  // outranks anything detected.
+  function classify() {
     // (1) Explicit user override — validated on read like every pref.
     let pref = null;
     try {
       if (window.Store && window.Store.prefs) pref = window.Store.prefs.get('platform.memoryClass', null);
     } catch (e) {}
-    if (pref === 'low' || pref === 'mid' || pref === 'high') return pref;
+    if (pref === 'low' || pref === 'mid' || pref === 'high') return { cls: pref, desktop: false };
 
     // (2) Android: Chromium exposes navigator.deviceMemory (GB, quantized).
     if (os === 'android') {
       const dm = navigator.deviceMemory;
       if (typeof dm === 'number' && isFinite(dm)) {
-        if (dm <= 2) return 'low';
-        if (dm >= 6) return 'high';
-        return 'mid';
+        if (dm <= 2) return { cls: 'low', desktop: false };
+        if (dm >= 6) return { cls: 'high', desktop: false };
+        return { cls: 'mid', desktop: false };
       }
     }
 
     // (3) iOS: the model table, resolved during init.
-    if (os === 'ios' && iosModelClass) return iosModelClass;
+    if (os === 'ios' && iosModelClass) return { cls: iosModelClass, desktop: false };
 
-    // (4) Inconclusive → mid.
-    return 'mid';
+    // (4) A desktop browser. Without this it lands on (5) and reads a mid-tier
+    // PHONE's row: a workstation given a 60-page cache window and a 192 MB
+    // bitmap budget. deviceMemory is believed when it reports something small
+    // (a 2 GB Chromebook is not a workstation) and ignored when absent, which
+    // is most non-Chromium desktops.
+    if (isDesktopEnv()) {
+      const dm = navigator.deviceMemory;
+      if (typeof dm === 'number' && isFinite(dm) && dm <= 2) return { cls: 'low', desktop: false };
+      return { cls: 'high', desktop: true };
+    }
+
+    // (5) Inconclusive → mid.
+    return { cls: 'mid', desktop: false };
   }
+
+  // Stays 'low' | 'mid' | 'high'. novel-voice.js validates against exactly
+  // those three and silently falls back to 'mid' on anything else, so a fourth
+  // value here would quietly downgrade its idle-release policy. The desktop
+  // difference lives in the tuning row instead, where it is actually used.
+  function memoryClass() { return classify().cls; }
 
   // The §9 memory-budget table, copied exactly. Consumers re-read at session
   // start, not per frame; a copy is returned so nobody can mutate the rows.
@@ -245,8 +280,19 @@
     high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600, decodedMB: 320 },
   };
 
+  // Laid OVER the high row on a detected desktop, not a fourth row: only the
+  // keys that should differ appear here, so the disk budgets stay exactly what
+  // the phone rows chose (chapterCacheMB is an IndexedDB budget and pageCacheMB
+  // is native-only — neither gets more generous for having a mouse). These are
+  // the in-memory windows, and the ceiling that matters is decodedMB.
+  const DESKTOP_TUNING = {
+    memoryWindow: 50, cacheWindow: 150, lookBehind: 8, lookAhead: 16,
+    maxLoadedChapters: 20, decodedMB: 512,
+  };
+
   function tuning() {
-    return Object.assign({}, TUNING[memoryClass()] || TUNING.mid);
+    const c = classify();
+    return Object.assign({}, TUNING[c.cls] || TUNING.mid, c.desktop ? DESKTOP_TUNING : null);
   }
 
   // ── Core API (PLAN.md §2.2) ───────────────────────────────────────────────

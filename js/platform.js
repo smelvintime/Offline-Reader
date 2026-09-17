@@ -394,6 +394,12 @@
   // property). Same weights, same voices.
 
   const kokoro = {
+    onResources: async function (callback) {
+      const p = plugin('OrKokoro');
+      if (!p || !p.addListener || !p.status) return;
+      await p.addListener('resources', callback);
+      callback(await p.status());
+    },
     available: function () { return !!plugin('OrKokoro'); },
 
     /**
@@ -1109,6 +1115,14 @@
     ready: ready,
 
     appVersion: appVersion,
+    buildInfo: async function () {
+      const App = plugin('App');
+      let info = null;
+      try { if (App) info = await App.getInfo(); } catch (e) {}
+      let revision = null;
+      try { const r = await fetch('./build-info.json'); if (r.ok) revision = await r.json(); } catch (e) {}
+      return { app: info, source: revision };
+    },
     confirm: confirm,
     haptic: haptic,
     memoryClass: memoryClass,

@@ -1,0 +1,55 @@
+<!doctype html><meta charset="utf-8"><title>Voice worker integration</title><pre id="log"></pre>
+<script type="module">
+// Run the shipped phonemizer/tokenizer pipeline with deterministic PCM from
+// the native bridge. No inference weights are needed or allowed by the runner.
+import { nativeTokenizer } from '../js/voice-native-tokenizer.mjs';
+const lines = [];
+function check(ok, message) { lines.push((ok ? 'PASS ' : 'FAIL ') + message); if (!ok) throw Error(message); }
+window.run = async function () {
+  const [json, config, source] = await Promise.all([
+    fetch('fixtures/voice/tokenizer.json').then(r => r.json()),
+    fetch('fixtures/voice/tokenizer_config.json').then(r => r.json()),
+    fetch('../vendor/tts/kokoro.web.js').then(r => r.text()),
+  ]);
+  // Expose the pinned bundle's tokenizer ONLY in this test's in-memory copy.
+  // Compare actual upstream tokenization, not a duplicate of our algorithm.
+  const url = URL.createObjectURL(new Blob([source.replace('export{Ef as KokoroTTS', 'export{Yg as transformers,Ef as KokoroTTS')], { type: 'text/javascript' }));
+  const mod = await import(url);
+  const reference = new mod.transformers.PreTrainedTokenizer(json, config);
+  const adapter = nativeTokenizer(json, config);
+  for (const text of ['həlˈoʊ wˈɜːld!', 'mˈaɪkəl', '“ã” — ɹ…', 'a'.repeat(600), '🙂x\n123', '']) {
+    check(String(adapter(text).input_ids.data) === String(reference(text, { truncation: true }).input_ids.data), 'native tokenizer matches pinned engine (' + text.length + ' characters)');
+  }
+  URL.revokeObjectURL(url);
+  const worker = new Worker('../js/novel-voice-worker.js', { type: 'module' });
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(Error('Native worker timed out')), 20000);
+      let sawInference = false;
+      worker.onerror = e => { clearTimeout(timeout); reject(Error(e.message)); };
+      worker.onmessage = ({ data: m }) => {
+        try {
+          if (m.type === 'init-error' || m.type === 'error') throw Error(m.message);
+          if (m.type === 'ready') {
+            check(m.native && m.heapPages === 0, 'native initialization needs no browser inference heap');
+            worker.postMessage({ type: 'generate', id: 1, text: 'Michael is reading a quiet story.', voice: 'am_michael' });
+          }
+          if (m.type === 'infer') {
+            sawInference = true;
+            check(m.ids.length > 2 && m.ids.length <= 512 && m.style.length === 256, 'real text preparation produces valid native inputs');
+            const pcm = new Int16Array(2400); pcm.fill(1000);
+            const bytes = new Uint8Array(pcm.buffer);
+            worker.postMessage({ type: 'infer-result', id: m.id, pcm: btoa(String.fromCharCode(...bytes)) });
+          }
+          if (m.type === 'audio') {
+            check(sawInference && m.wav.byteLength > 44 && m.seconds > 0, 'native bridge output becomes playable WAV');
+            clearTimeout(timeout); resolve();
+          }
+        } catch (e) { clearTimeout(timeout); reject(e); }
+      };
+      worker.postMessage({ type: 'init', model: 'onnx-community/Kokoro-82M-v1.0-ONNX', native: true, voices: ['am_michael'] });
+    });
+    return { pass: true };
+  } finally { worker.terminate(); document.querySelector('#log').textContent = lines.join('\n'); }
+};
+</script>

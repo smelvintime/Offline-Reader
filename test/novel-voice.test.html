@@ -1498,8 +1498,8 @@ const T = {
 
       // ── how deep a cushion is worth chasing ─────────────────────────────
       ne.speed = null;
-      pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC,
-        'unmeasured assumes the good case rather than crippling the first chapter') && pass;
+      pass = ok(VT().lookaheadSeconds() === 0,
+        'unmeasured begins with only the next clip') && pass;
       ne.noteSpeed({ ms: 1000, seconds: 3, chars: 60 });      // 3x realtime
       pass = ok(VT().lookaheadSeconds() === VT().NEURAL_LOOKAHEAD_SEC / 2,
         'an engine well ahead needs only enough cushion to absorb the wobble, '
@@ -2371,6 +2371,40 @@ const T = {
     return { name: 'thermal lifecycle', pass };
   },
 
+  async testEfficiencyLifecycle() {
+    let pass = true;
+    neuralStub.restore();
+    const t = VT(), ne = t.neuralEngine, oldWorker = window.Worker, oldPlatform = window.Platform;
+    let terminated = 0;
+    try {
+      window.Worker = function () { this.postMessage = function () {}; this.terminate = function () { terminated++; }; };
+      window.Platform = { isNative: true, memoryClass: function () { return 'high'; },
+        kokoro: { available: function () { return true; }, release: function () { return Promise.resolve(); } } };
+      t.resetCapability();
+      pass = ok(t.neuralCapability().ok && t.neuralCapability().native, 'native startup does not require a browser inference heap') && pass;
+      const ready = ne.ensureReady();
+      const outcome = ready.then(function () { return 'ready'; }, function () { return 'cancelled'; });
+      ne.dispose();
+      pass = ok(await outcome === 'cancelled' && terminated === 1 && ne.worker === null, 'disposing during startup settles the promise and terminates the worker') && pass;
+      ne.worker = { postMessage: function () {}, terminate: function () {} };
+      const jobs = [];
+      for (let i = 0; i < 4; i++) jobs.push(ne.generate('bounded:' + i, 'Short text.', 'am_michael').catch(function () {}));
+      const overflow = await ne.generate('overflow', 'More text.', 'am_michael').then(function () { return false; }, function () { return true; });
+      pass = ok(overflow && ne.pending.size === 4, 'generation backlog cannot exceed four jobs') && pass;
+      ne.dispose(); await Promise.all(jobs);
+      t.updateResources({ thermal: 'fair', lowPower: true });
+      pass = ok(t.lookaheadSeconds() === 0, 'power pressure disables speculative depth') && pass;
+      for (let i = 0; i < 120; i++) ne.noteSpeed({ ms: 100, seconds: 1, chars: 10 });
+      const d = t.voiceDiagnostics();
+      pass = ok(d.events.length <= 100 && !JSON.stringify(d).includes('Short text.'), 'diagnostics are bounded and omit spoken text') && pass;
+    } finally {
+      t.updateResources({ thermal: 'nominal', lowPower: false });
+      ne.dispose(); window.Worker = oldWorker; window.Platform = oldPlatform;
+      t.resetCapability(); neuralStub.resume();
+    }
+    return { name: 'efficiency lifecycle', pass };
+  },
+
   async testClose() {
     let pass = true;
     await freshOpen();
@@ -2393,7 +2427,7 @@ const T = {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
-      T.testUserNav, T.testCrashGuard, T.testMemoryTier,
+      T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
       T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
     ];

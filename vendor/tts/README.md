@@ -25,15 +25,12 @@ node scripts/fetch-voice-model.mjs      # → vendor/tts/models/, vendor/tts/voi
 npm run sync                            # carries them into www/ and the app
 ```
 
-That fetches two dtypes, ~414 MB, because the app runs two engines that want
-opposite files. **q8** (~88 MB) is what kokoro-js builds its ONNX Runtime wasm
-session from, in every build; on the web it is the engine. **fp32** (~326 MB)
-is what `native/or-kokoro` opens, and it is the faster forward pass despite the
-larger file — q8 here is dynamic quantisation, so the graph pays a conversion
-at every boundary between its int8 matmuls and the float convolutions and LSTMs
-around them. Only one session is resident at a time: the wasm one is disposed
-as soon as native inference takes over. `--dtype q8` fetches just the small one
-for a web deploy.
+The fetch script still bundles q8 and fp32 for compatibility. Browser inference
+uses q8; native inference prefers fp32. Native startup now uses the public
+KokoroTTS constructor with the application tokenizer adapter and native model
+callable, so it does not create or dispose a browser ONNX session first.
+Phonemization, voice embedding selection and WAV preparation remain in the
+worker. See docs/mobile/PERFORMANCE.md for validation and packaging follow-up.
 
 Both directories are gitignored. `js/novel-voice-worker.js` points
 transformers.js's `localModelPath` at `vendor/tts/models/`, and transformers.js

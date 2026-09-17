@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Capacitor
 
 // The SPM package's PRODUCT is `onnxruntime`, but its TARGET — and therefore
@@ -47,6 +48,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "OrKokoroPlugin"
     public let jsName = "OrKokoro"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "available", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "infer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise)
@@ -60,6 +62,55 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     private var session: ORTSession?
     private var provider = "cpu"
     private var weightsName = ""
+
+    private var observers: [NSObjectProtocol] = []
+    // Protect cancellation generation across the main and inference queues.
+    private let generationLock = NSLock()
+    private var generation = 0
+
+    public override func load() {
+        super.load()
+        for name in [ProcessInfo.thermalStateDidChangeNotification,
+                     Notification.Name.NSProcessInfoPowerStateDidChange,
+                     UIApplication.didReceiveMemoryWarningNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let self = self else { return }
+                var info = self.resourceStatus()
+                info["memoryWarning"] = note.name == UIApplication.didReceiveMemoryWarningNotification
+                self.notifyListeners("resources", data: info)
+                if note.name == UIApplication.didReceiveMemoryWarningNotification || ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+                    self.invalidateQueuedWork()
+                    self.queue.async { self.session = nil; self.env = nil }
+                }
+            })
+        }
+    }
+
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+    private func resourceStatus() -> [String: Any] {
+        let state: String
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: state = "nominal"
+        case .fair: state = "fair"
+        case .serious: state = "serious"
+        case .critical: state = "critical"
+        @unknown default: state = "unknown"
+        }
+        return ["thermal": state, "lowPower": ProcessInfo.processInfo.isLowPowerModeEnabled]
+    }
+
+    private func currentGeneration() -> Int {
+        generationLock.lock(); defer { generationLock.unlock() }
+        return generation
+    }
+
+    private func invalidateQueuedWork() {
+        generationLock.lock(); defer { generationLock.unlock() }
+        generation += 1
+    }
+
+    @objc func status(_ call: CAPPluginCall) { call.resolve(resourceStatus()) }
 
     private struct Weights {
         let path: String
@@ -109,6 +160,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func release(_ call: CAPPluginCall) {
+        invalidateQueuedWork()
         queue.async {
             self.session = nil
             self.env = nil
@@ -132,10 +184,25 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("infer: style must be the 256-float voice vector")
             return
         }
+        guard rawIds.count <= 512, rawStyle.count == 256 else {
+            call.reject("infer: input exceeds the voice model limits")
+            return
+        }
         let speed = Float(call.getDouble("speed") ?? 1.0)
+        guard speed.isFinite, speed > 0, rawStyle.allSatisfy({ $0.doubleValue.isFinite }) else {
+            call.reject("infer: invalid speed or voice style")
+            return
+        }
+        let requestGeneration = currentGeneration()
 
         queue.async {
             do {
+                guard requestGeneration == self.currentGeneration() else {
+                    call.reject("infer: cancelled"); return
+                }
+                guard ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue else {
+                    call.reject("infer: phone needs to cool before Natural voice can continue"); return
+                }
                 let session = try self.ensureSession()
                 let started = Date()
 
@@ -171,6 +238,7 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
 
                 call.resolve([
                     "pcm": pcm,
+                    "resources": self.resourceStatus(),
                     "sampleRate": 24000,
                     "provider": self.provider,
                     "weights": self.weightsName,

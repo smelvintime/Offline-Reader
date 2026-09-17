@@ -1,0 +1,161 @@
+# Desktop plan
+
+The mobile performance plan (`docs/mobile/PERFORMANCE_PLAN.md`) exists because a
+phone runs out of heat and battery before it runs out of work. A computer has
+neither problem and a different set of them: a mouse, a keyboard, a window that
+is not 390 pixels wide, and ten times the memory sitting unused. Every tuning
+decision in the mobile plan reduces work. Several of them should not apply to a
+desktop at all, and today they do, because nothing in the app knows the
+difference.
+
+This plan is deliberately small. Each item below was verified against the tree
+before it was written, and the verification is quoted with it. Anything that
+would need a profile, a device, or a guess about what desktop readers want is in
+§6 (not doing) rather than dressed up as a task.
+
+## Status ledger
+
+| ID | Task | Status |
+| --- | --- | --- |
+| D01 | A desktop device class | NOT STARTED |
+| D02 | Desktop coverage in the test harness | NOT STARTED |
+| D03 | Keyboard and mouse in the image reader | NOT STARTED |
+| D04 | Measure the voice path on a desktop before tuning it | NOT STARTED |
+| D05 | Window-width layout audit | NOT STARTED |
+
+## D01: A desktop device class
+
+**Verified.** `memoryClass()` in `js/platform.js` resolves in four steps: an
+explicit user override, `navigator.deviceMemory` **only when `os === 'android'`**,
+the iOS model table **only when `os === 'ios'`**, then "inconclusive → mid". A
+desktop browser matches neither branch, so every desktop falls through to `mid`
+and reads the mid row of `TUNING`: 25 / 60 page windows, a 4/10 lookahead, and
+(as of P07) a 192 MB decoded-bitmap budget. A workstation with 32 GB gets a
+mid-tier phone's reading window.
+
+1. Give `memoryClass()` a desktop branch. `navigator.deviceMemory` is available
+   in Chromium on desktop too and is already parsed for Android; the existing
+   thresholds (≤2 low, ≥6 high) are reasonable there. Safari and Firefox expose
+   nothing, so those stay inconclusive, and inconclusive must keep meaning
+   "mid", never "high".
+2. Add a `desktop` row to `TUNING` rather than reusing `high`. The iPhone rows
+   are bounded by what a phone can hold without being killed; a desktop tab is
+   bounded by how much of the machine it is polite to take. Start from `high`
+   and raise only the two that matter for the image reader, `cacheWindow` and
+   `decodedMB`, leaving the disk budgets alone.
+3. `test/platform.test.html` pins the tuning rows exactly (this is how P07's new
+   key was caught), so the new row goes into that contract in the same change.
+4. The pref override (`platform.memoryClass`) stays the escape hatch and must
+   keep winning over any detection.
+
+**Acceptance.** A desktop browser reports a class that is not silently `mid`, a
+browser that exposes nothing still reports `mid`, and the tuning contract test
+covers the new row.
+
+## D02: Desktop coverage in the test harness
+
+**Verified.** `scripts/test-browser.mjs` creates every context with
+`viewport: { width: 390, height: 844 }`. Every suite, including the three new
+reader suites, has only ever run at phone width. There is responsive CSS to test
+(8 `min-width` queries in `styles.css`, 16 in `css/catalogue.css`, and a
+`max-width: 800px` reading column), and none of it is exercised.
+
+1. Let a suite declare a viewport instead of hardcoding one for all of them.
+   Keep 390x844 as the default so nothing existing changes.
+2. Run at least the catalogue and both readers at a desktop width as well. A
+   second pass at 1440x900 costs one more context per suite, not a second
+   harness.
+3. Assert layout facts that break loudly and cheaply: the reading column is
+   capped rather than full-bleed, chrome is reachable, nothing overflows the
+   window horizontally.
+
+**Acceptance.** CI runs at both widths, and a regression that only appears on a
+wide window fails the suite.
+
+## D03: Keyboard and mouse in the image reader
+
+**Verified.** Eight modules attach `keydown` handlers; `js/reader.js` is not one
+of them. The novel reader has a key map (arrows, `s`, `h`, `?`); the image reader
+has none, so on a computer it can only be driven by clicking and scrolling. No
+file in `js/` listens for `wheel`, so `js/image-zoom.js` offers pinch and
+double-tap and nothing a mouse can do.
+
+1. Give the image reader the key map the novel reader already has, and follow
+   its shape rather than inventing a second convention: arrows and page keys for
+   pages, brackets or similar for chapters, space for autoscroll, `h` for
+   chrome, `?` for the sheet.
+2. Ctrl or Cmd plus wheel to zoom, matching what every image viewer does, with
+   plain wheel left as scrolling. Drag to pan while zoomed.
+3. Keyboard focus has to be visible, and the shortcuts must not fire while a text
+   field or the chapter selector has focus. The novel reader's handler already
+   solves this; copy it.
+
+**Acceptance.** The image reader is fully usable from the keyboard on a desktop,
+the shortcuts match the novel reader's where they overlap, and nothing changes
+on touch.
+
+## D04: Measure the voice path on a desktop before tuning it
+
+**Verified, and deliberately left as measurement.** The scheduler in
+`js/novel-voice.js` already treats a desktop differently in two places worth
+knowing about: prewarming is gated off for native only, so a desktop already
+prewarms, and `lookaheadSeconds()` gives a fast engine a *smaller* cushion
+(`NEURAL_LOOKAHEAD_SEC / 2` above a 1.5 margin) because a generator that runs
+ahead does not need one. Both are defensible as written.
+
+The thermal and Low Power inputs are native-only, so on a desktop `resources`
+stays `{ thermal: 'unknown', lowPower: false }` and none of the mobile throttles
+engage. That is correct, not a bug.
+
+So the desktop voice question is not "raise the buffers". It is one measurement:
+on a desktop, does synthesis outrun playback comfortably enough that the current
+policy already idles? P01's diagnostics panel reports the margin. Read it on a
+desktop before changing a constant.
+
+**Separately worth investigating, not committing to:** the app is served without
+cross-origin isolation, so `SharedArrayBuffer` is unavailable and the wasm voice
+runs single-threaded. On desktop hosting, COOP/COEP headers could enable threads.
+That is a hosting change with its own blast radius (cross-origin images, embeds),
+so it is an experiment with a measured before and after, not a task.
+
+**Acceptance.** A recorded desktop margin, and either a justified constant change
+or a written no-change decision.
+
+## D05: Window-width layout audit
+
+**Verified only as "there is something to audit".** The responsive CSS exists but
+was written phone-first, and `index.html` carries `viewport-fit=cover` with a
+`max-width: 400px` on several shells. Whether a 1440-wide window reads well is a
+judgement call that needs eyes, not a grep.
+
+Once D02 can render at desktop width, walk the screens at 1440x900 and note what
+is actually wrong: stretched rows, a reading column that is too narrow or too
+wide, touch-sized hit targets that look odd under a cursor, chrome that hides
+because it expects a tap. Fix what the list actually contains. Do not
+pre-emptively redesign.
+
+**Acceptance.** A written list of real defects with screenshots, then fixes for
+the ones worth fixing.
+
+## 6. Not doing
+
+Named so they are decisions rather than oversights.
+
+- **A separate desktop layout, or a second reader.** The responsive CSS is
+  there; widen what exists.
+- **Multi-column or two-page spreads in the image reader.** Plausible on a wide
+  window, but nobody has asked for it, and it interacts with the scroll
+  windowing, the anchor and progress. A feature request, not desktop parity.
+- **Window management, tabs, or a desktop wrapper (Electron, Tauri).** The web
+  app in a browser is the desktop story.
+- **Raising any mobile budget "because desktops are fast".** The budgets are
+  per-class. Add a class (D01); do not loosen the phone rows.
+- **Removing touch-first behavior.** Desktop browsers deliver touch events too,
+  and the same build serves tablets.
+
+## Order
+
+D01 first: it is one function and one tuning row, and it is the only item whose
+absence silently degrades a desktop today. D02 second, because D03 and D05 both
+want a way to see a desktop window in CI. Then D03. D04 and D05 need a person at
+a desktop, so they run whenever that person is available.

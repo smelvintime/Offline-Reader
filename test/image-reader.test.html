@@ -138,6 +138,7 @@ window.Catalogue = {
 };
 </script>
 
+<script src="../jszip.min.js"></script>
 <script src="../js/image-zoom.js"></script>
 <script src="../js/reader.js"></script>
 
@@ -506,6 +507,61 @@ tests['stopping and exiting cancel the pending jump'] = async function () {
   eq(autoRunning, false, 'the exit stopped autoscroll');
   eq(autoJumpTimer, 0, 'and cleared its timer');
   scrollMode = 'smooth';
+};
+
+// ── 17. Import allocations are budgeted before anything is read ────────────
+// The cap used to be applied after every archive had been through
+// arrayBuffer() and JSZip, which bounded the chapter list and not the heap.
+tests['the file budget is spent before any archive is opened'] = async function () {
+  const MB = 1024 * 1024;
+  const f = function (name, mb) { return { name: name, size: mb * MB }; };
+
+  let plan = planArchiveBudget([f('ch1.cbz', 200), f('ch2.cbz', 200), f('ch3.cbz', 200)], 600 * MB);
+  eq(plan.opening.length, 3, 'a set that fits opens whole');
+  eq(plan.skipped, 0, 'nothing skipped');
+
+  plan = planArchiveBudget([f('ch1.cbz', 200), f('ch2.cbz', 200), f('ch3.cbz', 200), f('ch4.cbz', 200)], 600 * MB);
+  eq(plan.opening.length, 3, 'the tail is trimmed, not the head');
+  eq(plan.skipped, 1, 'one file skipped');
+  eq(plan.opening[0].name, 'ch1.cbz', 'lowest chapter kept');
+
+  plan = planArchiveBudget([f('huge.cbz', 900)], 600 * MB);
+  eq(plan.opening.length, 0, 'a single file over the whole budget is never opened');
+  eq(plan.skipped, 1, 'and is reported as skipped');
+
+  plan = planArchiveBudget([{ name: 'unknown.cbz' }], 600 * MB);
+  eq(plan.opening.length, 1, 'a file with no size still opens (nothing to bound it by)');
+};
+
+// ── 18. Nested archives stop expanding when the budget runs out ─────────────
+// A zip of CBZs decompresses each inner archive into its own buffer, and those
+// buffers stay alive as long as the entries taken from them do.
+tests['nested archive expansion stops at the budget'] = async function () {
+  const outer = new JSZip();
+  for (let i = 1; i <= 3; i++) {
+    const inner = new JSZip();
+    // Incompressible bytes, so the expanded size is real rather than a few
+    // hundred bytes of run-length.
+    const bytes = new Uint8Array(64 * 1024);
+    for (let b = 0; b < bytes.length; b++) bytes[b] = (b * 2654435761) & 0xff;
+    inner.file('page-1.jpg', bytes);
+    outer.file('ch' + i + '.cbz', await inner.generateAsync({ type: 'arraybuffer' }));
+  }
+  const zip = await JSZip.loadAsync(await outer.generateAsync({ type: 'arraybuffer' }));
+
+  const tight = { left: 1, exhausted: false };
+  const some = await extractEntries(zip, 'set.zip', tight);
+  eq(some.length, 1, 'one archive expanded before the budget was gone (the allowed overshoot)');
+  ok(tight.exhausted === true, 'and the exhaustion is reported');
+
+  const roomy = { left: 64 * 1024 * 1024, exhausted: false };
+  const all = await extractEntries(zip, 'set.zip', roomy);
+  eq(all.length, 3, 'a budget that fits expands every inner archive');
+  ok(roomy.exhausted === false, 'with nothing reported as skipped');
+  ok(roomy.left < 64 * 1024 * 1024, 'and the expanded bytes were charged against it');
+
+  const unbudgeted = await extractEntries(zip, 'set.zip');
+  eq(unbudgeted.length, 3, 'no budget passed still behaves as before');
 };
 
 (async function run() {

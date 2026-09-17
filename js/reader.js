@@ -498,7 +498,7 @@ function chapterLabelNum(ch, idx) {
 }
 
 // --- Archive Processing ---
-async function extractEntries(zip, fallbackName) {
+async function extractEntries(zip, fallbackName, budget) {
   const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
   const archives = allFiles.filter(f => ARCHIVE_EXT.test(f.name));
   const images   = allFiles.filter(f => IMAGE_EXT.test(f.name));
@@ -507,9 +507,16 @@ async function extractEntries(zip, fallbackName) {
 
   const result = [];
   for (const arch of archives) {
+    // An inner archive is decompressed into its own buffer, and that buffer
+    // outlives this loop: the image entries handed back keep it alive. Stop
+    // expanding once the budget is gone rather than discovering the ceiling as
+    // a crash. The check is before the read, so the overshoot is one archive.
+    if (budget && budget.left <= 0) { budget.exhausted = true; break; }
     loadingText.textContent = `Opening: ${basename(arch.name)}`;
     try {
-      const inner = await JSZip.loadAsync(await arch.async('arraybuffer'));
+      const buf = await arch.async('arraybuffer');
+      if (budget) budget.left -= buf.byteLength;
+      const inner = await JSZip.loadAsync(buf);
       const imgs = Object.values(inner.files)
         .filter(f => !f.dir && IMAGE_EXT.test(f.name))
         .sort((a, b) => naturalSort(a.name, b.name));
@@ -1021,6 +1028,28 @@ function sortFilesByChapter(files) {
   });
 }
 
+// Which files may be opened at all, decided from sizes the picker already
+// knows, before anything is read into the heap.
+//
+// Phase 3 applies the same budget, but by then every archive has been through
+// arrayBuffer() and JSZip, so the peak was the whole selection no matter what
+// the cap said: the cap trimmed the reader's chapter list, not its memory. The
+// list arrives sorted low-to-high by chapter and the cap's rule is "trim the
+// highest-numbered chapters", so stopping at the first file that does not fit
+// trims the same end. A single file bigger than the whole budget is skipped
+// rather than opened: opening it is the crash this exists to prevent.
+function planArchiveBudget(files, cap) {
+  const opening = [];
+  let used = 0;
+  for (const f of files) {
+    const size = (f && typeof f.size === 'number' && f.size > 0) ? f.size : 0;
+    if (used + size > cap) break;
+    opening.push(f);
+    used += size;
+  }
+  return { opening: opening, skipped: files.length - opening.length, bytes: used };
+}
+
 // The offline upload pipeline, extracted from the #file-input change handler so
 // the native picker path can reuse it without synthesizing input events
 // (docs/mobile/PLAN.md §6.3). Behavior-preserving: Phase 1 opens every zip with
@@ -1062,12 +1091,21 @@ async function loadArchives(files) {
   // Phase 3 — walk the sorted list, apply the cap, then build pages[]/chapters[].
   const ctx = newIndexCtx(files, outerKeys, SIZE_CAP);
 
-  // ── Phase 1: open all zips, collect groups ────────────────────────────────────
-  for (const f of files) {
+  // ── Phase 0: spend the budget on file sizes, before the heap is involved ──────
+  const plan = planArchiveBudget(files, SIZE_CAP);
+  if (plan.skipped > 0) ctx.preCapped = true;
+  // Expanded bytes are a second axis: a modest zip of inner CBZs decompresses
+  // each one into its own buffer, and those buffers stay alive for as long as
+  // the entries taken from them do. Shared across the whole load; overshoots by
+  // at most the archive being expanded when it runs out.
+  const expand = { left: SIZE_CAP, exhausted: false };
+
+  // ── Phase 1: open the budgeted zips, collect groups ───────────────────────────
+  for (const f of plan.opening) {
     loadingText.textContent = `Reading: ${f.name}`;
     try {
       const zip    = await JSZip.loadAsync(await f.arrayBuffer());
-      const groups = await extractEntries(zip, f.name);
+      const groups = await extractEntries(zip, f.name, expand);
 
       if (!groups.length) {
         ctx.emptyFiles.push(f.name);
@@ -1094,6 +1132,7 @@ async function loadArchives(files) {
     }
   }
 
+  if (expand.exhausted) ctx.preCapped = true;
   indexGroups(ctx);
   isLoading = false;
 }
@@ -1114,6 +1153,7 @@ function newIndexCtx(files, outerKeys, sizeCap) {
     innerArchiveNames: [],  // (a) title fallback when outer names are bare chapter refs
     innerSeriesKeys: new Set(), // (b) secondary multi-series check against real chapter names
     emptyFiles: [],         // files that had no recognisable chapters
+    preCapped: false,       // phase 0 refused to open something, or expansion ran out
   };
 }
 
@@ -1219,7 +1259,7 @@ function indexGroups(ctx) {
     showNotice(document.getElementById('order-notice'));
   }
 
-  if (capReached) {
+  if (capReached || ctx.preCapped) {
     const notice = document.getElementById('size-notice');
     document.getElementById('size-notice-text').textContent = skippedChapters > 0
       ? `${skippedChapters} chapter${skippedChapters > 1 ? 's' : ''} not loaded — ${capLabel} limit reached`
@@ -1239,7 +1279,7 @@ function indexGroups(ctx) {
   // Stay on the upload screen and show the notice there instead.
   if (chapters.length === 0) {
     showScreen('upload-screen');
-    if (capReached) {
+    if (capReached || ctx.preCapped) {
       const notice = document.getElementById('size-notice');
       document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed ' + capLabel + ' limit';
       showNotice(notice);

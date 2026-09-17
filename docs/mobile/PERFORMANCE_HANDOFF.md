@@ -145,6 +145,51 @@ Next exact task and starting files: P09 — js/reader.js (loadArchives,
   extractEntries), js/importer.js (openZip and the cancel paths).
 ```
 
+## P09 record: 2026-09-16
+
+```text
+Task ID / date: P09 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-import, stacked on
+  codex/mobile-reader-scroll (P08)
+Behavior changed:
+  - A phase 0 in loadArchives() spends the size budget against file sizes the
+    picker already reports, before anything reaches arrayBuffer(). The old cap
+    ran in phase 3, after every archive had been materialised and parsed, so it
+    bounded the chapter list and never the heap. Files arrive sorted
+    low-to-high and the cap's rule is "trim the highest-numbered chapters", so
+    stopping at the first file that does not fit trims the same end. A single
+    file larger than the whole budget is now skipped instead of opened, which
+    is the crash the cap was supposed to prevent.
+  - extractEntries() takes an expansion budget. A zip of inner CBZs
+    decompresses each one into its own buffer, and those buffers stay alive as
+    long as the image entries taken from them do; nothing bounded that. It
+    stops before the read, so the overshoot is one archive.
+  - Both pre-phase refusals feed the existing size notice, so the user is told
+    rather than silently given a short set.
+Deliberately NOT built:
+  - A cancel affordance for the reader's upload path. js/importer.js already
+    cancels cooperatively through an AbortSignal (abortCheck at each stage);
+    loadArchives has no cancel UI at all, so "cooperative cancellation" there
+    would mean inventing the feature first. Out of scope for a performance
+    plan; raise it as a feature if the import is slow enough to want it.
+  - Archive metadata inspection before expansion. JSZip exposes no public
+    uncompressed size, and charging the budget with the buffer's actual
+    byteLength after the read bounds the same total without reaching into
+    private fields.
+Tests actually run and outcomes: 2 cases in test/image-reader.test.html — the
+  budget decision as a pure function (fits, tail trimmed, single oversized file
+  refused, missing size tolerated) and nested expansion against real generated
+  zips (stops at a tight budget and reports it, expands fully under a roomy
+  one, unchanged with no budget passed).
+Device evidence: NOT RUN, and not needed for this one: the bound is on
+  allocation, and the tests hold it.
+Remaining risks/dependencies: the budget still counts compressed bytes for
+  phase 0, which is what the old cap counted too. A pathological archive can
+  still expand beyond its compressed size within one file.
+Next exact task and starting files: P10 — js/store.js (pruneChapterCache),
+  js/catalogue.js (runCachePrune, library rendering). Profile before changing.
+```
+
 ## Next actions
 
 1. Follow the plan's restart commands and inspect changes since this checkpoint.

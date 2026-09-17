@@ -17,7 +17,7 @@ would need a profile, a device, or a guess about what desktop readers want is in
 
 | ID | Task | Status |
 | --- | --- | --- |
-| D01 | A desktop device class | NOT STARTED |
+| D01 | A desktop device class | IMPLEMENTED |
 | D02 | Desktop coverage in the test harness | NOT STARTED |
 | D03 | Keyboard and mouse in the image reader | NOT STARTED |
 | D04 | Measure the voice path on a desktop before tuning it | NOT STARTED |
@@ -51,6 +51,19 @@ mid-tier phone's reading window.
 **Acceptance.** A desktop browser reports a class that is not silently `mid`, a
 browser that exposes nothing still reports `mid`, and the tuning contract test
 covers the new row.
+
+**Done, with one deviation from the sketch above.** `memoryClass()` still
+returns only `low | mid | high`: `js/novel-voice.js` validates against exactly
+those three and silently falls back to `mid` on anything else, so a fourth value
+would have quietly downgraded its idle-release policy from 120 s to 30 s on
+every desktop. A detected desktop therefore reports `high`, and the widening
+lives in `tuning()` as an overlay on the high row (`DESKTOP_TUNING`) rather than
+a fourth row. Detection is `(pointer: fine)` and `(hover: hover)` rather than
+`navigator.deviceMemory`, because the media queries answer in every engine while
+`deviceMemory` is Chromium-only; `deviceMemory` is still believed when it reports
+2 GB or less, so a small Chromebook stays `low`. The overlay carries only the
+in-memory windows, so `chapterCacheMB` and `pageCacheMB` keep the phone values by
+construction.
 
 ## D02: Desktop coverage in the test harness
 

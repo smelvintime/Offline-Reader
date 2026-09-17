@@ -56,6 +56,7 @@ if (!Number.isInteger(gapLevel) || gapLevel < 0 || gapLevel >= GAP_LEVELS.length
 // --- Jump Mode State ---
 let scrollMode = 'smooth';
 let jumpIntervalIdx = 3;
+let autoJumpTimer = 0;   // the wait between jumps; rAF only runs during one
 let isJumping = false;
 let jumpStartY = 0;
 let jumpTargetY = 0;
@@ -95,6 +96,10 @@ let MEMORY_WINDOW = 25; // Pages within this distance keep their URL active
 let CACHE_WINDOW  = 60; // Pages within this distance keep decoded bitmap (no flash on scroll-back); beyond this src is cleared to free memory
 let LOOK_BEHIND   = 4;  // Lookahead window: pages decoded behind currentPage…
 let LOOK_AHEAD    = 10; // …and ahead of it, so scrolling stays silky-smooth.
+// Decoded-bitmap budget in bytes. The three windows above are page COUNTS,
+// which only bound memory when every page is the same size: sixty 2000x3000
+// manga pages are 1.4 GB of decoded bitmap and the count never noticed.
+let DECODED_BUDGET = 192 * 1024 * 1024;
 
 function applyTuning() {
   if (!(window.Platform && typeof window.Platform.tuning === 'function')) return;
@@ -104,6 +109,7 @@ function applyTuning() {
     if (Number.isInteger(t.cacheWindow)  && t.cacheWindow  > 0) CACHE_WINDOW  = t.cacheWindow;
     if (Number.isInteger(t.lookBehind)   && t.lookBehind   > 0) LOOK_BEHIND   = t.lookBehind;
     if (Number.isInteger(t.lookAhead)    && t.lookAhead    > 0) LOOK_AHEAD    = t.lookAhead;
+    if (Number.isFinite(t.decodedMB)     && t.decodedMB    > 0) DECODED_BUDGET = t.decodedMB * 1024 * 1024;
   } catch (e) { /* a broken bridge must never break reading — keep mid defaults */ }
 }
 
@@ -492,7 +498,7 @@ function chapterLabelNum(ch, idx) {
 }
 
 // --- Archive Processing ---
-async function extractEntries(zip, fallbackName) {
+async function extractEntries(zip, fallbackName, budget) {
   const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
   const archives = allFiles.filter(f => ARCHIVE_EXT.test(f.name));
   const images   = allFiles.filter(f => IMAGE_EXT.test(f.name));
@@ -501,9 +507,16 @@ async function extractEntries(zip, fallbackName) {
 
   const result = [];
   for (const arch of archives) {
+    // An inner archive is decompressed into its own buffer, and that buffer
+    // outlives this loop: the image entries handed back keep it alive. Stop
+    // expanding once the budget is gone rather than discovering the ceiling as
+    // a crash. The check is before the read, so the overshoot is one archive.
+    if (budget && budget.left <= 0) { budget.exhausted = true; break; }
     loadingText.textContent = `Opening: ${basename(arch.name)}`;
     try {
-      const inner = await JSZip.loadAsync(await arch.async('arraybuffer'));
+      const buf = await arch.async('arraybuffer');
+      if (budget) budget.left -= buf.byteLength;
+      const inner = await JSZip.loadAsync(buf);
       const imgs = Object.values(inner.files)
         .filter(f => !f.dir && IMAGE_EXT.test(f.name))
         .sort((a, b) => naturalSort(a.name, b.name));
@@ -1015,6 +1028,28 @@ function sortFilesByChapter(files) {
   });
 }
 
+// Which files may be opened at all, decided from sizes the picker already
+// knows, before anything is read into the heap.
+//
+// Phase 3 applies the same budget, but by then every archive has been through
+// arrayBuffer() and JSZip, so the peak was the whole selection no matter what
+// the cap said: the cap trimmed the reader's chapter list, not its memory. The
+// list arrives sorted low-to-high by chapter and the cap's rule is "trim the
+// highest-numbered chapters", so stopping at the first file that does not fit
+// trims the same end. A single file bigger than the whole budget is skipped
+// rather than opened: opening it is the crash this exists to prevent.
+function planArchiveBudget(files, cap) {
+  const opening = [];
+  let used = 0;
+  for (const f of files) {
+    const size = (f && typeof f.size === 'number' && f.size > 0) ? f.size : 0;
+    if (used + size > cap) break;
+    opening.push(f);
+    used += size;
+  }
+  return { opening: opening, skipped: files.length - opening.length, bytes: used };
+}
+
 // The offline upload pipeline, extracted from the #file-input change handler so
 // the native picker path can reuse it without synthesizing input events
 // (docs/mobile/PLAN.md §6.3). Behavior-preserving: Phase 1 opens every zip with
@@ -1056,12 +1091,21 @@ async function loadArchives(files) {
   // Phase 3 — walk the sorted list, apply the cap, then build pages[]/chapters[].
   const ctx = newIndexCtx(files, outerKeys, SIZE_CAP);
 
-  // ── Phase 1: open all zips, collect groups ────────────────────────────────────
-  for (const f of files) {
+  // ── Phase 0: spend the budget on file sizes, before the heap is involved ──────
+  const plan = planArchiveBudget(files, SIZE_CAP);
+  if (plan.skipped > 0) ctx.preCapped = true;
+  // Expanded bytes are a second axis: a modest zip of inner CBZs decompresses
+  // each one into its own buffer, and those buffers stay alive for as long as
+  // the entries taken from them do. Shared across the whole load; overshoots by
+  // at most the archive being expanded when it runs out.
+  const expand = { left: SIZE_CAP, exhausted: false };
+
+  // ── Phase 1: open the budgeted zips, collect groups ───────────────────────────
+  for (const f of plan.opening) {
     loadingText.textContent = `Reading: ${f.name}`;
     try {
       const zip    = await JSZip.loadAsync(await f.arrayBuffer());
-      const groups = await extractEntries(zip, f.name);
+      const groups = await extractEntries(zip, f.name, expand);
 
       if (!groups.length) {
         ctx.emptyFiles.push(f.name);
@@ -1088,6 +1132,7 @@ async function loadArchives(files) {
     }
   }
 
+  if (expand.exhausted) ctx.preCapped = true;
   indexGroups(ctx);
   isLoading = false;
 }
@@ -1108,6 +1153,7 @@ function newIndexCtx(files, outerKeys, sizeCap) {
     innerArchiveNames: [],  // (a) title fallback when outer names are bare chapter refs
     innerSeriesKeys: new Set(), // (b) secondary multi-series check against real chapter names
     emptyFiles: [],         // files that had no recognisable chapters
+    preCapped: false,       // phase 0 refused to open something, or expansion ran out
   };
 }
 
@@ -1213,7 +1259,7 @@ function indexGroups(ctx) {
     showNotice(document.getElementById('order-notice'));
   }
 
-  if (capReached) {
+  if (capReached || ctx.preCapped) {
     const notice = document.getElementById('size-notice');
     document.getElementById('size-notice-text').textContent = skippedChapters > 0
       ? `${skippedChapters} chapter${skippedChapters > 1 ? 's' : ''} not loaded — ${capLabel} limit reached`
@@ -1233,7 +1279,7 @@ function indexGroups(ctx) {
   // Stay on the upload screen and show the notice there instead.
   if (chapters.length === 0) {
     showScreen('upload-screen');
-    if (capReached) {
+    if (capReached || ctx.preCapped) {
       const notice = document.getElementById('size-notice');
       document.getElementById('size-notice-text').textContent = 'No content loaded — files exceed ' + capLabel + ' limit';
       showNotice(notice);
@@ -1669,6 +1715,47 @@ function unloadDistant() {
       p.url = null; p.loading = false; p.gen++;
     }
   });
+  evictToDecodedBudget();
+}
+
+// What a browser keeps for a decoded image: four bytes a pixel. An estimate,
+// not a reading — the real figure lives in the compositor — but it is the only
+// number that moves with page SIZE, which is what the count windows miss. A
+// page that has not decoded yet reports 0 and simply counts on the next pass.
+// ponytail: estimate from natural dimensions; swap in a measured figure if a
+// platform ever exposes one.
+function decodedBytes(p) {
+  if (!p.el || !p.el.getAttribute('src')) return 0;
+  return (p.el.naturalWidth || 0) * (p.el.naturalHeight || 0) * 4;
+}
+
+// Farthest-first eviction until the estimate is back under budget. Visible
+// pages and the current page are never evicted: a single spread larger than
+// the whole budget still has to render, so the budget is a target the reader
+// returns to, not a guarantee it never crosses.
+function evictToDecodedBudget() {
+  if (!(DECODED_BUDGET > 0)) return;
+  let total = 0;
+  const evictable = [];
+  pages.forEach((p, i) => {
+    const bytes = decodedBytes(p);
+    if (!bytes) return;
+    total += bytes;
+    if (i !== currentPage && !visiblePages.has(i)) evictable.push({ i: i, bytes: bytes, dist: Math.abs(i - currentPage) });
+  });
+  if (total <= DECODED_BUDGET) return;
+
+  evictable.sort((a, b) => b.dist - a.dist);
+  for (const cand of evictable) {
+    if (total <= DECODED_BUDGET) break;
+    const p = pages[cand.i];
+    if (p.url && !p.directUrl) URL.revokeObjectURL(p.url);
+    p.url = null;
+    if (p.el) p.el.src = '';   // aspectLocked stays set, so the wrapper keeps its height
+    p.loading = false;
+    p.gen++;
+    total -= cand.bytes;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2132,14 +2219,12 @@ function autoStep(timestamp) {
         lastTime  = timestamp;
       }
     } else {
-      const dt = timestamp - lastTime;
-      const currentInterval = JUMP_LEVELS[jumpIntervalIdx] * 1000;
-      if (dt >= currentInterval) {
-        isJumping      = true;
-        jumpStartTime  = timestamp;
-        jumpStartY     = window.scrollY;
-        jumpTargetY    = jumpStartY + (window.innerHeight * 0.70);
-      }
+      // Waiting for the next jump. This used to run an animation frame sixty
+      // times a second for up to half a minute to watch a clock: the frames
+      // scrolled nothing, and on a phone that is the screen and the JS thread
+      // kept awake for the whole gap. A timer says the same thing asleep.
+      scheduleJump();
+      return;
     }
   }
 
@@ -2150,7 +2235,36 @@ function autoStep(timestamp) {
   }
 }
 
+// Owns the gap between jumps. Always clears before arming, so a re-arm from a
+// speed change replaces the pending wait instead of racing it.
+function scheduleJump() {
+  clearTimeout(autoJumpTimer);
+  autoJumpTimer = setTimeout(() => {
+    autoJumpTimer = 0;
+    if (!autoRunning || scrollMode !== 'jump') return;
+    if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+      stopAutoScroll();
+      return;
+    }
+    isJumping     = true;
+    jumpStartTime = performance.now();
+    jumpStartY    = window.scrollY;
+    jumpTargetY   = jumpStartY + (window.innerHeight * 0.70);
+    requestAnimationFrame(autoStep);
+  }, JUMP_LEVELS[jumpIntervalIdx] * 1000);
+}
+
+// A pending wait holds the OLD interval, so changing speed or mode mid-wait
+// has to replace it or the change appears to do nothing until the next jump.
+function rearmAutoScroll() {
+  if (!autoRunning) return;
+  clearTimeout(autoJumpTimer); autoJumpTimer = 0;
+  if (scrollMode === 'jump') { if (!isJumping) scheduleJump(); }
+  else { lastTime = 0; requestAnimationFrame(autoStep); }
+}
+
 function startAutoScroll() {
+  if (autoRunning) return;   // a second start would run a second loop
   autoRunning = true; lastTime = 0; scrollAccumulator = 0;
   document.getElementById('as-playpause').innerHTML = pauseIcon;
   uiHidden = true;
@@ -2160,6 +2274,7 @@ function startAutoScroll() {
 function stopAutoScroll() {
   autoRunning = false;
   isJumping   = false;
+  clearTimeout(autoJumpTimer); autoJumpTimer = 0;
   document.getElementById('as-playpause').innerHTML = playIcon;
   resetIdle();
 }
@@ -2195,6 +2310,7 @@ document.getElementById('as-mode-toggle').addEventListener('click', (e) => {
   applyAutoscrollUI();
   isJumping = false;
   lastTime  = 0;
+  rearmAutoScroll();
   saveAutoscroll();
   resetIdle();
 });
@@ -2205,6 +2321,7 @@ document.getElementById('as-faster').addEventListener('click', (e) => {
   e.stopPropagation();
   if (scrollMode === 'smooth') { if (speedIdx < SPEED_LEVELS.length - 1) speedIdx++; }
   else { if (jumpIntervalIdx < JUMP_LEVELS.length - 1) jumpIntervalIdx++; }
+  rearmAutoScroll();
   updateSpeedLabel();
   saveAutoscroll();
   resetIdle();
@@ -2214,6 +2331,7 @@ document.getElementById('as-slower').addEventListener('click', (e) => {
   e.stopPropagation();
   if (scrollMode === 'smooth') { if (speedIdx > 0) speedIdx--; }
   else { if (jumpIntervalIdx > 0) jumpIntervalIdx--; }
+  rearmAutoScroll();
   updateSpeedLabel();
   saveAutoscroll();
   resetIdle();

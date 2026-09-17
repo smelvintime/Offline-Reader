@@ -69,6 +69,127 @@ Next exact task and starting files: P07 — js/reader.js (loadPage,
   unloadDistant, the observer window), js/platform.js (TUNING).
 ```
 
+## P07 record: 2026-09-16
+
+```text
+Task ID / date: P07 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-memory, stacked on
+  codex/mobile-reader-efficiency (P06)
+Behavior changed: retained decoded bitmaps are now bounded by estimated bytes
+  (natural dimensions x 4) against a per-memory-class budget — decodedMB
+  96/192/320 — and evicted farthest-first inside the existing unloadDistant()
+  pass. The count windows stay as they are; they are the cheap first filter.
+  Visible and current pages are never evicted, so a single spread larger than
+  the budget still renders: the budget is a target, not a guarantee.
+Deliberately NOT built (plan items 2, 4 and 6 of P07):
+  - A separate bounded decode/extraction queue. loadPage already dedupes on
+    p.loading and the observer debounce already bounds a pass to
+    LOOK_BEHIND+LOOK_AHEAD pages. Add one when a profile shows decode
+    concurrency, not retention, is the cost.
+  - Resident-page tracking instead of the pages.forEach scan. The scan is one
+    pass over an array on a 100 ms debounce; above 800 pages the scroll window
+    already collapses chapters. Add when a profile shows the scan.
+  - Downsampling. The plan makes it conditional on profiling, and nothing has
+    been profiled on device yet.
+Tests actually run and outcomes: 3 new cases in test/image-reader.test.html
+  (evict farthest first to budget, visible page survives its own budget,
+  nothing evicted under budget); full browser + node gate below.
+Device evidence: NOT RUN. The budget numbers are chosen, not measured; P01's
+  capture checklist on the phone is what should confirm or move them.
+Remaining risks/dependencies: decodedBytes() is an estimate, not the
+  compositor's figure. A page that has not decoded yet counts as zero and is
+  caught on the next pass.
+Next exact task and starting files: P08 — js/novel-reader.js (onScroll,
+  captureScroll, prefixChars), js/reader.js (autoStep).
+```
+
+## P08 record: 2026-09-16
+
+```text
+Task ID / date: P08 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-scroll, stacked on
+  codex/mobile-reader-memory (P07)
+Behavior changed:
+  - Jump autoscroll waits on a timer instead of running an animation frame
+    sixty times a second to watch a clock. Frames now run only during the
+    ~600 ms jump itself, so a 30-second interval costs 1800 fewer frames.
+    Speed and mode changes re-arm the pending wait; a repeated start cannot
+    open a second loop; stop and reader-exit clear the timer.
+  - stagePadTop() memoised. It was a getComputedStyle (a forced style
+    resolution) on every scroll frame for a value that only moves when the
+    layout does; settleLayout() and resetSession() drop it.
+  - updateChrome() no longer rewrites what is already on screen: the title and
+    subtitle text nodes, and the six-node status line, are keyed and rebuilt
+    only when a displayed value changed.
+ATTEMPTED AND REVERTED — the anchor-capture split (plan items 2 and 4):
+  Capturing a block-only anchor during motion and resolving the character on
+  settle broke the LRU refill drill in test/novel-reader.test.html, first with
+  a 125 px position jump across a refill, then also failing the refill itself.
+  The module states the invariant plainly ("the anchor is the reader's cursor;
+  only the reader gets to move it") and the refill path reads the anchor
+  synchronously while the target chapter is a collapsed spacer, which is
+  exactly when a coarse anchor cannot be upgraded. The plan asks for a profile
+  FIRST; there is no profile and no device here, so this is deferred rather
+  than forced. Anyone resuming it: start from testLru in the novel-reader
+  suite, and expect to touch the refill path, not just capture.
+Tests actually run and outcomes: 2 new cases in test/image-reader.test.html
+  (idle frame cost measured as a delta against a baseline, because other page
+  work draws too; stop and exit cancel the pending jump). novel-reader and
+  novel-voice suites pass unchanged, which is the check that matters for the
+  chrome and padding changes.
+Device evidence: NOT RUN.
+Remaining risks/dependencies: the frame saving is arithmetic, not a measured
+  battery number. P08's blur/compositing item is untouched and stays
+  explicitly profile-gated.
+Next exact task and starting files: P09 — js/reader.js (loadArchives,
+  extractEntries), js/importer.js (openZip and the cancel paths).
+```
+
+## P09 record: 2026-09-16
+
+```text
+Task ID / date: P09 / 2026-09-16
+Commit and PR: branch codex/mobile-reader-import, stacked on
+  codex/mobile-reader-scroll (P08)
+Behavior changed:
+  - A phase 0 in loadArchives() spends the size budget against file sizes the
+    picker already reports, before anything reaches arrayBuffer(). The old cap
+    ran in phase 3, after every archive had been materialised and parsed, so it
+    bounded the chapter list and never the heap. Files arrive sorted
+    low-to-high and the cap's rule is "trim the highest-numbered chapters", so
+    stopping at the first file that does not fit trims the same end. A single
+    file larger than the whole budget is now skipped instead of opened, which
+    is the crash the cap was supposed to prevent.
+  - extractEntries() takes an expansion budget. A zip of inner CBZs
+    decompresses each one into its own buffer, and those buffers stay alive as
+    long as the image entries taken from them do; nothing bounded that. It
+    stops before the read, so the overshoot is one archive.
+  - Both pre-phase refusals feed the existing size notice, so the user is told
+    rather than silently given a short set.
+Deliberately NOT built:
+  - A cancel affordance for the reader's upload path. js/importer.js already
+    cancels cooperatively through an AbortSignal (abortCheck at each stage);
+    loadArchives has no cancel UI at all, so "cooperative cancellation" there
+    would mean inventing the feature first. Out of scope for a performance
+    plan; raise it as a feature if the import is slow enough to want it.
+  - Archive metadata inspection before expansion. JSZip exposes no public
+    uncompressed size, and charging the budget with the buffer's actual
+    byteLength after the read bounds the same total without reaching into
+    private fields.
+Tests actually run and outcomes: 2 cases in test/image-reader.test.html — the
+  budget decision as a pure function (fits, tail trimmed, single oversized file
+  refused, missing size tolerated) and nested expansion against real generated
+  zips (stops at a tight budget and reports it, expands fully under a roomy
+  one, unchanged with no budget passed).
+Device evidence: NOT RUN, and not needed for this one: the bound is on
+  allocation, and the tests hold it.
+Remaining risks/dependencies: the budget still counts compressed bytes for
+  phase 0, which is what the old cap counted too. A pathological archive can
+  still expand beyond its compressed size within one file.
+Next exact task and starting files: P10 — js/store.js (pruneChapterCache),
+  js/catalogue.js (runCachePrune, library rendering). Profile before changing.
+```
+
 ## Next actions
 
 1. Follow the plan's restart commands and inspect changes since this checkpoint.

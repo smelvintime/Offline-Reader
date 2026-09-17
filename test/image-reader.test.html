@@ -138,6 +138,7 @@ window.Catalogue = {
 };
 </script>
 
+<script src="../jszip.min.js"></script>
 <script src="../js/image-zoom.js"></script>
 <script src="../js/reader.js"></script>
 
@@ -199,6 +200,7 @@ function openSession(opts) {
     if (opts.native) { p.directUrl = 'capacitor://localhost/_pages/ch0/' + i + '.jpg'; p.el.src = p.directUrl; }
     else { p.url = URL.createObjectURL(new Blob(['x'], { type: 'image/jpeg' })); p.el.src = p.url; }
     p.loading = false;
+    p.aspectLocked = true;   // loadPage locks the ratio once the image reports one
     visiblePages.add(i);
     imgs.push(p.el);
   }
@@ -406,6 +408,160 @@ tests['an upload session writes its position on the way out'] = async function (
   eq(lib[0] && lib[0].maxPageIdx, 2, 'at the page it left on');
   eq(pages.length, 0, 'and tore the session down');
   ok(s.imgs.every(function (el) { return el.getAttribute('src') === ''; }), 'with its bitmaps released');
+};
+
+// ── 12. The decoded-bitmap budget ──────────────────────────────────────────
+// naturalWidth/Height are defined on the instances rather than decoded from
+// real images: the eviction rule is what is under test, not the decoder.
+function sizePages(w, h) {
+  pages.forEach(function (p) {
+    if (!p.el) return;
+    Object.defineProperty(p.el, 'naturalWidth', { configurable: true, value: w });
+    Object.defineProperty(p.el, 'naturalHeight', { configurable: true, value: h });
+  });
+}
+
+tests['pages are evicted by decoded bytes, farthest first'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 6 });
+  sizePages(1000, 1000);                 // 4 MB a page, 24 MB loaded
+  currentPage = 0;
+  visiblePages.clear(); visiblePages.add(0);
+  DECODED_BUDGET = 12 * 1024 * 1024;     // room for three
+  unloadDistant();
+  const loaded = pages.map(function (p) { return p.el.getAttribute('src') !== ''; });
+  eq(loaded.filter(Boolean).length, 3, 'evicted down to the budget');
+  ok(loaded[0] && loaded[1] && loaded[2], 'kept the nearest pages (' + JSON.stringify(loaded) + ')');
+  ok(pages[5].url === null && pages[5].loading === false, 'the evicted page is reloadable');
+  ok(pages[5].el.getAttribute('src') === '' && pages[5].aspectLocked === true,
+     'its wrapper keeps its height, so scrolling back does not jump');
+  document.getElementById('close-btn').click();
+};
+
+tests['the visible page is never evicted, even alone over budget'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 3 });
+  sizePages(4000, 4000);                 // 64 MB a page
+  currentPage = 1;
+  visiblePages.clear(); visiblePages.add(1);
+  DECODED_BUDGET = 1024;                 // nothing fits
+  unloadDistant();
+  ok(pages[1].el.getAttribute('src') !== '', 'the page being read survives its own budget');
+  ok(pages[0].el.getAttribute('src') === '' && pages[2].el.getAttribute('src') === '',
+     'everything else went');
+  document.getElementById('close-btn').click();
+};
+
+tests['nothing is evicted while under budget'] = async function () {
+  resetInstrumentation();
+  openSession({ chapters: 1, perChapter: 3 });
+  sizePages(100, 100);
+  currentPage = 0;
+  DECODED_BUDGET = 192 * 1024 * 1024;
+  unloadDistant();
+  ok(pages.every(function (p) { return p.el.getAttribute('src') !== ''; }), 'all three still loaded');
+  eq(revoked.length, 0, 'no URL revoked');
+  document.getElementById('close-btn').click();
+};
+
+// ── 15. Jump autoscroll waits on a timer, not on animation frames ──────────
+// The wait between jumps used to re-request an animation frame sixty times a
+// second to compare two timestamps. Both call sites pass autoStep itself, so
+// counting frames requested FOR IT is exact — no baseline, no jitter.
+tests['jump autoscroll does not spin animation frames while waiting'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  const realRaf = window.requestAnimationFrame;
+  let steps = 0;
+  window.requestAnimationFrame = function (fn) { if (fn === autoStep) steps++; return realRaf.call(window, fn); };
+  scrollMode = 'jump';
+  jumpIntervalIdx = JUMP_LEVELS.length - 1;     // the longest wait: no jump should fire
+  try {
+    startAutoScroll();
+    await new Promise(function (r) { rawTimeout(r, 250); });
+    ok(steps <= 1, 'the whole wait cost one frame, not one per vsync (got ' + steps + ')');
+    ok(autoRunning === true && autoJumpTimer !== 0, 'parked on the jump timer instead');
+
+    const before = steps;
+    startAutoScroll();                          // a second start must not add a loop
+    startAutoScroll();
+    await new Promise(function (r) { rawTimeout(r, 200); });
+    eq(steps, before, 'repeated starts opened no parallel loop');
+  } finally {
+    stopAutoScroll();
+    window.requestAnimationFrame = realRaf;
+    scrollMode = 'smooth';
+  }
+  document.getElementById('close-btn').click();
+};
+
+tests['stopping and exiting cancel the pending jump'] = async function () {
+  resetInstrumentation();
+  openSession({});
+  scrollMode = 'jump';
+  startAutoScroll();
+  stopAutoScroll();
+  eq(autoJumpTimer, 0, 'stop cleared the pending wait');
+  startAutoScroll();
+  document.getElementById('close-btn').click();
+  eq(autoRunning, false, 'the exit stopped autoscroll');
+  eq(autoJumpTimer, 0, 'and cleared its timer');
+  scrollMode = 'smooth';
+};
+
+// ── 17. Import allocations are budgeted before anything is read ────────────
+// The cap used to be applied after every archive had been through
+// arrayBuffer() and JSZip, which bounded the chapter list and not the heap.
+tests['the file budget is spent before any archive is opened'] = async function () {
+  const MB = 1024 * 1024;
+  const f = function (name, mb) { return { name: name, size: mb * MB }; };
+
+  let plan = planArchiveBudget([f('ch1.cbz', 200), f('ch2.cbz', 200), f('ch3.cbz', 200)], 600 * MB);
+  eq(plan.opening.length, 3, 'a set that fits opens whole');
+  eq(plan.skipped, 0, 'nothing skipped');
+
+  plan = planArchiveBudget([f('ch1.cbz', 200), f('ch2.cbz', 200), f('ch3.cbz', 200), f('ch4.cbz', 200)], 600 * MB);
+  eq(plan.opening.length, 3, 'the tail is trimmed, not the head');
+  eq(plan.skipped, 1, 'one file skipped');
+  eq(plan.opening[0].name, 'ch1.cbz', 'lowest chapter kept');
+
+  plan = planArchiveBudget([f('huge.cbz', 900)], 600 * MB);
+  eq(plan.opening.length, 0, 'a single file over the whole budget is never opened');
+  eq(plan.skipped, 1, 'and is reported as skipped');
+
+  plan = planArchiveBudget([{ name: 'unknown.cbz' }], 600 * MB);
+  eq(plan.opening.length, 1, 'a file with no size still opens (nothing to bound it by)');
+};
+
+// ── 18. Nested archives stop expanding when the budget runs out ─────────────
+// A zip of CBZs decompresses each inner archive into its own buffer, and those
+// buffers stay alive as long as the entries taken from them do.
+tests['nested archive expansion stops at the budget'] = async function () {
+  const outer = new JSZip();
+  for (let i = 1; i <= 3; i++) {
+    const inner = new JSZip();
+    // Incompressible bytes, so the expanded size is real rather than a few
+    // hundred bytes of run-length.
+    const bytes = new Uint8Array(64 * 1024);
+    for (let b = 0; b < bytes.length; b++) bytes[b] = (b * 2654435761) & 0xff;
+    inner.file('page-1.jpg', bytes);
+    outer.file('ch' + i + '.cbz', await inner.generateAsync({ type: 'arraybuffer' }));
+  }
+  const zip = await JSZip.loadAsync(await outer.generateAsync({ type: 'arraybuffer' }));
+
+  const tight = { left: 1, exhausted: false };
+  const some = await extractEntries(zip, 'set.zip', tight);
+  eq(some.length, 1, 'one archive expanded before the budget was gone (the allowed overshoot)');
+  ok(tight.exhausted === true, 'and the exhaustion is reported');
+
+  const roomy = { left: 64 * 1024 * 1024, exhausted: false };
+  const all = await extractEntries(zip, 'set.zip', roomy);
+  eq(all.length, 3, 'a budget that fits expands every inner archive');
+  ok(roomy.exhausted === false, 'with nothing reported as skipped');
+  ok(roomy.left < 64 * 1024 * 1024, 'and the expanded bytes were charged against it');
+
+  const unbudgeted = await extractEntries(zip, 'set.zip');
+  eq(unbudgeted.length, 3, 'no budget passed still behaves as before');
 };
 
 (async function run() {

@@ -50,9 +50,9 @@ device validation is complete. Every subsequent agent must update this table.
 | P04 | Scheduler, queue and audio memory bounds | PARTIAL | Four-job and byte/count bounds implemented; rolling policy and adversarial cache tests remain |
 | P05 | Sustainable native inference tuning | NOT STARTED, device measurements needed | Preserve existing CPU/precision defaults until benchmark selects a change |
 | P06 | Shared image-reader teardown | IMPLEMENTED, device gate pending | `test/image-reader.test.html` (new suite, 11 cases); Close/Home/back unified, session token added |
-| P07 | Image decoding and memory budgets | NOT STARTED | Depends on P06 cleanup guarantees |
-| P08 | Novel scrolling and autoscroll efficiency | NOT STARTED | Independent of native profiling |
-| P09 | Large-import allocation/cancellation bounds | NOT STARTED | Audit both reader and importer paths; use P06 generation ownership |
+| P07 | Image decoding and memory budgets | PARTIAL | Decoded-byte budget + farthest-first eviction landed; bounded decode queue and downsampling deliberately not built |
+| P08 | Novel scrolling and autoscroll efficiency | PARTIAL | Autoscroll idle-spin and per-frame chrome/style work fixed; the anchor-capture split is BLOCKED on a device profile (see handoff) |
+| P09 | Large-import allocation/cancellation bounds | PARTIAL | Reader allocation gates landed; importer already had AbortSignal cancellation; reader-side cancel UI does not exist and was not invented |
 | P10 | Library/cache/backup maintenance | NOT STARTED, profile first | Existing debounce/protection must be preserved |
 | P11 | Browser worker upgrade correctness | IMPLEMENTED | PR #64 / performance contract test; add full SW lifecycle test if upgrading cache policy |
 | P12 | Audio transfer/playback experiment | NOT STARTED, measure first | Depends on P01 native timing and P02 validated startup |

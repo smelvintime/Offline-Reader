@@ -63,10 +63,26 @@ function assertRow(actual, expected, label) {
 // The §9 table, restated independently so a typo in platform.js cannot
 // silently agree with itself.
 const ROWS = {
-  low:  { memoryWindow: 12, cacheWindow: 30, lookBehind: 2, lookAhead: 6,  maxLoadedChapters: 6,  chapterCacheMB: 100, pageCacheMB: 200 },
-  mid:  { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10, maxLoadedChapters: 10, chapterCacheMB: 200, pageCacheMB: 400 },
-  high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600 },
+  low:  { memoryWindow: 12, cacheWindow: 30, lookBehind: 2, lookAhead: 6,  maxLoadedChapters: 6,  chapterCacheMB: 100, pageCacheMB: 200, decodedMB: 96 },
+  mid:  { memoryWindow: 25, cacheWindow: 60, lookBehind: 4, lookAhead: 10, maxLoadedChapters: 10, chapterCacheMB: 200, pageCacheMB: 400, decodedMB: 192 },
+  high: { memoryWindow: 35, cacheWindow: 80, lookBehind: 6, lookAhead: 12, maxLoadedChapters: 14, chapterCacheMB: 300, pageCacheMB: 600, decodedMB: 320 },
 };
+
+// Restated independently, like ROWS: the desktop overlay and the rule that
+// decides when it applies. A test runner is a mouse-driven machine, so the
+// suite normally takes the desktop branch; on a touch device it takes the
+// other one and the expectations follow.
+const DESKTOP = (function () {
+  try {
+    return !!(window.matchMedia
+      && window.matchMedia('(pointer: fine)').matches
+      && window.matchMedia('(hover: hover)').matches);
+  } catch (e) { return false; }
+})();
+const DESKTOP_ROW = Object.assign({}, ROWS.high, {
+  memoryWindow: 50, cacheWindow: 150, lookBehind: 8, lookAhead: 16,
+  maxLoadedChapters: 20, decodedMB: 512,
+});
 
 window.__done = (async function main() {
   const P = window.Platform;
@@ -131,26 +147,50 @@ window.__done = (async function main() {
   let prefsBefore = null;
   try { prefsBefore = localStorage.getItem('or.prefs'); } catch (e) {}
 
-  assertEq(P.memoryClass(), 'mid', "memoryClass() defaults to 'mid' on web");
-  assertRow(P.tuning(), ROWS.mid, 'tuning() returns the §9 mid row by default');
+  // On the web the answer is "mid unless this is plainly a desktop": the
+  // detection is deliberately conservative, so a browser that reports neither a
+  // fine pointer nor hover still lands on mid.
+  assertEq(P.memoryClass(), DESKTOP ? 'high' : 'mid',
+    DESKTOP ? "memoryClass() detects a desktop as 'high'" : "memoryClass() defaults to 'mid' on web");
+  assertRow(P.tuning(), DESKTOP ? DESKTOP_ROW : ROWS.mid,
+    DESKTOP ? 'tuning() returns the widened desktop row by default' : 'tuning() returns the §9 mid row by default');
 
   Store.prefs.set('platform.memoryClass', 'low');
   assertEq(P.memoryClass(), 'low', 'pref platform.memoryClass=low overrides');
   assertRow(P.tuning(), ROWS.low, 'tuning() returns the §9 low row under the override');
 
   Store.prefs.set('platform.memoryClass', 'high');
+  // Also the desktop contract: an explicit override outranks detection, so the
+  // overlay must NOT widen this row even when the browser is a desktop.
   assertRow(P.tuning(), ROWS.high, 'tuning() returns the §9 high row under the override');
 
   Store.prefs.set('platform.memoryClass', 'banana');
-  assertEq(P.memoryClass(), 'mid', 'an invalid override value falls back to mid (validated on read)');
+  assertEq(P.memoryClass(), DESKTOP ? 'high' : 'mid',
+    'an invalid override value is rejected and resolution continues (validated on read)');
 
   Store.prefs.set('platform.memoryClass', 'auto');
-  assertEq(P.memoryClass(), 'mid', "the 'auto' sentinel is not a class — resolution continues to mid");
+  assertEq(P.memoryClass(), DESKTOP ? 'high' : 'mid',
+    "the 'auto' sentinel is not a class — resolution continues past it");
+
+  // ── Desktop ───────────────────────────────────────────────────────────────
+  // Without a desktop branch every computer fell through to "inconclusive →
+  // mid" and read a mid-tier PHONE's row: a 60-page cache window and a 192 MB
+  // bitmap budget on a machine with tens of gigabytes.
+  assert(['low', 'mid', 'high'].indexOf(P.memoryClass()) !== -1,
+    'memoryClass() is still one of low/mid/high (novel-voice.js validates against exactly those)');
+  assertRow(P.tuning(), DESKTOP ? DESKTOP_ROW : ROWS.mid,
+    DESKTOP ? 'a detected desktop reads the widened row' : 'a touch device is unaffected by the desktop branch');
+  if (DESKTOP) {
+    const t = P.tuning();
+    assertEq(t.chapterCacheMB, ROWS.high.chapterCacheMB, 'the IndexedDB budget is not widened by having a mouse');
+    assertEq(t.pageCacheMB, ROWS.high.pageCacheMB, 'nor is the on-disk page budget');
+    assert(t.decodedMB > ROWS.high.decodedMB, 'but the in-memory bitmap budget is');
+  }
 
   // tuning() hands out copies — mutating one must not poison the table.
   const row = P.tuning();
   row.memoryWindow = 9999;
-  assertEq(P.tuning().memoryWindow, 25, 'tuning() returns a fresh copy each call');
+  assertEq(P.tuning().memoryWindow, DESKTOP ? 50 : 25, 'tuning() returns a fresh copy each call');
 
   try {
     if (prefsBefore === null) localStorage.removeItem('or.prefs');

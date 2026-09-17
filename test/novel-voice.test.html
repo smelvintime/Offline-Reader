@@ -2431,6 +2431,9 @@ const T = {
       const gpuPresent = !!navigator.gpu;
       const platformBefore = window.Platform;
       const gpuPrefBefore = t.state.prefs.gpu;
+      // The power-pressure assertion above left lowPower set, and that short
+      // circuits lookaheadSeconds() before any of this is reached.
+      t.updateResources({ thermal: 'nominal', lowPower: false });
       try {
         window.Platform = { tuning: function () { return { desktop: true }; } };
         t.state.prefs.gpu = true;
@@ -2438,6 +2441,14 @@ const T = {
           pass = ok(t.neuralDevice() === 'webgpu', 'a desktop that opted in uses the GPU') && pass;
           pass = ok(t.neuralDtype('webgpu') === 'fp32', 'and the full-precision weights WebGPU needs') && pass;
         }
+        // The tail, not the average, is what the reader hears: measured clips
+        // were 300-1000 ms with a scattered tail at 6-9 s and one at 25 s, so a
+        // desktop banks a cushion deep enough to cover a stall.
+        for (let i = 0; i < 20; i++) ne.noteSpeed({ ms: 100, seconds: 2, chars: 30 });  // a fast engine
+        pass = ok(t.lookaheadSeconds() === 90, 'a fast desktop still banks the deep cushion') && pass;
+        pass = ok(t.lookaheadMaxGroups() === 12 && t.wavCacheMax() === 64,
+          'and raises the group and clip caps that would otherwise bound it') && pass;
+
         t.state.prefs.gpu = false;
         pass = ok(t.neuralDevice() === 'wasm', 'a desktop that did not opt in stays on wasm') && pass;
         t.state.prefs.gpu = true;
@@ -2445,6 +2456,8 @@ const T = {
         pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),
           'a phone never takes the GPU path, opted in or not') && pass;
         pass = ok(t.neuralDtype('wasm') === 'q8', 'and keeps the quantized bundle') && pass;
+        pass = ok(t.lookaheadSeconds() === 20 && t.lookaheadMaxGroups() === 4 && t.wavCacheMax() === 32,
+          'a fast phone keeps the shallow cushion that lets it go idle') && pass;
       } finally {
         window.Platform = platformBefore;
         t.state.prefs.gpu = gpuPrefBefore;

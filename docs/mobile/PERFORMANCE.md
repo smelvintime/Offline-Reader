@@ -21,7 +21,9 @@ separate comparison, not a silent replacement for the selected narrator.
   after a device report: a phone that sits at serious while held, hotter still
   on a charger, never reaches the cooled state the resume waited for, so the
   narrator simply stopped working. Low Power Mode and fair thermal state use
-  the same next-clip-only scheduling. Memory warnings are a separate signal and
+  the same next-clip-only scheduling (on mobile: a desktop below break-even
+  keeps generating, since it has no thermal ceiling to protect and its engine
+  is usually slower than playback). Memory warnings are a separate signal and
   still release the engine, since the process is about to be killed rather than
   slowed. Intentional locked-screen listening is preserved.
 - Disposal invalidates startup and late audio results. Timeouts reset the

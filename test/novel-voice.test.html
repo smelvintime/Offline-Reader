@@ -2395,6 +2395,21 @@ const T = {
       t.updateResources({ thermal: 'fair', lowPower: true });
       pass = ok(t.lookaheadSeconds() === 0, 'power pressure disables speculative depth') && pass;
 
+      // Below break-even the phone keeps only the next group in flight, to stay
+      // off the thermal ceiling. A computer has no such ceiling, and its wasm
+      // engine is usually slower than playback, so that same rule produced a
+      // wait before every sentence. Desktop keeps generating instead.
+      t.updateResources({ thermal: 'nominal', lowPower: false });
+      const realPlatform = window.Platform;
+      const slow = { ms: 1200, seconds: 1, chars: 15 };   // 0.83x realtime
+      ne.noteSpeed(slow);
+      try {
+        window.Platform = { tuning: function () { return { desktop: false }; } };
+        pass = ok(t.lookaheadSeconds() === 0, 'a slow phone still keeps only the next group in flight') && pass;
+        window.Platform = { tuning: function () { return { desktop: true }; } };
+        pass = ok(t.lookaheadSeconds() > 0, 'a slow desktop keeps generating instead of waiting per sentence') && pass;
+      } finally { window.Platform = realPlatform; }
+
       // Heat throttles Natural voice; it must not stop it. A phone that sits at
       // serious while it is held — hotter still on a charger — would otherwise
       // never narrate again, because "wait until it cools" never arrives.

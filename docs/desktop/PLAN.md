@@ -20,7 +20,7 @@ would need a profile, a device, or a guess about what desktop readers want is in
 | D01 | A desktop device class | IMPLEMENTED |
 | D02 | Desktop coverage in the test harness | NOT STARTED |
 | D03 | Keyboard and mouse in the image reader | NOT STARTED |
-| D04 | Measure the voice path on a desktop before tuning it | NOT STARTED |
+| D04 | Measure the voice path on a desktop before tuning it | PARTIAL, one defect fixed |
 | D05 | Window-width layout audit | NOT STARTED |
 
 ## D01: A desktop device class
@@ -133,6 +133,21 @@ so it is an experiment with a measured before and after, not a task.
 
 **Acceptance.** A recorded desktop margin, and either a justified constant change
 or a written no-change decision.
+
+**One thing did not wait for the measurement, 2026-09-17.** A device report:
+on a desktop the narrator said "preparing" before every sentence. The cause was
+not a constant, it was a rule that does not apply here. `lookaheadSeconds()`
+returns zero below break-even, so the pump queues exactly one group, and on a
+phone that is right: a deeper queue cannot make a slow device catch up, it only
+pins inference at full load and turns the battery into heat. A desktop has no
+battery to spend and no thermal ceiling to back away from, and its wasm engine
+is usually SLOWER than playback, so that same rule produced a wait before every
+sentence. Below break-even a desktop now keeps generating (still capped at four
+pending jobs). Mobile is untouched, and the test asserts both halves.
+
+The margin measurement above is still worth taking. It answers the remaining
+question, which is whether the desktop should also bank a bigger startup
+prebuffer than the phone's thermal-bounded fifteen seconds.
 
 ## D05: Window-width layout audit
 

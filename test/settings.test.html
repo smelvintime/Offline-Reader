@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Settings focus-sheet test harness</title>
+  <link rel="stylesheet" href="../css/settings.css">
+  <style>
+    body { margin: 0; padding: 12px; background: #0a0a0a; color: #f0f0f0;
+           font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    #log { margin-top: 12px; white-space: pre-wrap; }
+    .pass { color: #34d399; }
+    .fail { color: #f0616d; }
+  </style>
+  <script>
+    // The sheet offers itself only while app.focus has never been chosen, and
+    // the pref lives in localStorage — so the slate has to be clean before
+    // settings.js parses, not after.
+    try { localStorage.clear(); } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="log"></div>
+  <div id="summary"></div>
+
+  <!-- The real dependency chain, in index.html's order, minus js/identity.js. -->
+  <script src="../js/config.js"></script>
+  <script src="../js/platform.js"></script>
+  <script src="../js/store.js"></script>
+  <script src="../js/settings.js"></script>
+  <script>
+    'use strict';
+    const results = { passed: 0, failed: 0, lines: [] };
+    window.__results = results;
+
+    function report(ok, label, detail) {
+      const row = document.createElement('div');
+      row.className = ok ? 'pass' : 'fail';
+      row.textContent = (ok ? 'PASS  ' : 'FAIL  ') + label + (ok || !detail ? '' : '  ' + detail);
+      document.getElementById('log').appendChild(row);
+      results[ok ? 'passed' : 'failed']++;
+      results.lines.push(row.textContent);
+    }
+    function assert(value, label, detail) { report(!!value, label, detail); }
+    function assertEq(actual, expected, label) {
+      report(Object.is(actual, expected), label, 'got ' + JSON.stringify(actual) + ', wanted ' + JSON.stringify(expected));
+    }
+
+    window.__done = (async function () {
+      assertEq(typeof window.Identity, 'undefined', 'no identity module is loaded');
+      assert(window.AppSettings && window.AppSettings.maybeOfferFocus, 'settings registered its public API');
+      assertEq(Store.prefs.get('app.focus', null), null, 'app.focus starts unchosen');
+
+      // The real entry point the catalogue calls after its first home render.
+      AppSettings.maybeOfferFocus();
+
+      const sheet = document.querySelector('.set-focus-sheet');
+      assert(sheet, 'the focus sheet is in the DOM');
+      assertEq(sheet.hidden, false, 'the sheet is shown');
+      assertEq(sheet.getAttribute('aria-modal'), 'true', 'the sheet is a modal dialog');
+
+      // The library card: a heading, a card, one paragraph, no decision.
+      const block = sheet.querySelector('.set-account-block');
+      assert(block, 'the library card block renders unconditionally');
+      assertEq(block.querySelector('.set-theme-label').textContent, 'And your library?',
+        'the block keeps its heading');
+      const card = block.querySelector('.set-account-card');
+      assert(card, 'the card itself renders');
+      const copy = card.querySelector('.set-account-copy');
+      assert(copy && /lives on this device/.test(copy.textContent),
+        'the copy is the local-only one', copy && copy.textContent);
+      assert(copy && /nothing leaves/.test(copy.textContent),
+        'the copy still promises nothing leaves');
+
+      // No account promised that does not exist.
+      assertEq(block.querySelector('.set-account-btn'), null, 'no sign-in button class survives');
+      assertEq(block.querySelectorAll('button').length, 0, 'the block renders no control at all');
+      assert(!/[Ss]ign in/.test(block.textContent), 'the block never says "Sign in"', block.textContent);
+
+      // Position: the card sits after the theme block, last of the three
+      // onboarding answers and before the tour button.
+      const blocks = Array.from(sheet.querySelector('.set-sheet-body').children);
+      assert(blocks.indexOf(block) > blocks.findIndex(n => n.classList.contains('set-theme-block')),
+        'the card still follows the theme question');
+
+      // Dismissal still settles the pref, which is what stops the re-prompt.
+      sheet.querySelector('.set-card-comics').click();
+      assertEq(Store.prefs.get('app.focus', null), 'comics', 'choosing a focus persists it');
+      assertEq(sheet.hidden, true, 'choosing a focus closes the sheet');
+
+      AppSettings.maybeOfferFocus();
+      assertEq(sheet.hidden, true, 'the sheet never offers itself twice');
+
+      const summary = document.getElementById('summary');
+      summary.textContent = results.failed === 0
+        ? 'ALL GREEN — ' + results.passed + ' assertions'
+        : results.failed + ' FAILED / ' + results.passed + ' passed';
+      summary.className = results.failed === 0 ? 'pass' : 'fail';
+      document.title = (results.failed === 0 ? 'PASS' : 'FAIL') + ' — Settings focus-sheet test harness';
+      return results;
+    })();
+  </script>
+</body>
+</html>

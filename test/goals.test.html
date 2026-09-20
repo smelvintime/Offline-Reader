@@ -673,6 +673,24 @@ window.__done = (async function main() {
   assert(!!resetHistoryBtn, 'Reset history button present in the sheet');
   assert(!!resetLifetimeBtn, 'Reset lifetime totals button present in the sheet');
 
+  // The sheet's own controls, and the reminder rows that never shipped.
+  const rowLabels = Array.prototype.slice
+    .call(document.querySelectorAll('#goals-screen .gl-sheet .gl-row-label'))
+    .map(function (n) { return n.textContent; });
+  ['Timer', 'Chime', 'Idle cutoff', 'History'].forEach(function (label) {
+    assert(rowLabels.indexOf(label) !== -1, 'the sheet still renders the ' + label + ' row', rowLabels.join(' | '));
+  });
+  assert(!rowLabels.some(function (l) { return /Reminder/.test(l); }),
+    'no reminder row is rendered', rowLabels.join(' | '));
+
+  // An old stored reminder pref is left where it is: ignored, never rewritten.
+  window.Store.prefs.set('goals.reminder.time', '07:30');
+  window.Store.prefs.set('goals.reminder.enabled', true);
+  assertEq(window.Store.prefs.get('goals.reminder.time', null), '07:30',
+    'a legacy reminder pref survives untouched');
+  assertEq(window.Store.prefs.get('goals.reminder.enabled', null), true,
+    'a legacy reminder toggle survives untouched');
+
   resetHistoryBtn.click();
   await until(async function () {
     const rows = await window.Store.listDayLogs({ limit: 10 });

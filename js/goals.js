@@ -282,7 +282,6 @@
     return (typeof v === 'string' && re.test(v)) ? v : dflt;
   }
 
-  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   const DAYS_RE = /^[01]{7}$/;
 
   function cfg() {
@@ -303,8 +302,6 @@
       // 'auto' no longer means "always up" — see updatePillVisibility().
       pill:           readEnum('goals.pill', ['auto', 'off'], 'off'),
       idleCutoff:     readInt('goals.idleCutoff', 5, 1, 30),
-      reminderOn:     readBool('goals.reminder.enabled', false),
-      reminderTime:   readPattern('goals.reminder.time', TIME_RE, '20:00'),
     };
   }
 
@@ -1767,27 +1764,6 @@
       inc: function () { setGoalPref('goals.idleCutoff', clamp(cfg().idleCutoff + 1, 1, 30)); },
     }));
 
-    // Reminder rows exist only where notifications can actually fire —
-    // Platform.notify is the reminders-ready seam and answers false
-    // everywhere this cycle (§5.2). A later local-notifications install
-    // lights these up with no change here beyond the canNotify() answer.
-    let canNotify = false;
-    try {
-      const P = window.Platform;
-      canNotify = !!(P && P.notify && typeof P.notify.canNotify === 'function' && P.notify.canNotify());
-    } catch (e) {}
-    if (canNotify) {
-      body.appendChild(toggleRow('Reminder', 'Daily reading reminder',
-        function (c) { return c.reminderOn; },
-        function (v) { setGoalPref('goals.reminder.enabled', v); }));
-      body.appendChild(stepRow('Reminder time', {
-        get: function (c) { return c.reminderTime; },
-        fmt: function (v) { return v; },
-        dec: function () { setGoalPref('goals.reminder.time', shiftReminder(-30)); },
-        inc: function () { setGoalPref('goals.reminder.time', shiftReminder(30)); },
-      }));
-    }
-
     body.appendChild(excludedRow());
 
     const actionRow = el('div', 'gl-row');
@@ -1815,13 +1791,6 @@
     ui.scrim = scrim;
     ui.sheet = sheet;
     ui.sheetClose = closeBtn;
-  }
-
-  function shiftReminder(deltaMinutes) {
-    const t = cfg().reminderTime.split(':');
-    let total = parseInt(t[0], 10) * 60 + parseInt(t[1], 10) + deltaMinutes;
-    total = ((total % 1440) + 1440) % 1440;
-    return pad2(Math.floor(total / 60)) + ':' + pad2(total % 60);
   }
 
   async function confirmResetHistory() {

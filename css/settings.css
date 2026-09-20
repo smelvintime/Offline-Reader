@@ -382,20 +382,6 @@ html[data-apptheme='custom'][data-applum='light'] {
   font-size: 0.82rem;
   line-height: 1.6;
 }
-.set-focus-sheet .set-account-btn {
-  align-self: flex-start;
-  min-height: var(--set-tap);
-  padding: 0.5rem 1rem;
-  background: var(--set-accent-soft);
-  border: 1px solid var(--set-accent);
-  border-radius: var(--set-r-sm);
-  color: var(--set-accent-ink);
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background var(--set-dur-calm) var(--set-ease-calm);
-}
 .set-focus-sheet .set-theme-label {
   display: block;
   margin-bottom: 0.5rem;

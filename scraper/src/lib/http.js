@@ -52,33 +52,6 @@ export async function getText(url, opts = {}) {
   return String(res.data);
 }
 
-/** GET a URL as parsed JSON. Throws on failure. */
-export async function getJson(url, opts = {}) {
-  const res = await request(url, {
-    headers: { Accept: 'application/json', ...DEFAULT_HEADERS, ...(opts.headers || {}) },
-    params: opts.params,
-    timeout: opts.timeout ?? 20000,
-    maxRedirects: 5,
-  }, opts);
-  return res.data;
-}
-
-/** GET a URL as HTML text. Throws on failure. */
-export async function getHtml(url, opts = {}) {
-  const res = await request(url, {
-    headers: {
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      ...DEFAULT_HEADERS,
-      ...(opts.headers || {}),
-    },
-    timeout: opts.timeout ?? 25000,
-    responseType: 'text',
-    transformResponse: [d => d],
-    maxRedirects: 5,
-  }, opts);
-  return String(res.data);
-}
-
 /**
  * Does this URL exist and serve an image? Used for covers.
  *
@@ -129,5 +102,3 @@ export async function firstWorkingImage(urls, opts = {}) {
   }
   return null;
 }
-
-export { describe as describeError };

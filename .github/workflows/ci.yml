@@ -43,7 +43,7 @@ jobs:
         working-directory: worker
         run: npm test
 
-      # The scraper does need its two: the boilerplate tests import
+      # The scraper does need its one: the boilerplate tests import
       # sources/gutenberg.js, which reaches lib/http.js and axios.
       - name: Install scraper dependencies
         working-directory: scraper

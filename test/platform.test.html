@@ -101,14 +101,12 @@ window.__done = (async function main() {
   await Promise.resolve();
   assert(readyFlag, 'ready resolves in the same microtask on web');
 
-  // ── API surface (PLAN.md §2.2 + §5.2 + §6.1) ─────────────────────────────
+  // ── API surface (PLAN.md §2.2 + §6.1) ─────────────────────────────
   ['appVersion', 'confirm', 'haptic', 'memoryClass', 'tuning',
    'pickFiles', 'readPickedFile', 'pageUrl', 'onAppUrlOpen'].forEach(function (m) {
     assertEq(typeof P[m], 'function', 'Platform.' + m + ' is a function');
   });
-  ['canNotify', 'scheduleDaily', 'cancelDaily'].forEach(function (m) {
-    assertEq(typeof P.notify[m], 'function', 'Platform.notify.' + m + ' is a function');
-  });
+  assertEq(typeof P.notify, 'undefined', 'the reminders stub is gone, not stubbed false');
   ['list', 'extract'].forEach(function (m) {
     assertEq(typeof P.zip[m], 'function', 'Platform.zip.' + m + ' is a function');
   });
@@ -135,12 +133,6 @@ window.__done = (async function main() {
   let hapticThrew = false;
   try { P.haptic('light'); P.haptic('success'); P.haptic('nonsense'); } catch (e) { hapticThrew = true; }
   assert(!hapticThrew, 'haptic() is a silent no-op on web (any kind)');
-
-  // ── Reminders stub (§5.2) ─────────────────────────────────────────────────
-  assertEq(P.notify.canNotify(), false, 'notify.canNotify() is false');
-  assertEq(await P.notify.scheduleDaily({ hour: 20, minute: 0, title: 't', body: 'b' }), false,
-    'notify.scheduleDaily() resolves false');
-  assertEq(await P.notify.cancelDaily(), undefined, 'notify.cancelDaily() resolves');
 
   // ── memoryClass / tuning (§2.2, §9) ───────────────────────────────────────
   // Snapshot or.prefs so the override tests leave this origin's real

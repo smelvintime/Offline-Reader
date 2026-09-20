@@ -339,17 +339,6 @@
     } catch (e) { /* haptics are decoration; never let them throw */ }
   }
 
-  // ── Reminders-ready seam (PLAN.md §5.2) ───────────────────────────────────
-  //
-  // Goals renders its reminder rows only when canNotify() is true. It never
-  // is, in this cycle: a later opt-in @capacitor/local-notifications install
-  // lights this up without any goals change (the user decision is §11.4).
-  const notify = {
-    canNotify: function () { return false; },
-    scheduleDaily: function () { return Promise.resolve(false); },
-    cancelDaily: function () { return Promise.resolve(); },
-  };
-
   // ── The iPhone's own narrator (ARCHITECTURE §2.14) ────────────────────────
   //
   // A device voice was in this app once and was removed for sounding like a
@@ -1182,9 +1171,6 @@
     haptic: haptic,
     memoryClass: memoryClass,
     tuning: tuning,
-
-    notify: notify,
-
     speech: speech,
     kokoro: kokoro,
     pickFiles: pickFiles,

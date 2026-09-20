@@ -557,8 +557,8 @@ Preferences mirror — losing a running countdown to a WebKit eviction is accept
 | `goals.timer.chime` | boolean | `true` | toast + `Platform.haptic('success')` at zero |
 | `goals.pill` | `auto` \| `off` | `auto` | floating in-reader pill: countdown when a timer runs, else today's minutes |
 | `goals.idleCutoff` | int minutes `1..30` | `5` | inactivity pause threshold |
-| `goals.reminder.enabled` | boolean | `false` | reminders-ready; UI shown only when `Platform.notify.canNotify()` |
-| `goals.reminder.time` | string `/^([01]\d|2[0-3]):[0-5]\d$/` | `20:00` | |
+| `goals.reminder.enabled` | boolean | `false` | **deferred, since removed** — see §5.2 |
+| `goals.reminder.time` | string `/^([01]\d|2[0-3]):[0-5]\d$/` | `20:00` | **deferred, since removed** — see §5.2 |
 
 Streak semantics: `goals.schedule`/`scheduleDays` define which days can break a streak
 (off-schedule days are skipped, never breaking). There is **no additional
@@ -635,6 +635,13 @@ scheduleDaily({hour, minute, title, body}) → Promise<boolean>, cancelDaily() �
 Promise<void> }` — Phase 4 ships it returning `canNotify() === false` everywhere; a
 later opt-in `@capacitor/local-notifications` install lights it up without goals
 changes.
+
+> **Deferred, and since removed.** The seam shipped as specified and stayed
+> `canNotify() === false` for its whole life — no provider ever arrived, so the
+> reminder rows it gated were never reachable. `Platform.notify` and the goals
+> reminder UI were deleted rather than left standing; reminders are a fresh
+> decision whenever they are wanted, not a dormant contract. The paragraph above
+> is kept as planning history. See `docs/ARCHITECTURE.md` §2.4.
 
 ### 5.3 Files touched
 

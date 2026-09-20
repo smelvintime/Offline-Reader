@@ -386,14 +386,6 @@ window.Platform = {
                   //   — the PLAN.md §9 budget row for the current class
                   //   (a copy; consumers re-read at session start, not per frame).
 
-  notify: {       // reminders-ready seam — permanently "off" this cycle; a
-                  //   later @capacitor/local-notifications install lights it
-                  //   up without any goals change.
-    canNotify(),      // → false
-    scheduleDaily(),  // → Promise<false>
-    cancelDaily(),    // → Promise<void>
-  },
-
   pickFiles({ accept, multiple }),
       // → Promise<PickedFile[] | null>;  PickedFile = { name, size, uri }
       //   null  = no native picker (web / plugin missing) → caller falls back
@@ -591,8 +583,9 @@ Contract points:
   and docked bottom-RIGHT — bottom-center belongs to the autoscroll bar.
 - Per-series exclusion via pref `goals.include` (§3.1), read at fold time;
   an excluded series skips events AND session time.
-- Reminder rows render only when `Platform.notify.canNotify()` (never, this
-  cycle).
+- No reading reminders. There is no notification permission request, no
+  scheduling and no native notifications dependency; goals is timers, chimes
+  and history only.
 
 ### 2.5 Events registry
 
@@ -1436,9 +1429,8 @@ renders after the series is gone. A deliberate non-cascade.
 | `goals.timer.chime`   | boolean (default `true`)                       | goals        |
 | `goals.pill`          | `auto` \| `off` (default **`off`**). `auto` means **with the reader's chrome**, not "always up": the pill shows only while the host reader is showing its own header (`#novel-screen` without `nv-chrome-hidden`, or `#reader-header` without `ui-hidden`), watched with a `MutationObserver` so a tap lands in the same frame. A missing chrome node reads as "no chrome" and keeps the pill down | goals |
 | `goals.idleCutoff`    | int minutes `1..30` (default `5`)              | goals        |
-| `goals.reminder.enabled` | boolean (default `false`; UI only when `Platform.notify.canNotify()`) | goals |
-| `goals.reminder.time` | string `/^([01]\d\|2[0-3]):[0-5]\d$/` (default `20:00`) | goals |
-| `identity.deviceId` | **legacy, ignored.** Was an opaque per-install id minted by the removed `js/identity.js`. Nothing reads or writes it now; existing values are left in place and round-trip through backup untouched | — |
+| `goals.reminder.enabled` / `goals.reminder.time` | **legacy, ignored.** Fed a reminder UI that only rendered behind a notification stub answering false everywhere, removed with the stub. Nothing reads or writes them now; existing values stay put in the `or.prefs` blob and are never rewritten | — |
+| `identity.deviceId` | **legacy, ignored.** Was an opaque per-install id minted by the removed `js/identity.js`. Nothing reads or writes it now; existing values are left in place in the `or.prefs` blob and are never rewritten | — |
 | `app.focus` | `books` \| `comics` \| `both` (default `both`; unset = never chosen → the focus sheet offers once) | settings writes; catalogue reads |
 | `app.theme` | `dark` \| `dim` \| `black` \| `light` \| `cream` \| `sepia` \| `tan` \| `nord` \| `forest` \| `custom` (default `dark`) | settings writes+applies; platform reads (status bar) |
 | `app.customBg` / `app.customFg` | `#rrggbb` (`/^#[0-9a-fA-F]{6}$/`; defaults `#0a0a0a` / `#f0f0f0`) | settings |

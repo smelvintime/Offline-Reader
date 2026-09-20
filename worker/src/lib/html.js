@@ -411,34 +411,6 @@ export function linkDensity(node) {
   return Math.min(1, linkTextLength(node) / t);
 }
 
-/** Remove every descendant matching `pred` (mutates the tree). */
-export function removeMatching(root, pred) {
-  let removed = 0;
-  (function rec(n) {
-    if (!isElement(n)) return;
-    n.children = n.children.filter((c) => {
-      if (isElement(c) && pred(c)) {
-        removed++;
-        return false;
-      }
-      return true;
-    });
-    for (const c of n.children) rec(c);
-  })(root);
-  return removed;
-}
-
-/** Depth from the document root. */
-export function depthOf(node) {
-  let d = 0;
-  let p = node.parent;
-  while (p) {
-    d++;
-    p = p.parent;
-  }
-  return d;
-}
-
 /** Nearest ancestor (inclusive) matching a predicate. */
 export function closest(node, pred) {
   let p = node;
@@ -447,14 +419,4 @@ export function closest(node, pred) {
     p = p.parent;
   }
   return null;
-}
-
-/** Document-order index map, so we can sort arbitrary node sets. */
-export function documentOrder(root) {
-  const order = new Map();
-  let i = 0;
-  walk(root, (n) => {
-    order.set(n, i++);
-  });
-  return order;
 }

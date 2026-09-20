@@ -6,7 +6,7 @@
 // v5.08 without a bump and reached nobody; the code was right and the readers
 // still had the bug. If you touched styles.css, css/**, or any js/** file in
 // the list below, this line changes too.
-const CACHE_NAME = 'cbz-reader-v5.56';
+const CACHE_NAME = 'cbz-reader-v5.57';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [

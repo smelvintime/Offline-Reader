@@ -2405,14 +2405,6 @@
     speakCurrent();
   }
 
-  function chapterAnnouncement(ch) {
-    if (!ch) return '';
-    const bits = [];
-    if (ch.num != null) bits.push('Chapter ' + ch.num + '.');
-    if (ch.title) bits.push(String(ch.title) + '.');
-    return bits.join(' ');
-  }
-
   function cancelSpeech(preserveActive) {
     const preserveKey = preserveActive && state.group
       ? neuralKey(state.chapterId, state.group) : null;

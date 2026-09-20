@@ -208,11 +208,12 @@ edit another module's files. The Phase 7 CSS files are `css/thoughts.css`
 (`set-`), linked in the head after `css/goals.css`; `covers.js` has no
 stylesheet — consumers style the `<svg>` in their own sheets.
 
-The service-worker cache is **`cbz-reader-v5.14`** and `SHELL_ASSETS`
-precaches the full module list above plus all eight CSS files — the five
-optional JS modules (`covers`, `thoughts`, `sources`, `settings`,
-`novel-voice`) and their stylesheets are in the shell. NOT in the shell:
-`js/novel-voice-worker.js` and `vendor/tts/**` (~24 MB), which follow the
+The service-worker cache is `CACHE_NAME` in `sw.js` (`cbz-reader-v*`, bumped
+whenever a precached asset changes — `scripts/check-sw-cache.mjs` enforces
+it), and `SHELL_ASSETS` precaches the full module list above plus all eight
+CSS files — the five optional JS modules (`covers`, `thoughts`, `sources`,
+`settings`, `novel-voice`) and their stylesheets are in the shell. NOT in the
+shell: `js/novel-voice-worker.js` and `vendor/tts/**` (~24 MB), which follow the
 typeface rule — cached on first use, into their own **`or-voice-engine-v1`**
 cache so a shell bump does not re-bill the download. `activate` therefore
 reaps only caches named `cbz-reader-*`: this origin also holds

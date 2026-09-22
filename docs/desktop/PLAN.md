@@ -18,7 +18,7 @@ would need a profile, a device, or a guess about what desktop readers want is in
 | ID | Task | Status |
 | --- | --- | --- |
 | D01 | A desktop device class | IMPLEMENTED |
-| D02 | Desktop coverage in the test harness | NOT STARTED |
+| D02 | Desktop coverage in the test harness | IMPLEMENTED |
 | D03 | Keyboard and mouse in the image reader | NOT STARTED |
 | D04 | Measure the voice path on a desktop before tuning it | MEASURED, GPU path added |
 | D05 | Window-width layout audit | NOT STARTED |
@@ -85,6 +85,16 @@ reader suites, has only ever run at phone width. There is responsive CSS to test
 
 **Acceptance.** CI runs at both widths, and a regression that only appears on a
 wide window fails the suite.
+
+**Done, 2026-09-22.** `scripts/test-browser.mjs` now lets each suite declare
+its viewport matrix. The catalogue, image reader and novel reader run at the
+existing 390x844 phone size and at 1440x900. Their wide pass asserts that the
+reading or catalogue column remains capped, fixed chrome stays inside the
+viewport, and the document has no horizontal overflow. The novel-reader wide
+pass also sends a real Playwright mouse click through the page-turn zone, which
+covers the pointer-capture regression recorded under D06. Other suites retain
+the phone-sized default, so this adds desktop coverage without multiplying
+every browser test or changing mobile behavior.
 
 ## D03: Keyboard and mouse in the image reader
 

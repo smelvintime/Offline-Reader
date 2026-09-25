@@ -10,14 +10,14 @@
 //
 // Protocol (all messages are plain objects with a `type`):
 //   in:  { type:'init', model, device:'wasm'|'webgpu', dtype, voices:string[],
-//                        heapPages:number[], native:boolean }
+//                        heapPages:number[], native:boolean, threads:number }
 //   in:  { type:'generate', id, text, voice }
 //   in:  { type:'cancel', preserveId? }     — drop everything else not yet started
 //   out: { type:'source', local:boolean }   — bundled weights, or a download
 //   out: { type:'stage', stage:string }     — where init has got to
 //   out: { type:'note', stage, message }    — something escaped; NOT a verdict
 //   out: { type:'progress', file, loaded, total }   — model download
-//   out: { type:'ready', heapPages, native } | { type:'init-error', message }
+//   out: { type:'ready', heapPages, native, threads } | { type:'init-error', message }
 //   out: { type:'infer', id, ids, style, speed }   — native forward pass
 //   in:  { type:'infer-result', id, pcm } | { type:'infer-error', id, message }
 //   out: { type:'audio', id, wav:ArrayBuffer, seconds, ms, chars }  (wav transferred)
@@ -122,6 +122,26 @@ function capWasmMemory(pages) {
   Capped.__orCapped = true;
   WebAssembly.Memory = Capped;
   return function () { return granted; };
+}
+
+// ── How many cores ONNX Runtime may use ─────────────────────────────────────
+//
+// kokoro-js exports only `wasmPaths` from ONNX Runtime's env, so numThreads
+// cannot be set directly. What ORT does when it is left unset is take half of
+// navigator.hardwareConcurrency, capped at four, and only when the worker is
+// cross-origin isolated (otherwise one). So the count the main thread chose
+// is fed in through the one input that formula reads. Vendored code is not
+// ours to edit; this is the same move as capWasmMemory above.
+function useThreads(wanted) {
+  if (!self.crossOriginIsolated) return 1;
+  const n = Math.max(1, Math.min(4, Math.floor(Number(wanted)) || 1));
+  try {
+    Object.defineProperty(self.navigator, 'hardwareConcurrency', { configurable: true, get: function () { return n * 2; } });
+  } catch (e) {
+    note('could not set the thread count: ' + (e && e.message));
+    return Math.min(4, Math.ceil((navigator.hardwareConcurrency || 1) / 2));
+  }
+  return n;
 }
 
 function post(msg, transfer) {
@@ -289,6 +309,7 @@ async function init(msg) {
       Array.isArray(msg.heapPages) && msg.heapPages.length
         ? msg.heapPages : [65536, 16384, 8192, 4096],
     );
+    const threads = msg.native ? 1 : useThreads(msg.threads);
     if (polyfillStreamAsyncIterator()) note('polyfilled ReadableStream async iteration');
     mark('loading engine');
     const mod = await loadEngine();
@@ -335,7 +356,7 @@ async function init(msg) {
     // when a voice is too slow, and it should never need a rebuild to answer.
     const native = !!msg.native;
     mark(native ? 'ready (native inference)' : 'ready (wasm inference)');
-    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0, native: native, initMs: Math.round(performance.now() - started) });
+    post({ type: 'ready', heapPages: heapGranted ? heapGranted() : 0, native: native, threads: threads, initMs: Math.round(performance.now() - started) });
     pump();
   } catch (e) {
     // Name the step. "init failed" sends someone back to the logs; "at

@@ -37,6 +37,12 @@ Learned the hard way; each of these has cost a cycle at least once.
   with Playwright against a local static server. There is no `npm test` at the
   repo root; the worker and scraper have their own.
 
+- **The web build is cross-origin isolated, by `sw.js`.** It adds COOP/COEP so
+  the wasm voice can use several cores. Anything cross-origin the page embeds
+  must be CORS or send `Cross-Origin-Resource-Policy`, or Safari blocks it
+  (Chromium and Firefox get `credentialless`, which is forgiving). Hot-linked
+  covers falling back to generated art on iPhone is that, and it is accepted.
+
 - **Capacitor serves the native app over a custom URL scheme.** A scheme
   handler only answers the request types it implements, so prefer `GET` over
   `HEAD` for anything the app probes for. The WebView is also **not**

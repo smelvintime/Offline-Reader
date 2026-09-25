@@ -966,6 +966,34 @@ A centre/prose tap hides or reveals the transport, header, footer and bottom
 page rail together with the same 280 ms motion. Hidden controls are also
 `inert` and `aria-hidden`, not merely transparent.
 
+Waiting is shown on the play button only: a spinning ring while a clip is
+being generated (armed after 350 ms, so fast clips never flash it), and the
+same ring filling clockwise while the chapter pre-buffer is paid. No text sits
+beside the buttons; a label that came and went with every slow sentence
+resized the centred dock and slid the controls sideways. Screen readers get
+"Loading voice" / "Buffering chapter" from a visually hidden live region, and
+the play button carries `aria-busy`. The only text the dock prints is
+"Nothing to read".
+
+**Cores on the web build.** ONNX Runtime's wasm threads share memory through
+`SharedArrayBuffer`, which a browser only allows in a cross-origin isolated
+page, and one core on a phone generates audio several times slower than it is
+spoken. Static hosting cannot set headers, so `sw.js` adds
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy`
+to the documents and workers it serves: `credentialless` on Chromium and
+Firefox, `require-corp` on WebKit, which has no `credentialless`. The cost on
+WebKit is that hot-linked cross-origin images (source-site covers) are
+blocked and fall back to the generated artwork. `js/reader.js` reloads once at
+boot when the page is not isolated but the controlling worker says it adds the
+headers (`COI_HEADERS?`), so an update takes effect on the launch that installs
+it; a first visit is isolated from its next launch. The main thread picks the
+thread count (`neuralThreads()`: half the cores, capped at four, with an Apple
+touch device taken at six cores because WebKit under-reports them) and the
+worker feeds it to ORT through `navigator.hardwareConcurrency`, the one input
+ORT's default reads, since kokoro-js does not export ORT's `env`. The voice
+sheet's "Ready" line says how many cores the engine got. The native app has no
+service worker and runs the model natively; none of this applies there.
+
 **Two narrators, named rather than ranked.** The iPhone's own voice
 (`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
 immediately and costs nothing to run. The natural voice sounds better and has to
@@ -1045,8 +1073,8 @@ when the caps go back to normal.
 After that first sample, the adaptive caps are fixed for the listening session.
 The generation ratio naturally varies from clip to clip; allowing those samples
 to change group boundaries after lookahead has queued audio changes the cache
-keys, discards prepared work, and presents as "Preparing voice" in the middle of
-a chapter. A later session can choose a new tier from the latest measurement.
+keys, discards prepared work, and presents as the loading ring spinning in the
+middle of a chapter. A later session can choose a new tier from the latest measurement.
 
 Natural-voice prewarming is delayed until the reader has had its first 1.5
 seconds and the browser reports idle time. This keeps model startup from
@@ -1506,6 +1534,7 @@ synchronous source of truth.
 | `or.gap` | page-gap level index | yes — hide-time copy only |
 | `or.autoscroll` | JSON `{ speedIdx, scrollMode }` | yes — hide-time copy only |
 | `or.timer` | goals countdown `{ deadline, minutes }` | **no — deliberately.** Losing a running countdown to a WebKit eviction is accepted; resurrecting an expired one would chime for a timer the user never saw survive. |
+| `or.coiReload` | `'1'`, in **sessionStorage**: `js/reader.js` reloaded this session once to become cross-origin isolated (§2.14); stops a reload loop on a browser that will not isolate. | no, it is per session by design. |
 | `or.voiceGuard` | JSON `{ t, phase, device }` — novel-voice's crash-loop breaker (§2.14). `phase` is `speak` (written before a session's first utterance, cleared by two completed utterances, pause/stop, `pagehide`) or `model` (written inside `ensureReady`, cleared when the load reaches any verdict). Found fresh (<10 min) at the next session start = the last attempt likely took the page down → a `speak` crash starts paused, a `model` crash falls back to the device voice and suppresses prewarm. A bare timestamp from an older build reads as `speak`. | **no — deliberately.** It describes one runtime's crash, not the reader's data; mirroring it would trip the breaker on the other runtime. |
 
 ---

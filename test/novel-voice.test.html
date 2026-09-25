@@ -530,6 +530,52 @@ const T = {
     return { name: 'playback', pass };
   },
 
+  // The wait is shown as a ring on the play button, never as text beside it.
+  // Text came and went with every slow sentence, and since the dock is
+  // centred, each change resized it and slid every button sideways.
+  async testLoadingRing() {
+    let pass = true;
+    await freshOpen();
+    neuralStub.hold();                         // the first clip never arrives
+    V().toggle();
+    const bar = document.querySelector('#novel-screen .vc-bar');
+    const btn = bar.querySelector('.vc-play');
+    const status = bar.querySelector('.vc-status');
+    const live = bar.querySelector('[aria-live]');
+    const width0 = bar.getBoundingClientRect().width;
+    try {
+      await waitFor(() => btn.classList.contains('vc-preparing'), 2000, 'a slow clip arms the ring');
+      pass = ok(getComputedStyle(btn.querySelector('.vc-spinner')).display === 'block',
+        'the play button spins while the voice loads') && pass;
+      pass = ok(status.hidden && status.textContent === '', 'and no text is printed beside it',
+        JSON.stringify(status.textContent)) && pass;
+      pass = ok(Math.abs(bar.getBoundingClientRect().width - width0) < 0.5, 'so the dock keeps its width',
+        width0.toFixed(1) + ' → ' + bar.getBoundingClientRect().width.toFixed(1)) && pass;
+      pass = ok(btn.getAttribute('aria-busy') === 'true' && live && live.textContent === 'Loading voice',
+        'screen readers still hear that it is loading', live && live.textContent) && pass;
+
+      // A wait with a known end fills the ring rather than spinning it.
+      const st = VT().state;
+      st.prebuffer = { target: 10, got: 4 };
+      VT().updateBar();
+      pass = ok(btn.classList.contains('vc-buffering') && !btn.classList.contains('vc-preparing'),
+        'a chapter buffer fills the ring instead of spinning it') && pass;
+      pass = ok(btn.style.getPropertyValue('--vc-pct') === '40'
+        && getComputedStyle(btn.querySelector('.vc-fill')).display === 'block',
+        'to the share already buffered', btn.style.getPropertyValue('--vc-pct')) && pass;
+      pass = ok(status.hidden && Math.abs(bar.getBoundingClientRect().width - width0) < 0.5,
+        'still with no text and no change of width') && pass;
+      st.prebuffer = null;
+    } finally {
+      neuralStub.release();
+    }
+    await waitFor(() => neuralStub.spoken.length >= 2 && !btn.hasAttribute('aria-busy'), 3000, 'audio plays');
+    pass = ok(!btn.classList.contains('vc-preparing') && !btn.classList.contains('vc-buffering'),
+      'and the ring clears once audio plays') && pass;
+    endSession();
+    return { name: 'loading ring', pass };
+  },
+
   async testFollow() {
     let pass = true;
     // The long fixture: paged mode must genuinely paginate it.
@@ -2538,7 +2584,7 @@ const T = {
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
-      T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
+      T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
       T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
     ];
     let allPass = true;

@@ -6,7 +6,7 @@
 // v5.08 without a bump and reached nobody; the code was right and the readers
 // still had the bug. If you touched styles.css, css/**, or any js/** file in
 // the list below, this line changes too.
-const CACHE_NAME = 'cbz-reader-v5.68';
+const CACHE_NAME = 'cbz-reader-v5.69';
 
 // The app shell — precached on install so the PWA opens with no network at all.
 const SHELL_ASSETS = [
@@ -84,6 +84,11 @@ self.addEventListener('message', event => {
   if (event.data === 'GET_VERSION') {
     event.source.postMessage({ type: 'VERSION', version: CACHE_NAME });
   }
+  // A page that is not isolated asks whether a reload would make it so. Only a
+  // worker that adds the isolation headers (below) knows to answer.
+  if (event.data === 'COI_HEADERS?') {
+    event.source.postMessage({ type: 'COI_HEADERS' });
+  }
 });
 
 // Catalogue and chapter data are network-first so a reader online sees fresh
@@ -110,6 +115,46 @@ function isVoiceEngine(url) {
   return url.pathname.includes('/vendor/tts/');
 }
 
+// ── Cross-origin isolation ──────────────────────────────────────────────────
+//
+// The natural voice runs ONNX Runtime in wasm, and on one core a phone makes
+// audio several times slower than it is spoken: every sentence waits on the
+// next. ORT can use several cores, but only in a cross-origin isolated page,
+// because its threads share memory through SharedArrayBuffer. Static hosts do
+// not let us set response headers, so the service worker adds them to the
+// documents and workers it serves. The native app has no service worker and
+// is untouched; it runs the model natively anyway.
+//
+// The cost is that an isolated page may only embed cross-origin resources
+// that opt in. `credentialless` loads them anyway, without cookies, which is
+// all a book cover needs. Safari does not support it, so there the stricter
+// `require-corp` applies and covers hot-linked from a source site fall back
+// to the generated artwork, which the image error handlers already do.
+// Firefox and Chromium report themselves; everything on iOS is WebKit
+// whatever its name says (CriOS, FxiOS), so it gets the strict policy.
+const UA = (self.navigator && self.navigator.userAgent) || '';
+const COEP = (/(Chrome|Chromium|Firefox)\//.test(UA) && !/(iPhone|iPad|iPod|CriOS|FxiOS|EdgiOS)/.test(UA))
+  ? 'credentialless' : 'require-corp';
+
+// Documents and workers carry the policy; subresources do not need it.
+function wantsIsolation(request) {
+  return request.mode === 'navigate'
+    || request.destination === 'document'
+    || request.destination === 'worker'
+    || request.destination === 'sharedworker';
+}
+
+function isolate(res) {
+  // An opaque or error response cannot be rewritten, and has nothing to say.
+  if (!res || res.type === 'opaque' || res.type === 'opaqueredirect' || res.status === 0) return res;
+  const headers = new Headers(res.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', COEP);
+  // A 304 or 204 has no body, and the constructor refuses one for them.
+  const body = (res.status === 204 || res.status === 304) ? null : res.body;
+  return new Response(body, { status: res.status, statusText: res.statusText, headers });
+}
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -118,14 +163,17 @@ self.addEventListener('fetch', event => {
   try { url = new URL(request.url); } catch (e) { return; }
   if (url.origin !== self.location.origin) return;  // gateway/CDN traffic is not ours to cache
 
+  const iso = wantsIsolation(request);
+  const respond = p => event.respondWith(iso ? Promise.resolve(p).then(isolate) : p);
+
   // Application-owned voice code must win over legacy vendor-cache entries.
   if (url.pathname.endsWith('/js/novel-voice-worker.js') || url.pathname.endsWith('/js/voice-native-tokenizer.mjs')) {
-    event.respondWith(caches.open(CACHE_NAME).then(c => c.match(request)).then(hit => hit || fetch(request)));
+    respond(caches.open(CACHE_NAME).then(c => c.match(request)).then(hit => hit || fetch(request)));
     return;
   }
 
   if (isData(url)) {
-    event.respondWith(
+    respond(
       fetch(request)
         .then(res => {
           if (res && res.ok) {
@@ -145,7 +193,7 @@ self.addEventListener('fetch', event => {
 
   if (isFont(url) || isVoiceEngine(url)) {
     const bucket = isFont(url) ? CACHE_NAME : VOICE_CACHE;
-    event.respondWith(
+    respond(
       caches.match(request)
         .then(cached => cached || fetch(request).then(res => {
           if (res && res.ok) {
@@ -162,7 +210,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  event.respondWith(
+  respond(
     caches.match(request)
       .then(cached => cached || fetch(request))
       .catch(() => new Response('Offline — resource not cached', {

@@ -10,6 +10,38 @@
 // Platform.isNative is readable at parse time.
 if ('serviceWorker' in navigator && !(window.Platform && window.Platform.isNative)) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // The worker adds the headers that make the page cross-origin isolated
+  // (sw.js explains why the voice needs them), but only to pages it serves.
+  // A page that loaded before it took control, or under an older worker that
+  // did not add them, stays on one core for the whole session. So reload
+  // once, but only when a reload would actually be isolated: the controlling
+  // worker says it adds the headers. A session flag stops a loop on a
+  // browser that will not isolate at all.
+  if (window.crossOriginIsolated === false) {
+    const bootAt = Date.now();
+    const reloadOnce = () => {
+      try {
+        if (sessionStorage.getItem('or.coiReload')) return;
+        sessionStorage.setItem('or.coiReload', '1');
+      } catch (e) { return; }   // storage blocked: stay as we are rather than risk a loop
+      location.reload();
+    };
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data && e.data.type === 'COI_HEADERS') reloadOnce();
+    });
+    // An update that takes over mid-boot asks the same question. A first
+    // visit does not: nobody should have the page reload under them seconds
+    // after arriving, and the next launch is isolated anyway. Nor does a
+    // takeover later on, when someone may be reading.
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage('COI_HEADERS?');
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (Date.now() - bootAt < 10000 && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage('COI_HEADERS?');
+        }
+      });
+    }
+  }
 }
 
 // --- State ---

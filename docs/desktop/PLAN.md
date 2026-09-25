@@ -141,6 +141,9 @@ cross-origin isolation, so `SharedArrayBuffer` is unavailable and the wasm voice
 runs single-threaded. On desktop hosting, COOP/COEP headers could enable threads.
 That is a hosting change with its own blast radius (cross-origin images, embeds),
 so it is an experiment with a measured before and after, not a task.
+*Done since, for phones as well:* `sw.js` now adds the headers itself (§2.14 of
+docs/ARCHITECTURE.md). On a 4-core machine the vendored ORT binary ran a
+synthetic conv stack at 617 ms on one thread and 167 ms on four.
 
 **Acceptance.** A recorded desktop margin, and either a justified constant change
 or a written no-change decision.

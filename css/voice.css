@@ -78,17 +78,39 @@
 #novel-screen .vc-btn-big:active { filter: brightness(0.92); }
 
 /* Engine warm-up / generation: a ring around the play button, not a modal —
-   listening should feel buffered, never blocked. */
+   listening should feel buffered, never blocked. It is the only loading
+   signal on the dock, so the dock never changes width while it waits.
+   A faint full track with a spinning arc on top, so the ring reads as a
+   ring even on the arc's way round. */
 #novel-screen .vc-spinner {
   display: none;
-  position: absolute; inset: -3px;
-  border: 2px solid transparent;
+  position: absolute; inset: -4px;
+  border: 2.5px solid color-mix(in srgb, var(--nv-accent) 22%, transparent);
   border-top-color: var(--nv-accent);
   border-radius: 999px;
   animation: vc-spin 0.9s linear infinite;
+  pointer-events: none;
 }
 #novel-screen .vc-preparing .vc-spinner { display: block; }
 @keyframes vc-spin { to { transform: rotate(360deg); } }
+
+/* A wait with a known end (the chapter pre-buffer) fills the same ring
+   clockwise instead of spinning it: --vc-pct is set from JS. */
+#novel-screen .vc-fill {
+  display: none;
+  position: absolute; inset: -4px;
+  border-radius: 999px;
+  background: conic-gradient(var(--nv-accent) calc(var(--vc-pct, 0) * 1%),
+                             color-mix(in srgb, var(--nv-accent) 22%, transparent) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  pointer-events: none;
+}
+#novel-screen .vc-buffering .vc-fill { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  #novel-screen .vc-spinner { animation-duration: 2.4s; }
+}
 
 #novel-screen .vc-status {
   padding: 0 0.55rem 0 0.35rem;
@@ -97,6 +119,7 @@
   color: var(--nv-muted);
   white-space: nowrap;
 }
+#novel-screen .vc-status[hidden] { display: none; }
 
 /* ── Voice sheet ──────────────────────────────────────────────────────────
    Same construction as the reader's settings sheet, including the [hidden]

@@ -89,6 +89,27 @@
     } catch (e) { return false; }
   }
 
+  // How many cores the wasm engine may use. More than one needs the page to
+  // be cross-origin isolated (sw.js adds the headers), because ONNX Runtime's
+  // threads share memory through SharedArrayBuffer. Without isolation it is
+  // one, which is what made the browser build several times slower than
+  // speech on a phone.
+  //
+  // ONNX Runtime's own default is half the reported cores, capped at four.
+  // WebKit does not report an iPhone's real core count, so an Apple touch
+  // device is taken at six, the count every iPhone that runs a current iOS
+  // has. Half of that is the two performance cores plus one efficiency core;
+  // going wider makes the fast cores wait on the slow ones at every barrier.
+  function neuralThreads() {
+    if (typeof self === 'undefined' || !self.crossOriginIsolated) return 1;
+    let cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 0;
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const appleTouch = /iPhone|iPad|iPod/.test(ua)
+      || (/Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1);
+    if (appleTouch && cores < 6) cores = 6;
+    return Math.max(1, Math.min(4, Math.ceil(cores / 2)));
+  }
+
   function neuralDevice() {
     return (gpuCapable() && state.prefs && state.prefs.gpu) ? GPU_DEVICE : NEURAL_DEVICE;
   }
@@ -221,8 +242,8 @@
   const CRASH_GUARD_KEY = 'or.voiceGuard';
   const CRASH_GUARD_FRESH_MS = 10 * 60 * 1000;
 
-  // "Preparing voice…" only appears when the wait is real. Cache hits and
-  // fast generations stay visually seamless instead of strobing the bar.
+  // The play button's loading ring only appears when the wait is real. Cache
+  // hits and fast generations stay visually seamless instead of strobing it.
   const PREPARING_DELAY_MS = 350;
   const PREWARM_DELAY_MS = 1500;
 
@@ -1240,6 +1261,7 @@
       backend: neuralEngine.native ? 'native' : (neuralEngine.ready ? (neuralEngine.device || 'wasm') : 'unloaded'),
       gpu: { capable: gpuCapable(), enabled: !!(state.prefs && state.prefs.gpu), failed: gpuInitFailed },
       provider: neuralEngine.provider, weights: neuralEngine.nativeWeights,
+      threads: neuralEngine.threads, isolated: typeof self !== 'undefined' && !!self.crossOriginIsolated,
       pending: neuralEngine.pending.size, cachedClips: neuralEngine.wavCache.size,
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
       resources: Object.assign({}, resources), events: voiceEvents.slice() };
@@ -1298,6 +1320,7 @@
     speed: null,           // { ms, seconds, chars, ratio } for the last group
     native: false,         // true once a load proved the forward pass is native
     provider: '',          // e.g. 'cpu ×3', as the plugin reported it
+    threads: 0,            // wasm threads the worker's engine was given
     device: null,          // device the live worker was initialised with
     nativeWeights: '',     // dtype the native session actually opened
     readyPromise: null,
@@ -1412,7 +1435,8 @@
             // supersedes the main thread's guess in the line a reader reads.
             if (m.heapPages) noteHeapPages(m.heapPages);
             self.native = !!m.native;
-            voiceEvent('ready', { native: self.native, initMs: m.initMs });
+            self.threads = m.threads || 1;
+            voiceEvent('ready', { native: self.native, initMs: m.initMs, threads: self.threads });
             self.stage = '';       // init is over; the step it ended on is stale
             finish(null);
             if (self.onprogress) self.onprogress({ type: 'ready' });
@@ -1440,6 +1464,7 @@
           // worker is a separate JS realm with its own address space, and the
           // one that has to succeed is the worker's.
           heapPages: NEURAL_HEAP_PAGES,
+          threads: neuralThreads(),
         });
       });
       // A GPU that cannot start is a slower narrator, not a broken one. Retry
@@ -2634,8 +2659,8 @@
     updateBar();
   }
 
-  // Arm the "Preparing voice…" state only if the wait turns out to be real —
-  // cache hits and fast generations must not strobe the bar every sentence.
+  // Arm the loading ring only if the wait turns out to be real — cache hits
+  // and fast generations must not strobe the play button every sentence.
   function setPreparingSoon() {
     clearTimeout(preparingTimer);
     preparingTimer = setTimeout(function () {
@@ -2746,18 +2771,27 @@
     const prevBtn = iconBtn('Previous sentence', 'prev');
     const playBtn = iconBtn('Pause', 'pause', true);
     playBtn.classList.add('vc-play');
+    // The wait is shown on the play button and nowhere else. A text label
+    // beside it came and went with every slow sentence, and because the dock is
+    // centred, each one resized it and slid every button sideways.
     const spinner = el('span', 'vc-spinner');
     spinner.setAttribute('aria-hidden', 'true');
-    playBtn.appendChild(spinner);
+    const ring = el('span', 'vc-fill');
+    ring.setAttribute('aria-hidden', 'true');
+    playBtn.append(spinner, ring);
     const nextBtn = iconBtn('Next sentence', 'next');
     const closeBtn = iconBtn('Stop listening', 'close');
 
+    // Only "Nothing to read" is ever printed. The wait is still announced, to
+    // screen readers only, and only when its kind changes.
     const status = el('div', 'vc-status');
+    status.hidden = true;
     const statusLine = el('span', 'vc-status-line');
-    statusLine.setAttribute('aria-live', 'polite');
     status.appendChild(statusLine);
+    const srLine = el('span', 'nv-sr-only');
+    srLine.setAttribute('aria-live', 'polite');
 
-    bar.append(voiceBtn, prevBtn, playBtn, nextBtn, closeBtn, status);
+    bar.append(voiceBtn, prevBtn, playBtn, nextBtn, closeBtn, status, srLine);
     voiceBtn.addEventListener('click', function () {
       if (voiceSheetVisible() && !readerSheetVisible()) closeSheet();
       else openSheet();
@@ -2774,7 +2808,7 @@
 
     const sheet = buildSheet();
 
-    Object.assign(dom, { bar, playBtn, statusLine, scrim, sheet });
+    Object.assign(dom, { bar, playBtn, status, statusLine, srLine, scrim, sheet });
     state.bridge.mount(bar);
     state.bridge.mount(scrim);
     state.bridge.mount(sheet);
@@ -2786,31 +2820,19 @@
     setIcon(dom.playBtn, playing ? 'pause' : 'play');
     dom.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     dom.playBtn.title = playing ? 'Pause' : 'Play';
-    dom.playBtn.classList.toggle('vc-preparing', state.preparing);
-    const n = state.sentences.length;
-    const at = n ? state.index + 1 : 0;
-    // "Preparing voice…" alone is why "it read the title and stopped" was
-    // unreadable: a gap because the engine is grinding and a gap because it
-    // died look the same. The last group's cost says which, in the place a
-    // reader is already staring at while waiting.
-    // The bar says what a reader can act on, and nothing else.
-    //
-    // The passage counter, the dtype and the margin were instrumentation. They
-    // earned their place when a stutter had to be diagnosable from a
-    // photograph, and they did that job — the margin is what finally settled
-    // that this was arithmetic rather than scheduling. But the job is done,
-    // and what is left is three numbers moving on a page someone is trying to
-    // listen to. The engine line still carries all of it, on the one screen
-    // where it is wanted: a build that is failing.
-    //
-    // The percentage stays. "Preparing" with no end in sight is the thing a
-    // reader gives up on; this one has an end and can be watched approaching it.
     const pb = state.prebuffer;
-    dom.statusLine.textContent = pb
-      ? 'Buffering chapter… ' + Math.min(99, Math.round((pb.got / pb.target) * 100)) + '%'
-      : state.preparing ? 'Preparing voice…'
-      : n ? ''
-      : 'Nothing to read';
+    // A buffer with a known end fills the ring; any other wait spins it.
+    const pct = pb ? Math.min(99, Math.round((pb.got / pb.target) * 100)) : 0;
+    dom.playBtn.classList.toggle('vc-preparing', !pb && state.preparing);
+    dom.playBtn.classList.toggle('vc-buffering', !!pb);
+    dom.playBtn.style.setProperty('--vc-pct', String(pct));
+    if (pb || state.preparing) dom.playBtn.setAttribute('aria-busy', 'true');
+    else dom.playBtn.removeAttribute('aria-busy');
+    const sr = pb ? 'Buffering chapter' : state.preparing ? 'Loading voice' : '';
+    if (dom.srLine.textContent !== sr) dom.srLine.textContent = sr;
+    const n = state.sentences.length;
+    dom.statusLine.textContent = n ? '' : 'Nothing to read';
+    dom.status.hidden = !!n;
   }
 
   // The Listen button in the reader header mirrors whether a session is up.
@@ -3210,9 +3232,14 @@
     if (neuralEngine.ready) {
       // The empty parentheses here used to hold the execution device, removed
       // when the engine line took that over. Nobody reads their own UI strings.
-      natText.textContent = state.neuralBundled
+      natText.textContent = (state.neuralBundled
         ? 'Ready — included with the app. Works offline.'
-        : 'Ready — running on this device. Works offline.';
+        : 'Ready — running on this device. Works offline.')
+        // Whether the browser build got more than one core is the first thing
+        // to know when it is slow, and it should not take a console to find.
+        + (!neuralEngine.native && neuralEngine.threads
+          ? ' Using ' + neuralEngine.threads + (neuralEngine.threads === 1 ? ' CPU core.' : ' CPU cores.')
+          : '');
       natAction.hidden = true;
       inAppHasNoFileToManage(natAction);
       return;
@@ -3625,6 +3652,7 @@
     /** Pure pieces exposed for the test page; not API for other modules. */
     diagnostics: voiceDiagnostics,
     _test: {
+      updateBar: updateBar,
       segmentBlocks: segmentBlocks,
       sentenceIndexAt: sentenceIndexAt,
       groupSentences: groupSentences,

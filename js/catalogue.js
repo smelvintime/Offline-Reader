@@ -245,6 +245,13 @@
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
+  // A single chapter's count is shown exactly ("3,482 words"); only the
+  // series total is rounded, where the scale is the point.
+  function fmtWordsExact(n) {
+    if (!n) return '';
+    return Number(n).toLocaleString() + (n === 1 ? ' word' : ' words');
+  }
+
   function fmtWords(n) {
     if (!n) return '';
     if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M words';
@@ -2041,7 +2048,7 @@
 
     const tail = el('span', 'cat-ch-tail');
     if (isTextSeries(s) && ch.wordCount) {
-      tail.appendChild(el('span', 'ch-date', fmtWords(ch.wordCount)));
+      tail.appendChild(el('span', 'ch-date', fmtWordsExact(ch.wordCount)));
     } else if (Array.isArray(ch.pages) && ch.pages.length) {
       tail.appendChild(el('span', 'ch-date', ch.pages.length + 'p'));
     }

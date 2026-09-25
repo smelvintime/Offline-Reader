@@ -956,7 +956,11 @@
   // Capacitor style names are about the BAR, not the text: 'DARK' = dark bar,
   // light text; 'LIGHT' = light bar, dark text.
   function statusBarStyle() {
-    const theme = appTheme();
+    // What is on screen wins over the pref: with "System" on, settings.js may
+    // be showing the stored theme's light or dark partner.
+    const shown = document.documentElement.dataset.apptheme;
+    const theme = (shown === 'custom' || LIGHT_APP_THEMES.indexOf(shown) !== -1 ||
+                   DARK_APP_THEMES.indexOf(shown) !== -1) ? shown : appTheme();
     if (theme === 'custom') {
       // settings.js computes data-applum ('dark' | 'light') from the custom
       // bg's luminance — reuse its judgment instead of re-deriving it here.
@@ -988,6 +992,13 @@
       clearTimeout(statusBarTimer);
       statusBarTimer = setTimeout(applyStatusBarStyle, 50);
     });
+    // A theme following the system flips without any pref write.
+    try {
+      const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+      const later = function () { clearTimeout(statusBarTimer); statusBarTimer = setTimeout(applyStatusBarStyle, 50); };
+      if (mq && mq.addEventListener) mq.addEventListener('change', later);
+      else if (mq && mq.addListener) mq.addListener(later);
+    } catch (e) {}
   }
 
   // ── Native boot ───────────────────────────────────────────────────────────

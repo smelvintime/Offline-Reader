@@ -915,6 +915,18 @@ const T = {
     sideBtn('light').click();
     ok(root().dataset.theme === 'light', 'black comes up as light', root().dataset.theme);
 
+    // System: keeps the pick, paints the side the OS is on.
+    const osDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    swatch('cream').click();
+    sideBtn('system').click();
+    ok(Store.prefs.get('app.themeFollow', false) === true, 'System writes the follow pref');
+    ok(sideBtn('system').getAttribute('aria-pressed') === 'true', 'System reads as pressed');
+    ok(root().dataset.theme === (osDark ? 'cream-dark' : 'cream'),
+       'System paints the OS side of cream', root().dataset.theme + ' (os dark: ' + osDark + ')');
+    sideBtn('dark').click();
+    ok(Store.prefs.get('app.themeFollow', true) === false, 'Dark turns System off');
+    ok(root().dataset.theme === 'cream-dark', 'and lands on dark cream', root().dataset.theme);
+
     // Full screen: rendered only where the API exists, and labelled for it.
     const fs = window.Platform && window.Platform.fullscreen;
     const fsBtn = document.querySelector('#novel-screen .nv-header [aria-pressed][aria-label*="ull screen"]');

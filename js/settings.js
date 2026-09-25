@@ -230,25 +230,44 @@
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
 
+  // "System" on the Light / Dark switch (`app.themeFollow`): the stored theme
+  // is kept, and whichever side the OS is on picks it or its partner. Custom
+  // has no partner, so it is left alone. novel-reader.js resolves the same way.
+  const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+  function systemSide() {
+    try { return window.matchMedia && window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'; }
+    catch (e) { return 'dark'; }
+  }
+
+  function followsSystem() { return prefGet('app.themeFollow', false) === true; }
+
   function readTheme() {
     const v = prefGet('app.theme', 'dark');
-    return {
+    const t = {
       theme:    APP_THEMES.indexOf(v) !== -1 ? v : 'dark',
       customBg: hexColor(prefGet('app.customBg', CUSTOM_BG), CUSTOM_BG),
       customFg: hexColor(prefGet('app.customFg', CUSTOM_FG), CUSTOM_FG),
+      follow:   followsSystem(),
     };
+    // `effective` is what is on screen; `theme` is what was picked.
+    t.effective = t.theme;
+    if (t.follow && t.theme !== 'custom' && themeSide(t) !== systemSide() && THEME_PAIR[t.theme]) {
+      t.effective = THEME_PAIR[t.theme];
+    }
+    return t;
   }
 
   let appliedSig = null;
 
   function applyTheme() {
     const t = readTheme();
-    const sig = t.theme + (t.theme === 'custom' ? '|' + t.customBg + '|' + t.customFg : '');
+    const sig = t.effective + (t.theme === 'custom' ? '|' + t.customBg + '|' + t.customFg : '');
     if (sig === appliedSig) return;    // nothing changed — no DOM writes, no meta mutation
     appliedSig = sig;
 
     const root = document.documentElement;
-    root.dataset.apptheme = t.theme;
+    root.dataset.apptheme = t.effective;
     if (t.theme === 'custom') {
       root.style.setProperty('--bg', t.customBg);
       root.style.setProperty('--text', t.customFg);
@@ -264,7 +283,7 @@
     // the data-applum stamped above).
     try {
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', t.theme === 'custom' ? t.customBg : THEME_BG[t.theme]);
+      if (meta) meta.setAttribute('content', t.theme === 'custom' ? t.customBg : THEME_BG[t.effective]);
     } catch (e) { /* chrome hint only */ }
   }
 
@@ -284,6 +303,20 @@
       });
     }
   } catch (e) { /* Store absent — permanent dark, as designed */ }
+
+  // The OS flipping light/dark (sunset, a Control Centre tap) re-resolves a
+  // following theme. applyTheme's signature check makes this free otherwise.
+  try {
+    const mq = window.matchMedia && window.matchMedia(DARK_QUERY);
+    if (mq) {
+      const onSystem = function () {
+        applyTheme();
+        uiSync.forEach(function (fn) { try { fn(); } catch (e) {} });
+      };
+      if (mq.addEventListener) mq.addEventListener('change', onSystem);
+      else if (mq.addListener) mq.addListener(onSystem);
+    }
+  } catch (e) { /* no matchMedia: the switch just never says System */ }
 
   // ── Focus pref (PLAN7 §2.1) ───────────────────────────────────────────────
 
@@ -402,18 +435,23 @@
 
     // Light / Dark flips the current theme to its partner (Cream and Dark
     // Cream, Nord and Nord Light…) and shows that side's themes below.
+    // System keeps the pick and lets the OS choose the side.
     const side = el('div', 'set-seg set-theme-side');
     side.setAttribute('role', 'group');
-    side.setAttribute('aria-label', 'Light or dark');
-    const sideBtns = [['light', 'Light'], ['dark', 'Dark']].map(function (o) {
+    side.setAttribute('aria-label', 'Light, dark or follow system');
+    const sideBtns = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(function (o) {
       const b = el('button', null, o[1]);
       b.type = 'button';
       b.dataset.value = o[0];
       b.setAttribute('aria-pressed', 'false');
       b.addEventListener('click', function () {
+        if (o[0] === 'system') { prefSet('app.themeFollow', true); return; }
+        // Leaving System starts from what is on screen, then flips if needed.
         const t = readTheme();
-        if (themeSide(t) === o[0]) return;
-        prefSet('app.theme', THEME_PAIR[t.theme] || o[0]);
+        const shown = { theme: t.effective, customBg: t.customBg };
+        const next = themeSide(shown) === o[0] ? t.effective : (THEME_PAIR[t.effective] || o[0]);
+        prefSet('app.themeFollow', false);
+        prefSet('app.theme', next);
       });
       side.appendChild(b);
       return b;
@@ -468,12 +506,13 @@
 
     uiSync.push(function () {
       const t = readTheme();
-      const cur = themeSide(t);
+      const cur = themeSide({ theme: t.effective, customBg: t.customBg });
+      const pressed = t.follow ? 'system' : cur;
       sideBtns.forEach(function (b) {
-        b.setAttribute('aria-pressed', String(b.dataset.value === cur));
+        b.setAttribute('aria-pressed', String(b.dataset.value === pressed));
       });
       buttons.forEach(function (b) {
-        b.setAttribute('aria-pressed', String(b.dataset.value === t.theme));
+        b.setAttribute('aria-pressed', String(b.dataset.value === t.effective));
         if (b.dataset.side) b.hidden = b.dataset.side !== cur;
       });
       custom.style.background = t.customBg;

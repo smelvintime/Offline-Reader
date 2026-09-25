@@ -358,12 +358,52 @@
     return sw ? sw[4] : 'dark';
   }
 
-  /** Flip to the current theme's partner on the other side. */
-  function setThemeSide(side) {
-    if (themeSide(state.prefs) === side) return;
-    const pair = THEME_PAIR[state.prefs.theme];
-    setThemeChoice(pair || (side === 'light' ? 'light' : 'dark'));
+  // "System" on the Light / Dark switch. Global (`app.themeFollow`, shared
+  // with Settings): the picked theme is kept and the OS's side picks it or its
+  // partner at paint time. Custom has no partner and is left alone.
+  const FOLLOW_KEY = 'app.themeFollow';
+  const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+  function followsSystem() { return appGet(FOLLOW_KEY, false) === true; }
+
+  function systemSide() {
+    try { return window.matchMedia && window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'; }
+    catch (e) { return 'dark'; }
   }
+
+  /** The theme actually painted: the pick, or its partner when following. */
+  function effectiveTheme(p) {
+    if (!followsSystem() || p.theme === 'custom' || !THEME_PAIR[p.theme]) return p.theme;
+    return themeSide(p) === systemSide() ? p.theme : THEME_PAIR[p.theme];
+  }
+
+  /** Light / Dark: stop following, and flip what is on screen if needed. */
+  function setThemeSide(side) {
+    const shown = { theme: effectiveTheme(state.prefs), customBg: state.prefs.customBg };
+    const next = themeSide(shown) === side ? shown.theme : (THEME_PAIR[shown.theme] || side);
+    appSet(FOLLOW_KEY, false);
+    setThemeChoice(next);
+    applyPrefs();
+    syncSheet();
+  }
+
+  function setFollowSystem() {
+    appSet(FOLLOW_KEY, true);
+    applyPrefs();
+    syncSheet();
+  }
+
+  // The OS flipping sides re-resolves a following theme while a book is open.
+  try {
+    const mq = window.matchMedia && window.matchMedia(DARK_QUERY);
+    const onSystem = function () {
+      if (!state.open || !followsSystem()) return;
+      applyPrefs();
+      syncSheet();
+    };
+    if (mq && mq.addEventListener) mq.addEventListener('change', onSystem);
+    else if (mq && mq.addListener) mq.addListener(onSystem);
+  } catch (e) { /* no matchMedia: System simply never flips */ }
 
   function setThemeChoice(value) {
     setPref('theme', value, false);
@@ -880,13 +920,15 @@
     // Cream, Nord and Nord Light…) and shows that side's themes below.
     const side = el('div', 'nv-seg nv-theme-side');
     side.setAttribute('role', 'group');
-    side.setAttribute('aria-label', 'Light or dark');
-    const sideBtns = [['light', 'Light'], ['dark', 'Dark']].map(function (o) {
+    side.setAttribute('aria-label', 'Light, dark or follow system');
+    const sideBtns = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(function (o) {
       const b = el('button', null, o[1]);
       b.type = 'button';
       b.dataset.value = o[0];
       b.setAttribute('aria-pressed', 'false');
-      b.addEventListener('click', function () { setThemeSide(o[0]); });
+      b.addEventListener('click', function () {
+        if (o[0] === 'system') setFollowSystem(); else setThemeSide(o[0]);
+      });
       side.appendChild(b);
       return b;
     });
@@ -975,12 +1017,14 @@
     row.appendChild(scopeWrap);
 
     sheetSync.push(function (p) {
-      const cur = themeSide(p);
+      const shown = effectiveTheme(p);
+      const cur = themeSide({ theme: shown, customBg: p.customBg });
+      const pressed = followsSystem() ? 'system' : cur;
       sideBtns.forEach(function (b) {
-        b.setAttribute('aria-pressed', String(b.dataset.value === cur));
+        b.setAttribute('aria-pressed', String(b.dataset.value === pressed));
       });
       buttons.forEach(function (b) {
-        b.setAttribute('aria-pressed', String(b.dataset.value === p.theme));
+        b.setAttribute('aria-pressed', String(b.dataset.value === shown));
         if (b.dataset.side) b.hidden = b.dataset.side !== cur;
       });
       custom.style.background = p.customBg;
@@ -1431,7 +1475,7 @@
   function applyPrefs() {
     const p = state.prefs, r = dom.root;
     r.dataset.mode   = state.mode;
-    r.dataset.theme  = p.theme;
+    r.dataset.theme  = effectiveTheme(p);
     r.dataset.font   = p.fontFamily;
     r.dataset.width  = p.width;
     r.dataset.para   = p.paraSpacing;

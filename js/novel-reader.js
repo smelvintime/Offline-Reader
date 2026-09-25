@@ -539,6 +539,11 @@
     zMid.setAttribute('aria-label', 'Show or hide reader controls');
     zNext.setAttribute('aria-label', 'Next page');
     zones.append(zPrev, zMid, zNext);
+    // A mouse click must not focus a zone: a focused zone draws its focus
+    // ring over a third of the page as soon as any key is pressed (Chrome
+    // flips :focus-visible on for a mouse-focused element once the keyboard
+    // is used). Tab still reaches the zones, ring and all. Click still fires.
+    zones.addEventListener('mousedown', function (e) { e.preventDefault(); });
     root.appendChild(zones);
 
     // ── Header ────────────────────────────────────────────────────────────

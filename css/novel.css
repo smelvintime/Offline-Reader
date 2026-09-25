@@ -257,6 +257,9 @@
 #novel-screen[data-indent='true'] { --nv-indent: 1.6em; }
 
 #novel-screen button { font: inherit; color: inherit; }
+/* The screen itself is only a programmatic focus target (tabindex=-1, so
+   keys land on the reader); it is not a control and draws no ring. */
+#novel-screen:focus { outline: none; }
 #novel-screen :focus-visible {
   outline: 2px solid var(--nv-accent);
   outline-offset: 2px;

@@ -253,8 +253,10 @@ const neuralStub = {
         postMessage(m) {
           if (m.type !== 'generate') return;
           self.spoken.push(m.text);
-          setTimeout(() => ne.settle(m.id, null,
-            { type: 'audio', id: m.id, wav: wav.slice(0), seconds: 0.01 }), self.delay);
+          const finish = () => ne.settle(m.id, null,
+            { type: 'audio', id: m.id, wav: wav.slice(0), seconds: 0.01 });
+          if (self.held) self.held.push(finish);
+          else setTimeout(finish, self.delay);
         },
         terminate() {},
       };
@@ -263,7 +265,13 @@ const neuralStub = {
       return ne.readyPromise;
     };
   },
+  // hold() parks every clip unfinished, freezing the cursor where it is;
+  // release() lets them all finish. For asserting on the cursor mid-session.
+  held: null,
+  hold() { this.held = this.held || []; },
+  release() { const q = this.held || []; this.held = null; q.forEach(f => setTimeout(f, this.delay)); },
   reset() {
+    this.held = null;
     this.spoken = [];
     const ne = VT().neuralEngine;
     ne.dispose();
@@ -603,7 +611,9 @@ const T = {
     await waitFor(() => neuralStub.spoken.length >= 1, 2000, 'started');
 
     // The user grabs the footer and jumps a chapter mid-narration: the voice
-    // follows them and keeps reading from the new chapter's top.
+    // follows them and keeps reading from the new chapter's top. Clips are
+    // held so the cursor cannot run past sentence 0 before we look at it.
+    neuralStub.hold();
     document.querySelector('#novel-screen .nv-footer button[aria-label="Next chapter"]').click();
     await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 3000, 'voice re-seeded to chapter 2');
     pass = ok(V().state().active, 'session survived the jump') && pass;
@@ -611,7 +621,13 @@ const T = {
     // NB: assertions match the NORMALIZED spoken text — the device engine
     // turns the heading's em-dash into a comma pause on purpose.
     await waitFor(() => neuralStub.spoken.some(t => t.indexOf('Chapter 2') !== -1), 3000, 'reading chapter 2');
+    pass = ok(true, 'narration asked for the new chapter\'s heading') && pass;
+    neuralStub.release();
+    await waitFor(() => neuralStub.spoken.some(t => t.indexOf('wind of chapter 2') !== -1), 3000, 'chapter 2 body');
     pass = ok(true, 'narration continued in the new chapter') && pass;
+    // The old clip's play() rejects when the jump stops it; that must not
+    // pause the new chapter's narration.
+    pass = ok(V().state().playing, 'still playing after the jump') && pass;
     endSession();
     return { name: 'user chapter nav', pass };
   },

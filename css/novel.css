@@ -857,6 +857,9 @@ body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
 .nv-toggle[aria-pressed='true'] { border-color: var(--nv-accent); color: var(--nv-accent); }
 .nv-toggle[aria-pressed='true'] span.nv-pill { background: var(--nv-accent); color: #fff; }
 
+/* The prose's own opening heading while chapter titles are hidden (spoilers). */
+#novel-screen .nv-spoiler-hidden { display: none; }
+
 .nv-actions { display: flex; gap: 0.5rem; padding-top: 0.4rem; }
 .nv-actions button {
   flex: 1; min-height: 44px;

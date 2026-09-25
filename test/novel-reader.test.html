@@ -39,6 +39,7 @@
   <button onclick="T.testPresetSaveLoad().then(T.report)">presets save/load</button>
   <button onclick="T.testPresetNameXss().then(T.report)">presets xss</button>
   <button onclick="T.testThoughtsCta().then(T.report)">thoughts cta</button>
+  <button onclick="T.testHideChapterTitles().then(T.report)">hide chapter titles</button>
   <button onclick="T.testHomeButton().then(T.report)">home button</button>
   <button onclick="T.testDesktopImmersive().then(T.report)">desktop immersive</button>
 </div>
@@ -819,6 +820,54 @@ const T = {
     ok(q('.nv-end').length === 1, 'end marker unaffected by the missing module');
 
     Store.prefs.set('thoughts.chapterPrompt', false);
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  // ── Spoiler guard: app.hideChapterTitles ──────────────────────────────────
+
+  async testHideChapterTitles() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    const TITLE = 'The Ledger of Small Debts';
+    const q = sel => document.querySelector('#novel-screen ' + sel);
+    const sub = () => (q('.nv-subtitle') || {}).textContent || '';
+    const visibleText = () => [...document.querySelectorAll('#novel-screen .nv-section *')]
+      .filter(n => n.children.length === 0 && n.offsetParent !== null)
+      .map(n => n.textContent).join('\n');
+
+    await this.reset();
+    await this.open(1);
+    this.mode('chapter');
+    ok(sub().indexOf(TITLE) !== -1, 'titles show by default', sub());
+    ok(visibleText().indexOf(TITLE) !== -1, 'the opening heading is visible by default');
+
+    const toggle = [...document.querySelectorAll('#novel-screen .nv-toggle')]
+      .find(b => /Hide chapter titles/.test(b.textContent));
+    ok(!!toggle, 'the reading sheet has a Hide chapter titles toggle');
+    toggle.click();
+    ok(Store.prefs.get('app.hideChapterTitles', false) === true, 'the toggle writes the global pref');
+    ok(toggle.getAttribute('aria-pressed') === 'true', 'the toggle reads as on');
+    ok(sub() === 'Ch. 1', 'header subtitle is the number only', sub());
+    ok(visibleText().indexOf(TITLE) === -1, 'no visible text in the chapter names it', visibleText().slice(0, 200));
+    const heading = q('.nv-chapter-title');
+    ok(!!heading && heading.textContent === 'Ch. 1', 'a number-only heading stands in', heading && heading.textContent);
+    const first = q('.nv-section [data-b="0"]');
+    ok(!!first && first.classList.contains('nv-spoiler-hidden'), 'the prose heading is kept in the DOM but hidden');
+    ok(window.NovelReader.state().chapterId === 'c-0001', 'the reader stays on the same chapter');
+
+    // Still hidden on the next open (it is a pref, not a session flag).
+    await this.open(2);
+    ok(sub() === 'Ch. 2', 'persists across opens', sub());
+
+    toggle.click();
+    ok(Store.prefs.get('app.hideChapterTitles', true) === false, 'toggling again turns it off');
+    ok(sub().indexOf(TITLE) !== -1, 'titles come back live', sub());
+    ok(!q('.nv-spoiler-hidden'), 'nothing left hidden once off');
+
     window.NovelReader.close({ navigate: false });
     return out;
   },

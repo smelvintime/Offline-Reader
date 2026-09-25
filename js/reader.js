@@ -497,6 +497,24 @@ function chapterLabelNum(ch, idx) {
   return idx + 1 + baseChapterOffset;
 }
 
+// The spoiler toggle (Settings → Chapter titles, `app.hideChapterTitles`):
+// when on, every place a chapter's name is shown falls back to its number.
+function chapterTitlesHidden() {
+  try { return !!(window.Store && window.Store.prefs.get('app.hideChapterTitles', false)); }
+  catch (e) { return false; }
+}
+
+function chapterDisplayName(ch, idx) {
+  if (!chapterTitlesHidden()) return ch.name;
+  // displayNum first: ch.name may be a bare title (an online chapter, or a
+  // file named "Ch 12 The Fall"), and a number inside a title ("The 3 Kings")
+  // must not pass for the chapter number.
+  const n = ch.displayNum != null
+    ? ch.displayNum + chapterDisplayShift
+    : chapterLabelNum(ch, idx < 0 ? 0 : idx);
+  return 'Chapter ' + n;
+}
+
 // --- Archive Processing ---
 async function extractEntries(zip, fallbackName, budget) {
   const allFiles = Object.values(zip.files).filter(f => !f.dir).sort((a, b) => naturalSort(a.name, b.name));
@@ -633,7 +651,7 @@ function renderChapter(idx) {
   if (chapters.length > 1) {
     const div = document.createElement('div');
     div.className = 'chapter-divider';
-    div.textContent = ch.name;
+    div.textContent = chapterDisplayName(ch, idx);
     ch.dividerEl = div;
     frag.appendChild(div);
   }
@@ -674,7 +692,7 @@ function renderAllChapters() {
     if (chapters.length > 1) {
       const div = document.createElement('div');
       div.className = 'chapter-divider';
-      div.textContent = ch.name;
+      div.textContent = chapterDisplayName(ch, idx);
       ch.dividerEl = div;
       frag.appendChild(div);
     }
@@ -738,7 +756,7 @@ function renderChapterInto(ch, frag) {
   if (chapters.length > 1) {
     const div = document.createElement('div');
     div.className = 'chapter-divider';
-    div.textContent = ch.name;
+    div.textContent = chapterDisplayName(ch, chapters.indexOf(ch));
     ch.dividerEl = div;
     frag.appendChild(div);
   }
@@ -2027,7 +2045,7 @@ function populateChapterSelector() {
   chapters.forEach((ch, idx) => {
     const btn = document.createElement('button');
     btn.className = 'cs-item' + (idx === currentChIdx ? ' active' : '');
-    btn.textContent = ch.name;
+    btn.textContent = chapterDisplayName(ch, idx);
     btn.onclick = (e) => {
       e.stopPropagation();
       jumpToChapter(idx);

@@ -784,9 +784,12 @@
   // the two modules can never disagree about what a block "says". `lang` is the
   // BOOK's language tag (bridge.seriesInfo().lang), which decides the sentence
   // rules — omit it and English is assumed, as before.
-  function segmentBlocks(blocks, blockTextFn, lang) {
+  function segmentBlocks(blocks, blockTextFn, lang, skipIdx) {
     const out = [];
     for (let i = 0; i < (blocks ? blocks.length : 0); i++) {
+      // A block the reader is not showing (the chapter-title heading while
+      // titles are hidden for spoilers) is not narrated either.
+      if (i === skipIdx) continue;
       const b = blocks[i];
       const t = b && typeof b === 'object' ? b.t : 'p';
       if (SKIP_BLOCKS[t]) continue;
@@ -1798,7 +1801,7 @@
     const rs = b.state();
     state.chapterId = rs.chapterId;
     const entry = b.entry(state.chapterId);
-    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang()) : [];
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang(), entry.hiddenBlock) : [];
     const a = rs.anchor && rs.anchor.chapterId === state.chapterId ? rs.anchor : { blockIdx: 0, charInBlock: 0 };
     state.index = sentenceIndexAt(state.sentences, a.blockIdx | 0, a.charInBlock | 0);
   }
@@ -2397,7 +2400,7 @@
     const b = state.bridge;
     state.chapterId = chapter.id;
     const entry = b.entry(chapter.id);
-    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang()) : [];
+    state.sentences = entry ? segmentBlocks(entry.blocks, b.blockText, docLang(), entry.hiddenBlock) : [];
     state.index = 0;
     mediaSessionUpdate();
     if (!state.sentences.length) { state.emptyHops++; onChapterExhausted(); return; }

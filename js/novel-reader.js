@@ -119,6 +119,7 @@
   // saved setups is app-wide); APPLYING a preset writes ordinary per-series
   // prefs through the same storeSet path as every other sheet control.
   const PRESETS_KEY     = 'novel.presets';
+  const HIDE_TITLES_KEY = 'app.hideChapterTitles';
   const MAX_PRESETS     = 6;      // saved presets; the 7th save refuses, never evicts
   const PRESET_NAME_MAX = 40;
 
@@ -217,9 +218,22 @@
     return Number.isInteger(x) ? String(x) : String(x);
   }
 
+  // The spoiler toggle: `app.hideChapterTitles` is global (Settings, and the
+  // reading sheet's "Chapter titles" row). On, a chapter is only its number
+  // everywhere the reader names it — header, dividers, the heading above the
+  // prose, the lock-screen line the voice module asks for.
+  function titlesHidden() {
+    return !!appGet(HIDE_TITLES_KEY, false);
+  }
+
   function chapterLabel(ch) {
     if (!ch) return 'Chapter';
     const n = ch.num != null ? 'Ch. ' + fmtNum(ch.num) : '';
+    if (titlesHidden()) {
+      if (n) return n;
+      const i = chapterIndexOf(ch.id);
+      return i >= 0 ? 'Chapter ' + (i + 1) : 'Chapter';
+    }
     const t = ch.title ? String(ch.title) : '';
     if (n && t) return n + ' · ' + t;
     return n || t || 'Chapter';
@@ -682,6 +696,23 @@
     sheetSync.push(function (p) {
       toggle.setAttribute('aria-pressed', String(!!p.indent));
       toggle.lastChild.textContent = p.indent ? 'On' : 'Off';
+    });
+
+    // Spoiler guard. Global rather than per-series, so it reads and writes the
+    // app pref directly instead of going through setPref.
+    const titlesRow = el('div', 'nv-row');
+    titlesRow.appendChild(el('span', 'nv-row-label', 'Chapter titles'));
+    const titlesToggle = el('button', 'nv-toggle');
+    titlesToggle.type = 'button';
+    titlesToggle.append(el('span', null, 'Hide chapter titles'), el('span', 'nv-pill', 'Off'));
+    titlesToggle.addEventListener('click', function () { setTitlesHidden(!titlesHidden()); });
+    titlesRow.appendChild(titlesToggle);
+    titlesRow.appendChild(el('p', 'nv-theme-note', 'Shows chapter numbers only, to avoid spoilers. Applies to every series.'));
+    body.appendChild(titlesRow);
+    sheetSync.push(function () {
+      const on = titlesHidden();
+      titlesToggle.setAttribute('aria-pressed', String(on));
+      titlesToggle.lastChild.textContent = on ? 'On' : 'Off';
     });
 
     // Actions
@@ -1543,6 +1574,17 @@
     return sec;
   }
 
+  // Does the prose open with a heading that names the chapter? Matches the
+  // exact title and the usual variants around it ("Chapter 3: The Fall" for a
+  // title of "The Fall", or the reverse).
+  function openingTitleHeading(first, chapter) {
+    if (!first || !/^h[1-3]$/.test(first.t) || !chapter || !chapter.title) return false;
+    const text = blockTextOf(first).trim().toLowerCase();
+    const title = String(chapter.title).trim().toLowerCase();
+    if (!text || !title) return false;
+    return text.indexOf(title) !== -1 || title.indexOf(text) !== -1;
+  }
+
   // Everything inside a section except the divider, which the caller owns
   // because it doubles as the IntersectionObserver target and must survive
   // collapse/expand cycles.
@@ -1556,7 +1598,11 @@
     const first = entry.blocks[0];
     const dupTitle = first && (first.t === 'h2' || first.t === 'h3') && entry.chapter.title &&
       blockTextOf(first).trim().toLowerCase() === String(entry.chapter.title).trim().toLowerCase();
-    if (!dupTitle) {
+    // With titles hidden, the prose's own opening heading is the spoiler: it
+    // stays in the DOM (block indices are load-bearing for progress, voice and
+    // thoughts) but is not shown, and our number-only heading stands in.
+    const hideFirst = titlesHidden() && openingTitleHeading(first, entry.chapter);
+    if (!dupTitle || hideFirst) {
       const h = el('div', 'nv-chapter-title', chapterLabel(entry.chapter));
       h.setAttribute('role', 'heading');
       h.setAttribute('aria-level', '2');
@@ -1570,6 +1616,7 @@
       for (let i = 0; i < entry.blocks.length; i++) {
         const node = renderBlock(entry.blocks[i]);
         node.dataset.b = String(i);
+        if (i === 0 && hideFirst) node.classList.add('nv-spoiler-hidden');
         entry.blockEls[i] = node;
         sec.appendChild(node);
       }
@@ -2703,6 +2750,19 @@
   // Mode switching
   // ─────────────────────────────────────────────────────────────────────────
 
+  function setTitlesHidden(on) {
+    if (titlesHidden() === !!on) return;
+    appSet(HIDE_TITLES_KEY, !!on);
+    syncSheet();
+    if (!state.open) return;
+    // Headings and dividers are baked into the sections, so re-render them in
+    // place and put the reader back on the same sentence.
+    const anchor = currentAnchor();
+    rebuildForMode(anchor);
+    settleLayout(anchor);
+    updateChrome();
+  }
+
   function setMode(mode) {
     if (MODES.indexOf(mode) === -1 || mode === state.mode) return;
     const anchor = currentAnchor();
@@ -3059,9 +3119,12 @@
       /** Chapter content by id, if the reader has it (stack or LRU cache). */
       entry: function (chapterId) {
         const e = entryFor(chapterId);
-        if (e) return { chapter: e.chapter, blocks: e.blocks };
+        const hidden = function (c, blocks) {
+          return titlesHidden() && blocks && openingTitleHeading(blocks[0], c) ? 0 : -1;
+        };
+        if (e) return { chapter: e.chapter, blocks: e.blocks, hiddenBlock: hidden(e.chapter, e.blocks) };
         const d = state.loaded.get(chapterId);
-        return d ? { chapter: d.chapter, blocks: d.blocks } : null;
+        return d ? { chapter: d.chapter, blocks: d.blocks, hiddenBlock: hidden(d.chapter, d.blocks) } : null;
       },
 
       /** The rendered block elements for a chapter, or null when not in the

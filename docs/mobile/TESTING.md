@@ -109,12 +109,11 @@ fine".
     back lands on home; back at home is consumed at most once, then default
     browser behavior; rapid home↔series flapping never accumulates history
     entries (one back always leaves cleanly — the at-most-one-sentinel
-    invariant). **In-reader cancel artifact, expected and cosmetic:** an
-    edge-swipe inside the novel or image reader plays iOS's native slide
-    against a stale page snapshot and snaps back (§2.11-A — same-document
-    history has no way to suppress the OS animation). The row verifies the
-    reader neither tears down nor loses its place: same chapter, same
-    position, no console errors, progress still flushing. **Native iOS:**
+    invariant). **In-reader back:** browser back, the mouse back button,
+    Alt+Left / Cmd+[, or an edge-swipe inside the novel or image reader
+    closes the book to its series screen with progress flushed (reopening
+    resumes at the same position, no console errors); a second back goes
+    home. **Native iOS:**
     verify there is NO edge-swipe back anywhere (gestures deliberately off,
     NATIVE_BUILD.md appendix) and the header back/home affordances cover
     every screen.

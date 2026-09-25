@@ -2448,12 +2448,10 @@
   // (there is never a forward entry we honor) — a documented limitation, not
   // a bug. No URL changes, no hash routing, no deep links via history.
   //
-  // What this buys: browser/PWA back and iOS Safari/PWA edge-swipe navigate
-  // one screen back everywhere except inside readers, where they are
-  // CANCELLED — on iOS the OS plays its native swipe animation against a
-  // stale snapshot before popstate fires, so an in-reader swipe shows a
-  // slide-and-snap-back flicker. Cosmetic (no teardown, no state change);
-  // the honest price of same-document history (§2.11-A). Android hardware
+  // What this buys: browser/PWA back (toolbar button, mouse back button,
+  // Alt+Left / Cmd+[) and iOS Safari/PWA edge-swipe navigate one screen back
+  // everywhere, readers included: a reader closes to its series screen, and
+  // the series screen goes home. Android hardware
   // back never touches this layer — platform.js's dispatch table (the same
   // semantic table, ARCHITECTURE §2.2) handles it natively.
   // ─────────────────────────────────────────────────────────────────────────
@@ -2518,11 +2516,20 @@
       sentinelArmed = false;
       const s = (document.body && document.body.dataset.screen) || '';
 
-      if (s === 'novel-screen' || s === 'reader-screen') {
-        // Cancel: a swipe never exits a reader (§2.2 — readers leave only
-        // through their own close paths). Re-arm and do nothing.
-        sentinelPush();
+      // Readers leave through their OWN close paths (§2.2: final flush, key
+      // handlers unwired), the same rows as platform.js's hardware back. The
+      // close lands on the series screen, which re-arms, so the next back
+      // goes home: book → details → library, one step per back.
+      if (s === 'novel-screen'
+          && window.NovelReader && typeof window.NovelReader.close === 'function') {
+        window.NovelReader.close({ navigate: true });
         return;
+      }
+      if (s === 'reader-screen') {
+        // The click runs BOTH close listeners: our progress sync and
+        // reader.js's teardown/navigation.
+        const btn = document.getElementById('close-btn');
+        if (btn) { btn.click(); return; }
       }
       if (s === 'loading-screen') {
         // Cancel: a transitional screen — it resolves to a reader on its

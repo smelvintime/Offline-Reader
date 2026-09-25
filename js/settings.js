@@ -586,6 +586,18 @@
       function (v) { prefSet('app.focus', v); }));
 
     view.appendChild(themeRow());
+
+    // Spoiler guard: chapter titles can give the plot away, so they can be
+    // swapped for plain numbers everywhere (series page, both readers, the
+    // lock-screen line while listening). The readers read the pref directly.
+    view.appendChild(segRow('Chapter titles',
+      'Hide shows chapter numbers only, so titles cannot spoil what happens next.', [
+        { value: 'show', label: 'Show' },
+        { value: 'hide', label: 'Hide' },
+      ],
+      function () { return prefGet('app.hideChapterTitles', false) ? 'hide' : 'show'; },
+      function (v) { prefSet('app.hideChapterTitles', v === 'hide'); }));
+
     view.appendChild(layoutSection());
 
     // "Your thoughts" — guarded both directions (§2.7): without thoughts.js

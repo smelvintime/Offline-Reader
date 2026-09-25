@@ -268,13 +268,20 @@
 
   function isTextSeries(s) { return !!s && TEXT_TYPES.has(s.type); }
 
+  // The spoiler toggle (Settings → Chapter titles): when on, chapters are
+  // named by number only and the title never reaches the page.
+  function chapterTitlesHidden() {
+    try { return !!(window.Store && window.Store.prefs.get('app.hideChapterTitles', false)); }
+    catch (e) { return false; }
+  }
+
   function chapterLabel(ch) {
     if (ch.num != null) return 'Ch. ' + ch.num;
-    return ch.title ? '' : '—';
+    return ch.title && !chapterTitlesHidden() ? '' : '—';
   }
 
   function chapterName(ch) {
-    if (ch.title) return ch.title;
+    if (ch.title && !chapterTitlesHidden()) return ch.title;
     if (ch.num != null) return 'Chapter ' + ch.num;
     return 'Chapter';
   }
@@ -1982,10 +1989,12 @@
     let rows = ordered.map(function (c, i) { return { ch: c, idx: i }; });
 
     if (chapterQuery) {
+      // Matching on a hidden title would leak it one filter result at a time.
+      const titlesHidden = chapterTitlesHidden();
       rows = rows.filter(function (r) {
         const num = r.ch.num != null ? String(r.ch.num) : '';
         return num.indexOf(chapterQuery) === 0 ||
-               (r.ch.title || '').toLowerCase().indexOf(chapterQuery) !== -1 ||
+               (!titlesHidden && (r.ch.title || '').toLowerCase().indexOf(chapterQuery) !== -1) ||
                num.indexOf(chapterQuery) !== -1;
       });
     }
@@ -2600,6 +2609,16 @@
       const key = d ? d.key : undefined;
       if (key !== null && key !== 'home.sections') return;
       renderHome();
+    });
+
+    // The chapter-title spoiler toggle can flip while a series page is up
+    // (the novel reader's sheet writes it too), so the list re-renders.
+    window.addEventListener('or:prefs', function (ev) {
+      if (!domReady) return;
+      const d = ev && ev.detail;
+      const key = d ? d.key : undefined;
+      if (key !== null && key !== 'app.hideChapterTitles') return;
+      if (currentSeries) renderChapterList();
     });
 
     // Connectivity. On the WEB, losing the network while browsing drops to the

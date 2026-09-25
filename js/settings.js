@@ -162,22 +162,48 @@
   // the color-mix derived layer. This module only stamps attributes and, for
   // custom, two inline properties: the stylesheet is the DOM contract.
 
-  const APP_THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest', 'custom'];
+  const APP_THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest',
+                      'cream-dark', 'sepia-dark', 'tan-dark', 'nord-light', 'forest-light', 'custom'];
 
   // [value, label, bg, fg] — swatches are previews, duplicated from the
   // stylesheet on purpose (the novel THEME_SWATCHES rationale). bg doubles as
   // the meta theme-color value for the applied theme.
+  // The fifth field is the side of the Light / Dark switch; the settings grid
+  // shows one side at a time. `first` marks the original nine, which are all
+  // the first-run sheet offers (it has no switch).
   const THEME_SWATCHES = [
-    ['dark',   'Dark',   '#0a0a0a', '#e9e9ec'],
-    ['dim',    'Dim',    '#1a1b1e', '#dcdce1'],
-    ['black',  'Black',  '#000000', '#d6d6da'],
-    ['nord',   'Nord',   '#2e3440', '#e0e4ec'],
-    ['forest', 'Forest', '#1a2420', '#dbe4de'],
-    ['light',  'Light',  '#fbfaf8', '#1c1c1f'],
-    ['cream',  'Cream',  '#faf3e3', '#33302a'],
-    ['sepia',  'Sepia',  '#f4ecd8', '#43341f'],
-    ['tan',    'Tan',    '#e3d2b0', '#3a2c17'],
+    ['dark',         'Dark',         '#0a0a0a', '#e9e9ec', 'dark',  true],
+    ['dim',          'Dim',          '#1a1b1e', '#dcdce1', 'dark',  true],
+    ['black',        'Black',        '#000000', '#d6d6da', 'dark',  true],
+    ['cream-dark',   'Dark Cream',   '#221f19', '#ebe3d0', 'dark',  false],
+    ['sepia-dark',   'Dark Sepia',   '#2b2219', '#e6d5b8', 'dark',  false],
+    ['tan-dark',     'Dark Tan',     '#32271a', '#e5d2ae', 'dark',  false],
+    ['nord',         'Nord',         '#2e3440', '#e0e4ec', 'dark',  true],
+    ['forest',       'Forest',       '#1a2420', '#dbe4de', 'dark',  true],
+    ['light',        'Light',        '#fbfaf8', '#1c1c1f', 'light', true],
+    ['cream',        'Cream',        '#faf3e3', '#33302a', 'light', true],
+    ['sepia',        'Sepia',        '#f4ecd8', '#43341f', 'light', true],
+    ['tan',          'Tan',          '#e3d2b0', '#3a2c17', 'light', true],
+    ['nord-light',   'Nord Light',   '#eceff4', '#2e3440', 'light', false],
+    ['forest-light', 'Forest Light', '#eaf1ec', '#1d2a23', 'light', false],
   ];
+
+  // Each theme's partner on the other side of the switch (novel-reader.js
+  // keeps the same table). Dim and Black are darker takes on Dark.
+  const THEME_PAIR = {
+    dark: 'light', dim: 'light', black: 'light', light: 'dark',
+    cream: 'cream-dark', 'cream-dark': 'cream',
+    sepia: 'sepia-dark', 'sepia-dark': 'sepia',
+    tan: 'tan-dark', 'tan-dark': 'tan',
+    nord: 'nord-light', 'nord-light': 'nord',
+    forest: 'forest-light', 'forest-light': 'forest',
+  };
+
+  function themeSide(t) {
+    if (t.theme === 'custom') return luminance(t.customBg) < 0.4 ? 'dark' : 'light';
+    const sw = THEME_SWATCHES.find(function (x) { return x[0] === t.theme; });
+    return sw ? sw[4] : 'dark';
+  }
 
   const THEME_BG = {};
   THEME_SWATCHES.forEach(function (t) { THEME_BG[t[0]] = t[2]; });
@@ -374,6 +400,26 @@
     const row = el('div', 'set-row');
     row.appendChild(el('span', 'set-row-label', 'App theme'));
 
+    // Light / Dark flips the current theme to its partner (Cream and Dark
+    // Cream, Nord and Nord Light…) and shows that side's themes below.
+    const side = el('div', 'set-seg set-theme-side');
+    side.setAttribute('role', 'group');
+    side.setAttribute('aria-label', 'Light or dark');
+    const sideBtns = [['light', 'Light'], ['dark', 'Dark']].map(function (o) {
+      const b = el('button', null, o[1]);
+      b.type = 'button';
+      b.dataset.value = o[0];
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () {
+        const t = readTheme();
+        if (themeSide(t) === o[0]) return;
+        prefSet('app.theme', THEME_PAIR[t.theme] || o[0]);
+      });
+      side.appendChild(b);
+      return b;
+    });
+    row.appendChild(side);
+
     const grid = el('div', 'set-themes');
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'App theme');
@@ -389,6 +435,7 @@
       b.style.color = t[3];
       b.appendChild(el('span', 'set-swatch-aa', 'Aa'));
       b.appendChild(el('span', 'set-swatch-name', t[1]));
+      b.dataset.side = t[4];
       b.addEventListener('click', function () { prefSet('app.theme', t[0]); });
       grid.appendChild(b);
       return b;
@@ -421,8 +468,13 @@
 
     uiSync.push(function () {
       const t = readTheme();
+      const cur = themeSide(t);
+      sideBtns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === cur));
+      });
       buttons.forEach(function (b) {
         b.setAttribute('aria-pressed', String(b.dataset.value === t.theme));
+        if (b.dataset.side) b.hidden = b.dataset.side !== cur;
       });
       custom.style.background = t.customBg;
       custom.style.color = t.customFg;
@@ -600,6 +652,29 @@
 
     view.appendChild(layoutSection());
 
+    // Browser full screen (web only). The readers carry their own button; this
+    // one covers browsing. Not rendered where the Fullscreen API is missing.
+    const fs = window.Platform && window.Platform.fullscreen;
+    if (fs && fs.supported()) {
+      const row = el('div', 'set-row');
+      row.appendChild(el('span', 'set-row-label', 'Full screen'));
+      const btn = el('button', 'set-nav-btn');
+      btn.type = 'button';
+      const label = el('span', null, 'Enter full screen');
+      btn.appendChild(label);
+      btn.addEventListener('click', function () { fs.toggle(); });
+      row.appendChild(btn);
+      row.appendChild(el('p', 'set-note', 'Hides the browser’s tabs and address bar. Press Esc or F in a reader to leave.'));
+      view.appendChild(row);
+      const sync = function () {
+        const on = fs.active();
+        label.textContent = on ? 'Exit full screen' : 'Enter full screen';
+        btn.setAttribute('aria-pressed', String(on));
+      };
+      fs.onChange(sync);
+      uiSync.push(sync);
+    }
+
     // "Your thoughts" — guarded both directions (§2.7): without thoughts.js
     // this row is simply not rendered; without settings.js, thoughts' own
     // post-save toast is the door.
@@ -773,7 +848,7 @@
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'App theme');
 
-    const buttons = THEME_SWATCHES.map(function (t) {
+    const buttons = THEME_SWATCHES.filter(function (t) { return t[5]; }).map(function (t) {
       const b = el('button', 'set-swatch');
       b.type = 'button';
       b.dataset.value = t[0];

@@ -170,6 +170,7 @@ const readerHeader   = document.getElementById('reader-header');
 const readerFooter   = document.getElementById('reader-footer');
 const chapterNav     = document.getElementById('chapter-nav');
 const modeToggle     = document.getElementById('mode-toggle');
+const fullscreenBtn  = document.getElementById('fullscreen-btn');
 const chapterLabelBtn = document.getElementById('chapter-label-btn');
 const csOverlay      = document.getElementById('cs-overlay');
 const csList         = document.getElementById('cs-list');
@@ -2466,3 +2467,36 @@ window.reloadReaderPrefs = function () {
 // Migrate any pre-library session and populate the home-screen library list.
 migrateOldSession();
 initLibraryList();
+
+// --- Browser full screen (web only) ---
+// Platform.fullscreen drives the whole document, so leaving the reader keeps
+// the browser chrome hidden until the reader taps again or presses Esc.
+(function wireFullscreen() {
+  const fs = window.Platform && window.Platform.fullscreen;
+  if (!fullscreenBtn || !fs || !fs.supported()) return;
+  const EXPAND = 'M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15';
+  const SHRINK = 'M9 4 V9 H4 M20 9 H15 V4 M15 20 V15 H20 M4 15 H9 V20';
+  function sync(on) {
+    const label = on ? 'Exit full screen' : 'Full screen';
+    fullscreenBtn.setAttribute('aria-pressed', String(on));
+    fullscreenBtn.setAttribute('aria-label', label);
+    fullscreenBtn.title = label + ' (F)';
+    const path = fullscreenBtn.querySelector('path');
+    if (path) path.setAttribute('d', on ? SHRINK : EXPAND);
+  }
+  fullscreenBtn.classList.remove('hidden');
+  fullscreenBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fs.toggle();
+  });
+  fs.onChange(sync);
+  sync(fs.active());
+  document.addEventListener('keydown', (e) => {
+    if (document.body.dataset.screen !== 'reader-screen') return;
+    if (e.metaKey || e.ctrlKey || e.altKey || (e.key || '').toLowerCase() !== 'f') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    e.preventDefault();
+    fs.toggle();
+  });
+})();

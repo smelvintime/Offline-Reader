@@ -940,8 +940,8 @@
   // settings.js stamps on <html> from the custom background at apply time.
   // settings.js absent → the pref is never written → 'dark', which is exactly
   // the app's permanent-dark fallback (PLAN7 §0.5).
-  const LIGHT_APP_THEMES = ['light', 'cream', 'sepia', 'tan'];
-  const DARK_APP_THEMES = ['dark', 'dim', 'black', 'nord', 'forest'];
+  const LIGHT_APP_THEMES = ['light', 'cream', 'sepia', 'tan', 'nord-light', 'forest-light'];
+  const DARK_APP_THEMES = ['dark', 'dim', 'black', 'nord', 'forest', 'cream-dark', 'sepia-dark', 'tan-dark'];
 
   function appTheme() {
     let v = null;
@@ -1151,6 +1151,55 @@
   //   };
   // }
 
+  // ── Browser full screen ───────────────────────────────────────────────────
+  //
+  // The web build can drop the browser's own chrome (tabs, address bar) with
+  // the Fullscreen API. The whole document goes full screen, not one reader,
+  // so moving between screens keeps it. Native is already edge to edge, and
+  // iPhone Safari has no element full screen at all, so `supported()` is false
+  // there and callers render no control. Esc (the browser's own) always exits.
+
+  function fsElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  const fullscreen = {
+    supported: function () {
+      if (isNative) return false;
+      const root = document.documentElement;
+      return !!((document.fullscreenEnabled && root.requestFullscreen) ||
+                (document.webkitFullscreenEnabled && root.webkitRequestFullscreen));
+    },
+    active: function () { return !!fsElement(); },
+    enter: function () {
+      const root = document.documentElement;
+      try {
+        if (root.requestFullscreen) return Promise.resolve(root.requestFullscreen({ navigationUI: 'hide' })).catch(function () {});
+        if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+      } catch (e) {}
+      return Promise.resolve();
+    },
+    exit: function () {
+      try {
+        if (!fsElement()) return Promise.resolve();
+        if (document.exitFullscreen) return Promise.resolve(document.exitFullscreen()).catch(function () {});
+        if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      } catch (e) {}
+      return Promise.resolve();
+    },
+    toggle: function () { return fsElement() ? fullscreen.exit() : fullscreen.enter(); },
+    /** fn(active) on every change, including Esc. Returns an unsubscribe. */
+    onChange: function (fn) {
+      const h = function () { try { fn(!!fsElement()); } catch (e) {} };
+      document.addEventListener('fullscreenchange', h);
+      document.addEventListener('webkitfullscreenchange', h);
+      return function () {
+        document.removeEventListener('fullscreenchange', h);
+        document.removeEventListener('webkitfullscreenchange', h);
+      };
+    },
+  };
+
   // ── Public surface ────────────────────────────────────────────────────────
 
   window.Platform = {
@@ -1195,6 +1244,8 @@
     },
 
     onAppUrlOpen: onAppUrlOpen,
+
+    fullscreen: fullscreen,
 
     backup: {
       write: backupWrite,

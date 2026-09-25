@@ -40,6 +40,7 @@
   <button onclick="T.testPresetNameXss().then(T.report)">presets xss</button>
   <button onclick="T.testThoughtsCta().then(T.report)">thoughts cta</button>
   <button onclick="T.testHideChapterTitles().then(T.report)">hide chapter titles</button>
+  <button onclick="T.testThemeSides().then(T.report)">theme sides</button>
   <button onclick="T.testHomeButton().then(T.report)">home button</button>
   <button onclick="T.testDesktopImmersive().then(T.report)">desktop immersive</button>
 </div>
@@ -867,6 +868,62 @@ const T = {
     ok(Store.prefs.get('app.hideChapterTitles', true) === false, 'toggling again turns it off');
     ok(sub().indexOf(TITLE) !== -1, 'titles come back live', sub());
     ok(!q('.nv-spoiler-hidden'), 'nothing left hidden once off');
+
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  // ── Light / Dark theme switch, and the full screen button ────────────────
+
+  async testThemeSides() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    const root = () => document.getElementById('novel-screen');
+    const sideBtn = v => document.querySelector('#novel-screen .nv-theme-side button[data-value="' + v + '"]');
+    const swatch = v => document.querySelector('#novel-screen .nv-themes .nv-swatch[data-value="' + v + '"]');
+    const visible = () => [...document.querySelectorAll('#novel-screen .nv-themes .nv-swatch')]
+      .filter(b => !b.hidden).map(b => b.dataset.value);
+
+    await this.reset();
+    await this.open(1);
+    ok(!!sideBtn('light') && !!sideBtn('dark'), 'the theme row has a Light / Dark switch');
+
+    swatch('cream').click();
+    ok(root().dataset.theme === 'cream', 'cream applies', root().dataset.theme);
+    ok(sideBtn('light').getAttribute('aria-pressed') === 'true', 'cream sits on the light side');
+    ok(visible().indexOf('cream-dark') === -1 && visible().indexOf('cream') !== -1,
+       'the grid shows only light themes', visible().join());
+
+    sideBtn('dark').click();
+    ok(root().dataset.theme === 'cream-dark', 'Dark flips cream to dark cream', root().dataset.theme);
+    ok(getComputedStyle(root()).backgroundColor === 'rgb(34, 31, 25)', 'dark cream paints its own palette',
+       getComputedStyle(root()).backgroundColor);
+    ok(visible().indexOf('sepia-dark') !== -1 && visible().indexOf('sepia') === -1,
+       'the grid now shows the dark side', visible().join());
+    ok(visible().indexOf('custom') !== -1, 'custom is offered on both sides');
+
+    swatch('sepia-dark').click();
+    sideBtn('light').click();
+    ok(root().dataset.theme === 'sepia', 'Light flips dark sepia back to sepia', root().dataset.theme);
+    swatch('nord-light').click();
+    sideBtn('dark').click();
+    ok(root().dataset.theme === 'nord', 'nord light pairs with nord', root().dataset.theme);
+    swatch('black').click();
+    sideBtn('light').click();
+    ok(root().dataset.theme === 'light', 'black comes up as light', root().dataset.theme);
+
+    // Full screen: rendered only where the API exists, and labelled for it.
+    const fs = window.Platform && window.Platform.fullscreen;
+    const fsBtn = document.querySelector('#novel-screen .nv-header [aria-pressed][aria-label*="ull screen"]');
+    if (fs && fs.supported()) {
+      ok(!!fsBtn, 'full screen button renders where the API exists');
+      ok(!!fsBtn && fsBtn.getAttribute('aria-pressed') === 'false', 'starts out of full screen');
+    } else {
+      ok(!fsBtn, 'no full screen button where the API is missing');
+    }
 
     window.NovelReader.close({ navigate: false });
     return out;

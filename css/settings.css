@@ -89,6 +89,29 @@ html[data-apptheme='tan'] {
   --prose: #6b4e0f; --ok: #0f6b34; --warn: #7c4a09; --danger: #9f1616;
 }
 
+/* The other half of each pair (the Light / Dark switch). Dark variants keep
+   the dark set's anchors; light variants darken them like the light set. */
+html[data-apptheme='cream-dark'] {
+  --bg: #221f19; --text: #ebe3d0; --accent: #d4b15e; --accent-ink: #e6c97f;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='sepia-dark'] {
+  --bg: #2b2219; --text: #e6d5b8; --accent: #d99a5b; --accent-ink: #ebb782;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='tan-dark'] {
+  --bg: #32271a; --text: #e5d2ae; --accent: #d9914f; --accent-ink: #ebb07a;
+  --prose: #fbbf24; --ok: #4ade80; --warn: #e8b23a; --danger: #f0616d;
+}
+html[data-apptheme='nord-light'] {
+  --bg: #eceff4; --text: #2e3440; --accent: #5e81ac; --accent-ink: #4c6a91;
+  --prose: #8a6d1f; --ok: #15803d; --warn: #a16207; --danger: #b91c1c;
+}
+html[data-apptheme='forest-light'] {
+  --bg: #eaf1ec; --text: #1d2a23; --accent: #2e7d53; --accent-ink: #256744;
+  --prose: #8a6d1f; --ok: #15803d; --warn: #a16207; --danger: #b91c1c;
+}
+
 /* Custom — settings.js supplies --bg/--text inline and stamps data-applum
    from the background's luminance; the accent is picked for that end (the
    novel custom rule). The bare block is the dark fallback for the one frame
@@ -275,6 +298,10 @@ html[data-apptheme='custom'][data-applum='light'] {
 /* Shared by the settings screen and the first-run sheet: the same grid asks
    the same question in both places, so it is one set of rules rather than a
    copy that can drift. */
+
+/* The Light / Dark switch above the grid; the grid shows one side at a time. */
+#settings-screen .set-theme-side { margin-bottom: 0.45rem; }
+#settings-screen .set-swatch[hidden] { display: none; }
 
 #settings-screen .set-themes,
 .set-focus-sheet .set-themes {

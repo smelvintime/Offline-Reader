@@ -55,7 +55,8 @@
   const MODES  = ['paged', 'chapter', 'infinite'];
   const FONTS  = ['serif', 'sans', 'mono', 'literata', 'atkinson', 'dyslexic'];
   const WIDTHS = ['narrow', 'normal', 'wide', 'full'];
-  const THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest', 'custom'];
+  const THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest',
+                  'cream-dark', 'sepia-dark', 'tan-dark', 'nord-light', 'forest-light', 'custom'];
   const PARAS  = ['tight', 'normal', 'loose'];
   const ALIGNS = ['left', 'justify'];
 
@@ -73,17 +74,36 @@
   // are duplicated from css/novel.css on purpose — a swatch is a *preview*, and
   // reading the real tokens back would mean mounting ten hidden elements to
   // resolve ten sets of custom properties.
+  //
+  // The fifth field is the side of the Light / Dark switch the theme lives on;
+  // the grid shows one side at a time.
   const THEME_SWATCHES = [
-    ['dark',   'Dark',   '#0a0a0a', '#e9e9ec'],
-    ['dim',    'Dim',    '#1a1b1e', '#dcdce1'],
-    ['black',  'Black',  '#000000', '#d6d6da'],
-    ['nord',   'Nord',   '#2e3440', '#e0e4ec'],
-    ['forest', 'Forest', '#1a2420', '#dbe4de'],
-    ['light',  'Light',  '#fbfaf8', '#1c1c1f'],
-    ['cream',  'Cream',  '#faf3e3', '#33302a'],
-    ['sepia',  'Sepia',  '#f4ecd8', '#43341f'],
-    ['tan',    'Tan',    '#e3d2b0', '#3a2c17'],
+    ['dark',         'Dark',         '#0a0a0a', '#e9e9ec', 'dark'],
+    ['dim',          'Dim',          '#1a1b1e', '#dcdce1', 'dark'],
+    ['black',        'Black',        '#000000', '#d6d6da', 'dark'],
+    ['cream-dark',   'Dark Cream',   '#221f19', '#ebe3d0', 'dark'],
+    ['sepia-dark',   'Dark Sepia',   '#2b2219', '#e6d5b8', 'dark'],
+    ['tan-dark',     'Dark Tan',     '#32271a', '#e5d2ae', 'dark'],
+    ['nord',         'Nord',         '#2e3440', '#e0e4ec', 'dark'],
+    ['forest',       'Forest',       '#1a2420', '#dbe4de', 'dark'],
+    ['light',        'Light',        '#fbfaf8', '#1c1c1f', 'light'],
+    ['cream',        'Cream',        '#faf3e3', '#33302a', 'light'],
+    ['sepia',        'Sepia',        '#f4ecd8', '#43341f', 'light'],
+    ['tan',          'Tan',          '#e3d2b0', '#3a2c17', 'light'],
+    ['nord-light',   'Nord Light',   '#eceff4', '#2e3440', 'light'],
+    ['forest-light', 'Forest Light', '#eaf1ec', '#1d2a23', 'light'],
   ];
+
+  // Each theme's partner on the other side of the switch. Dim and Black are
+  // darker takes on Dark, so they all come up as Light.
+  const THEME_PAIR = {
+    dark: 'light', dim: 'light', black: 'light', light: 'dark',
+    cream: 'cream-dark', 'cream-dark': 'cream',
+    sepia: 'sepia-dark', 'sepia-dark': 'sepia',
+    tan: 'tan-dark', 'tan-dark': 'tan',
+    nord: 'nord-light', 'nord-light': 'nord',
+    forest: 'forest-light', 'forest-light': 'forest',
+  };
 
   const CUSTOM_DEFAULT = { bg: '#f4ecd8', fg: '#43341f' };
 
@@ -331,6 +351,20 @@
    * just tapped; 'app' additionally pushes to `app.theme`, which settings.js
    * picks up through its Store.prefs.on gate and repaints the shell.
    */
+  /** 'light' or 'dark': the side of the switch this theme sits on. */
+  function themeSide(p) {
+    if (p.theme === 'custom') return luminance(p.customBg) < 0.4 ? 'dark' : 'light';
+    const sw = THEME_SWATCHES.find(function (t) { return t[0] === p.theme; });
+    return sw ? sw[4] : 'dark';
+  }
+
+  /** Flip to the current theme's partner on the other side. */
+  function setThemeSide(side) {
+    if (themeSide(state.prefs) === side) return;
+    const pair = THEME_PAIR[state.prefs.theme];
+    setThemeChoice(pair || (side === 'light' ? 'light' : 'dark'));
+  }
+
   function setThemeChoice(value) {
     setPref('theme', value, false);
     if (themeScope() === 'app') appSet('app.theme', value);
@@ -481,8 +515,18 @@
       listenBtn = iconBtn('Listen', 'listen');
       listenBtn.setAttribute('aria-pressed', 'false');
     }
-    if (listenBtn) header.append(back, homeBtn, titles, listenBtn, settingsBtn);
-    else header.append(back, homeBtn, titles, settingsBtn);
+    // Full screen (web only): hides the browser's own tabs and address bar.
+    // Not rendered where the Fullscreen API is missing (iPhone, native).
+    let fsBtn = null;
+    if (fullscreenApi()) {
+      fsBtn = iconBtn('Full screen', 'expand');
+      fsBtn.setAttribute('aria-pressed', 'false');
+      fsBtn.addEventListener('click', function () { fullscreenApi().toggle(); });
+    }
+    header.append(back, homeBtn, titles);
+    if (listenBtn) header.appendChild(listenBtn);
+    if (fsBtn) header.appendChild(fsBtn);
+    header.appendChild(settingsBtn);
     root.appendChild(header);
 
     // ── Footer ────────────────────────────────────────────────────────────
@@ -521,10 +565,15 @@
     Object.assign(dom, {
       root, viewport, stage, measure, doc,
       zones, zPrev, zMid, zNext,
-      header, back, homeBtn, title, subtitle, listenBtn, settingsBtn,
+      header, back, homeBtn, title, subtitle, listenBtn, fsBtn, settingsBtn,
       footer, prevCh, nextCh, statusLine, bar,
       scrim, sheet, toast,
     });
+
+    if (fsBtn) {
+      window.Platform.fullscreen.onChange(syncFullscreenBtn);
+      syncFullscreenBtn();
+    }
 
     // A zero-height marker pinned to the end of the document. Infinite mode
     // watches it with an IntersectionObserver instead of doing scroll maths.
@@ -548,7 +597,27 @@
     home: 'M12 3.5 L18.5 10 L12 16.5 L5.5 10 Z M5 20.5 L19 20.5',
     // Headphones — "Listen" (§2.14). Rendered only when NovelVoice is present.
     listen: 'M4 13 a8 8 0 0 1 16 0 M4 13 v4 a1.6 1.6 0 0 0 3.2 0 v-4 M20 13 v4 a1.6 1.6 0 0 1 -3.2 0 v-4',
+    // Browser full screen, and the way back out of it.
+    expand: 'M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15',
+    shrink: 'M9 4 V9 H4 M20 9 H15 V4 M15 20 V15 H20 M4 15 H9 V20',
   };
+
+  function fullscreenApi() {
+    const fs = window.Platform && window.Platform.fullscreen;
+    return fs && fs.supported() ? fs : null;
+  }
+
+  function syncFullscreenBtn() {
+    const b = dom.fsBtn;
+    if (!b) return;
+    const on = fullscreenApi().active();
+    const label = on ? 'Exit full screen' : 'Full screen';
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', label);
+    b.title = label + ' (F)';
+    const path = b.querySelector('path');
+    if (path) path.setAttribute('d', ICON_PATHS[on ? 'shrink' : 'expand']);
+  }
 
   function iconBtn(label, kind) {
     const b = el('button', 'nv-btn');
@@ -742,6 +811,7 @@
       ['Smaller / larger text', ['−', '+']],
       ['Reading settings', ['S']],
       ['Show / hide controls', ['H']],
+      ['Full screen', ['F']],
       ['Close the reader', ['Esc']],
     ].forEach(function (pair) {
       const row = el('div');
@@ -806,6 +876,22 @@
     const row = el('div', 'nv-row');
     row.appendChild(el('span', 'nv-row-label', 'Theme'));
 
+    // Light / Dark: flips the current theme to its partner (Cream and Dark
+    // Cream, Nord and Nord Light…) and shows that side's themes below.
+    const side = el('div', 'nv-seg nv-theme-side');
+    side.setAttribute('role', 'group');
+    side.setAttribute('aria-label', 'Light or dark');
+    const sideBtns = [['light', 'Light'], ['dark', 'Dark']].map(function (o) {
+      const b = el('button', null, o[1]);
+      b.type = 'button';
+      b.dataset.value = o[0];
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { setThemeSide(o[0]); });
+      side.appendChild(b);
+      return b;
+    });
+    row.appendChild(side);
+
     const grid = el('div', 'nv-themes');
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'Theme');
@@ -821,6 +907,7 @@
       b.style.color = t[3];
       b.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
       b.appendChild(el('span', 'nv-swatch-name', t[1]));
+      b.dataset.side = t[4];
       b.addEventListener('click', function () { setThemeChoice(t[0]); });
       grid.appendChild(b);
       return b;
@@ -888,8 +975,13 @@
     row.appendChild(scopeWrap);
 
     sheetSync.push(function (p) {
+      const cur = themeSide(p);
+      sideBtns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === cur));
+      });
       buttons.forEach(function (b) {
         b.setAttribute('aria-pressed', String(b.dataset.value === p.theme));
+        if (b.dataset.side) b.hidden = b.dataset.side !== cur;
       });
       custom.style.background = p.customBg;
       custom.style.color = p.customFg;
@@ -2931,6 +3023,9 @@
 
     switch (e.key) {
       case 'Escape':
+        // Esc belongs to the browser while full screen: it leaves full screen
+        // and must not also close the book (some browsers still deliver it).
+        if (fullscreenApi() && fullscreenApi().active()) return;
         e.preventDefault();
         if (readerSheetVisible() || document.querySelector('#novel-screen .vc-sheet:not([hidden])')) {
           closeSheet();
@@ -2973,6 +3068,9 @@
         e.preventDefault(); return;
       case 's': readerSheetVisible() ? closeSheet() : openSheet(); e.preventDefault(); return;
       case 'h': toggleChrome(); e.preventDefault(); return;
+      case 'f':
+        if (fullscreenApi()) { fullscreenApi().toggle(); e.preventDefault(); }
+        return;
       case '?': openSheet(); e.preventDefault(); return;
     }
   }

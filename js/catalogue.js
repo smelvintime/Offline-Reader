@@ -2436,35 +2436,78 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // History sentinel (PLAN7 §2.11-A)
+  // History levels (supersedes the one-entry sentinel of PLAN7 §2.11-A)
   //
-  // A ONE-ENTRY sentinel, not a mirrored stack: one back gesture = one
-  // goBack(). Every pushState is gated on the `armed` bit, so at most one
-  // sentinel entry can ever exist; the one async hole (history.back() is
-  // async — its popstate lands a tick later) is closed by queueing arming
-  // through the `disarming` bit. The layer is self-healing: every popstate
-  // routes against the LIVE data-screen, so a transient mismatch resolves on
-  // the next event instead of accumulating. Forward gestures stay inert
-  // (there is never a forward entry we honor) — a documented limitation, not
-  // a bug. No URL changes, no hash routing, no deep links via history.
+  // Browser history mirrors DEPTH, not screens: library 0, a book's details
+  // (and the module screens) 1, a reader 2. Each history entry carries its
+  // depth ({ or: 'lvl', d }), so a popstate says which way the user went:
+  // below the live screen's level is back, above it is forward. Back routes
+  // through the same close paths as platform.js's hardware back; forward
+  // reopens what was last shown at that level (`trail`), which is only ever
+  // a book or a book's reader — anything else is inert.
   //
-  // What this buys: browser/PWA back (toolbar button, mouse back button,
-  // Alt+Left / Cmd+[) and iOS Safari/PWA edge-swipe navigate one screen back
-  // everywhere, readers included: a reader closes to its series screen, and
-  // the series screen goes home. Android hardware
-  // back never touches this layer — platform.js's dispatch table (the same
-  // semantic table, ARCHITECTURE §2.2) handles it natively.
+  // The app's one navigation signal is body[data-screen]. reconcile() runs on
+  // every change and makes history match the live screen: going up pushes
+  // entries (dropping any forward ones, as a link click would); going down
+  // steps history back by the difference, keeping the forward entries.
+  // Our own history.go() lands a tick later as a popstate we swallow; while
+  // one is in flight nothing may push, because a push would shift the
+  // pending traversal. The swallowed popstate re-runs reconcile() instead.
+  // Every decision reads the LIVE screen, so a mismatch heals on the next
+  // event instead of accumulating. No URL changes, no hash routing.
+  //
+  // On iOS Safari/PWA an edge-swipe is a back gesture like any other. Android
+  // hardware back never reaches here — platform.js handles it natively — but
+  // the screen change it causes is reconciled like any other.
   // ─────────────────────────────────────────────────────────────────────────
 
-  const ROOT_SCREENS = { 'home-screen': true, 'upload-screen': true };
-  let sentinelArmed     = false;
-  let sentinelDisarming = false;
+  const LEVELS = { 'home-screen': 0, 'upload-screen': 0, 'novel-screen': 2, 'reader-screen': 2 };
+  let histDepth   = 0;   // depth of the history entry we are on
+  let histPending = 0;   // our own history.go() calls whose popstate has not landed
+  const trail     = [];  // trail[d]: what forward should reopen at depth d
 
-  function sentinelPush() {
-    // Safari rate-limits pushState; a refused push just means the next back
-    // gesture leaves the app, which is the pre-sentinel behaviour.
-    try { history.pushState({ or: 'sentinel' }, ''); sentinelArmed = true; }
-    catch (e) { /* history unavailable — gestures fall back to the browser */ }
+  function liveScreen() { return (document.body && document.body.dataset.screen) || ''; }
+  function levelOf(s) { return Object.prototype.hasOwnProperty.call(LEVELS, s) ? LEVELS[s] : 1; }
+
+  // What a forward gesture could reopen for this screen: a catalogue book, or
+  // a reader opened on one. Image sessions from a local file have no book.
+  function describe(s) {
+    if (!currentSeries) return null;
+    if (s === 'series-screen') return { series: currentSeries, reader: false };
+    if (s === 'novel-screen' || (s === 'reader-screen' && window.readerOrigin === 'series')) {
+      return { series: currentSeries, reader: true };
+    }
+    return null;
+  }
+
+  function histGo(delta) {
+    if (!delta) return;
+    histPending++;
+    try { history.go(delta); }
+    catch (e) { histPending--; }
+  }
+
+  function reconcile() {
+    const s = liveScreen();
+    if (!s || s === 'loading-screen' || histPending) return;   // transitional / in flight
+    const level = levelOf(s);
+    const here = describe(s);
+    trail[level] = here;
+    // Reached a reader straight from the library (the Continue rail): its
+    // book is the level in between, so back and forward pass through it.
+    if (level === 2 && histDepth === 0) trail[1] = here ? { series: here.series, reader: false } : null;
+    if (level > histDepth) {
+      // Safari rate-limits pushState; a refused push only means one back
+      // gesture leaves the app, which is the pre-history behaviour.
+      try {
+        for (let d = histDepth + 1; d <= level; d++) history.pushState({ or: 'lvl', d: d }, '');
+        histDepth = level;
+      } catch (e) { /* history unavailable — gestures fall back to the browser */ }
+    } else if (level < histDepth) {
+      const delta = level - histDepth;
+      histDepth = level;
+      histGo(delta);
+    }
   }
 
   // Module screens close through their own close() so their teardown runs;
@@ -2478,76 +2521,71 @@
     goBack();
   }
 
+  // One back step out of the live screen, through its own close path.
+  function routeBack(s) {
+    // Readers leave through their OWN close paths (§2.2: final flush, key
+    // handlers unwired), the same rows as platform.js's hardware back. The
+    // close lands on the book's details page.
+    if (s === 'novel-screen'
+        && window.NovelReader && typeof window.NovelReader.close === 'function') {
+      window.NovelReader.close({ navigate: true });
+      return;
+    }
+    if (s === 'reader-screen') {
+      // The click runs BOTH close listeners: our progress sync and
+      // reader.js's teardown/navigation.
+      const btn = document.getElementById('close-btn');
+      if (btn) { btn.click(); return; }
+    }
+    if (s === 'import-screen')   { closeVia('Importer');    return; }
+    if (s === 'goals-screen')    { closeVia('Goals');       return; }
+    if (s === 'settings-screen') { closeVia('AppSettings'); return; }
+    if (s === 'sources-screen')  { closeVia('Sources');     return; }
+    if (s === 'thoughts-screen') { closeVia('Thoughts');    return; }
+    // series-screen — and any screen a future module registers.
+    goBack();
+  }
+
+  // Forward to depth d: reopen what was last there. Nothing to reopen means
+  // the gesture is undone, so history stays in step with the screen.
+  function routeForward(from, d) {
+    const t = trail[d];
+    const series = t && findSeries(t.series.id);
+    if (!series) { histDepth = from; histGo(from - d); return; }
+    // resumeProgress re-reads the stored position, so the book reopens at the
+    // exact place the back gesture closed it.
+    if (t.reader) resumeProgress({ seriesId: series.id });
+    else openSeries(series);
+  }
+
   function wireHistorySentinel() {
     if (!window.history || typeof history.pushState !== 'function') return;
-    try { history.replaceState({ or: 'root' }, ''); } catch (e) { /* same tolerance as sentinelPush */ }
+    try { history.replaceState({ or: 'lvl', d: 0 }, ''); } catch (e) { /* same tolerance as reconcile */ }
 
-    // The app's one navigation signal: showScreen stamps body[data-screen].
-    // Entering any non-root screen arms; returning to a root screen disarms
-    // by consuming our own entry with history.back(), whose popstate is
-    // swallowed below. While `disarming` is true nothing may push — arming
-    // is QUEUED through the swallowed popstate, never doubled.
-    const mo = new MutationObserver(function () {
-      const s = (document.body && document.body.dataset.screen) || '';
-      if (!s) return;
-      if (!ROOT_SCREENS[s]) {
-        if (!sentinelArmed && !sentinelDisarming) sentinelPush();
-      } else if (sentinelArmed && !sentinelDisarming) {
-        sentinelDisarming = true;
-        try { history.back(); }
-        catch (e) { sentinelDisarming = false; sentinelArmed = false; }
-      }
-    });
+    const mo = new MutationObserver(reconcile);
     mo.observe(document.body, { attributes: true, attributeFilter: ['data-screen'] });
 
-    window.addEventListener('popstate', function () {
-      // The swallowed popstate from our own disarming history.back(). If the
-      // user already re-entered a non-root screen while the back was in
-      // flight, arm NOW (a single pushState) — the disarm-queue rule.
-      if (sentinelDisarming) {
-        sentinelDisarming = false;
-        sentinelArmed = false;
-        const live = (document.body && document.body.dataset.screen) || '';
-        if (live && !ROOT_SCREENS[live]) sentinelPush();
+    window.addEventListener('popstate', function (e) {
+      if (histPending) {        // our own history.go() landing
+        histPending--;
+        reconcile();
         return;
       }
-
-      // A real gesture consumed the sentinel entry; route on the LIVE screen.
-      sentinelArmed = false;
-      const s = (document.body && document.body.dataset.screen) || '';
-
-      // Readers leave through their OWN close paths (§2.2: final flush, key
-      // handlers unwired), the same rows as platform.js's hardware back. The
-      // close lands on the series screen, which re-arms, so the next back
-      // goes home: book → details → library, one step per back.
-      if (s === 'novel-screen'
-          && window.NovelReader && typeof window.NovelReader.close === 'function') {
-        window.NovelReader.close({ navigate: true });
-        return;
-      }
-      if (s === 'reader-screen') {
-        // The click runs BOTH close listeners: our progress sync and
-        // reader.js's teardown/navigation.
-        const btn = document.getElementById('close-btn');
-        if (btn) { btn.click(); return; }
-      }
+      const st = e.state;
+      const d = st && st.or === 'lvl' && typeof st.d === 'number' ? st.d : 0;
+      const s = liveScreen();
+      const from = histDepth;
       if (s === 'loading-screen') {
         // Cancel: a transitional screen — it resolves to a reader on its
         // own, and tearing it down mid-fetch from a gesture helps nobody.
-        sentinelPush();
+        histGo(from - d);
         return;
       }
-      if (!s || ROOT_SCREENS[s]) return;     // at root: unarmed, nothing to unwind
-
-      if (s === 'import-screen')   { closeVia('Importer');    return; }
-      if (s === 'goals-screen')    { closeVia('Goals');       return; }
-      if (s === 'settings-screen') { closeVia('AppSettings'); return; }
-      if (s === 'sources-screen')  { closeVia('Sources');     return; }
-      if (s === 'thoughts-screen') { closeVia('Thoughts');    return; }
-      // series-screen — and any screen a future module registers — unwinds
-      // through the catalogue's own back. The MutationObserver re-arms or
-      // disarms off whatever screen the route lands on.
-      goBack();
+      histDepth = d;
+      const level = levelOf(s);
+      if (d < level) routeBack(s);
+      else if (d > level) routeForward(level, d);
+      // d === level: history already matches the screen.
     });
   }
 

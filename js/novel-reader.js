@@ -125,6 +125,7 @@
     customBg:   CUSTOM_DEFAULT.bg,
     customFg:   CUSTOM_DEFAULT.fg,
     columns:    1,
+    colGap:     40,
     brightness: 100,
   };
 
@@ -134,7 +135,7 @@
     theme: 'novel.theme', paraSpacing: 'novel.paraSpacing', indent: 'novel.indent',
     letterSpacing: 'novel.letterSpacing', wordSpacing: 'novel.wordSpacing',
     customBg: 'novel.customBg', customFg: 'novel.customFg',
-    columns: 'novel.columns', brightness: 'novel.brightness',
+    columns: 'novel.columns', colGap: 'novel.colGap', brightness: 'novel.brightness',
   };
 
   // ── Reader-mode presets (PLAN7 §2.6) ──────────────────────────────────────
@@ -169,6 +170,9 @@
   // Brightness is a black veil over the reader, not the screen backlight,
   // which a web page cannot reach. The floor keeps the text findable.
   const BR_MIN = 30, BR_MAX = 100, BR_STEP = 10;
+  // The gutter between two paged columns. The floor keeps the columns from
+  // reading as one line; the ceiling is where they stop reading as a spread.
+  const GAP_MIN = 16, GAP_MAX = 160, GAP_STEP = 8;
 
   const WPM = 230;                 // "N min left" — deliberately slower than the
                                    // catalogue's 250, because that number is a
@@ -709,6 +713,7 @@
   // ─────────────────────────────────────────────────────────────────────────
 
   const sheetSync = [];   // fn(prefs) → refresh a control from state
+  let sliderSeq = 0;      // unique ids so each slider label points at its input
 
   function buildSheet() {
     const sheet = el('aside', 'nv-sheet');
@@ -786,6 +791,15 @@
       { value: 1, label: 'One' },
       { value: 2, label: 'Two' },
     ], function () { return String(state.prefs.columns); }, function (v) { setPref('columns', v, true); }));
+
+    body.appendChild(sliderRow('Column gap (two columns)', {
+      min: GAP_MIN, max: GAP_MAX, step: GAP_STEP,
+      get:  function () { return state.prefs.colGap; },
+      fmt:  function (v) { return v + ' px'; },
+      set:  function (v) { setPref('colGap', clamp(v, GAP_MIN, GAP_MAX), true); },
+      // Only a two-column page has a gap to see.
+      enabled: function () { return state.mode === 'paged' && state.prefs.columns === 2; },
+    }));
 
     body.appendChild(stepRow('Brightness', {
       get:  function () { return state.prefs.brightness; },
@@ -1104,6 +1118,33 @@
     step.append(minus, out, plus);
     row.appendChild(step);
     sheetSync.push(function () { out.textContent = cfg.fmt(cfg.get()); });
+    return row;
+  }
+
+  function sliderRow(label, cfg) {
+    const row = el('div', 'nv-row');
+    const id = 'nv-slider-' + (++sliderSeq);
+    const lab = el('label', 'nv-row-label', label);
+    lab.htmlFor = id;
+    row.appendChild(lab);
+    const wrap = el('div', 'nv-slider');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = id;
+    input.min = String(cfg.min); input.max = String(cfg.max); input.step = String(cfg.step);
+    const out = el('output');
+    out.htmlFor = id;
+    // `input` fires while dragging, so the page follows the thumb live.
+    input.addEventListener('input', function () { cfg.set(Number(input.value)); });
+    wrap.append(input, out);
+    row.appendChild(wrap);
+    sheetSync.push(function () {
+      const v = cfg.get();
+      if (Number(input.value) !== v) input.value = String(v);
+      input.disabled = !cfg.enabled();
+      input.setAttribute('aria-valuetext', cfg.fmt(v));
+      out.textContent = cfg.fmt(v);
+    });
     return row;
   }
 
@@ -1492,6 +1533,7 @@
       customBg:    hexColor(storeGet(PREF_KEY.customBg, appGet('app.customBg', DEFAULTS.customBg)), DEFAULTS.customBg),
       customFg:    hexColor(storeGet(PREF_KEY.customFg, appGet('app.customFg', DEFAULTS.customFg)), DEFAULTS.customFg),
       columns:     oneOf(num(storeGet(PREF_KEY.columns, DEFAULTS.columns), DEFAULTS.columns), COLS, DEFAULTS.columns),
+      colGap:      clamp(Math.round(num(storeGet(PREF_KEY.colGap, DEFAULTS.colGap), DEFAULTS.colGap) / GAP_STEP) * GAP_STEP, GAP_MIN, GAP_MAX),
       brightness:  clamp(Math.round(num(storeGet(PREF_KEY.brightness, DEFAULTS.brightness), DEFAULTS.brightness)), BR_MIN, BR_MAX),
     };
     state.prefs = p;
@@ -1510,6 +1552,7 @@
     r.dataset.para   = p.paraSpacing;
     r.dataset.indent = String(!!p.indent);
     r.dataset.cols   = String(p.columns);
+    r.style.setProperty('--nv-colgap', colGap() + 'px');
     r.style.setProperty('--nv-dim', String((100 - p.brightness) / 100));
     r.style.setProperty('--nv-size', p.fontSize + 'px');
     r.style.setProperty('--nv-lh', String(p.lineHeight));
@@ -1991,12 +2034,12 @@
     // exactly one page step and every page-maths below is unchanged.
     if (state.prefs.columns === 2) { d.columnWidth = 'auto'; d.columnCount = '2'; }
     else { d.columnWidth = w + 'px'; d.columnCount = ''; }
-    d.columnGap = COL_GAP + 'px';
+    d.columnGap = colGap() + 'px';
     // Hand the column height to the stylesheet so an illustration can never be
     // taller than the page it has to fit on. Leave room for a caption.
     dom.root.style.setProperty('--nv-colh', Math.max(120, h - 28) + 'px');
 
-    const step = w + COL_GAP;
+    const step = w + colGap();
     // Reading scrollWidth forces the reflow we need before measuring.
     let total = dom.doc.scrollWidth;
     // scrollWidth on an overflow:visible multicol has been unreliable across
@@ -2018,7 +2061,11 @@
     return sec.lastElementChild || sec;
   }
 
-  function pageStep() { return state.colW + COL_GAP; }
+  function pageStep() { return state.colW + colGap(); }
+
+  // A single column keeps the fixed gutter: it only ever sits between pages,
+  // where nobody sees it. The reader's gap is the one inside a spread.
+  function colGap() { return state.prefs.columns === 2 ? state.prefs.colGap : COL_GAP; }
 
   function setTranslate(x, animate) {
     if (animate && !prefersReducedMotion()) {

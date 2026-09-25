@@ -43,6 +43,7 @@
   <button onclick="T.testThemeSides().then(T.report)">theme sides</button>
   <button onclick="T.testHomeButton().then(T.report)">home button</button>
   <button onclick="T.testDesktopImmersive().then(T.report)">desktop immersive</button>
+  <button onclick="T.testColumnGap().then(T.report)">column gap</button>
 </div>
 <div id="log"></div>
 
@@ -1053,6 +1054,54 @@ const T = {
     ok(window.NovelReader.state().immersive === false, 'with Platform absent, nothing auto-hides');
     await wait(IDLE);
     ok(hidden() === false, 'and the chrome stays up');
+    window.NovelReader.close({ navigate: false });
+    return out;
+  },
+
+  /** The column-gap slider widens the gutter inside a two-column spread,
+      keeps page maths whole, persists per series, and sits out otherwise. */
+  async testColumnGap() {
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, label, detail) => {
+      out[cond ? 'passed' : 'failed']++;
+      out.lines.push((cond ? 'PASS  ' : 'FAIL  ') + label + (cond || detail == null ? '' : '  — got: ' + detail));
+    };
+    const doc = () => document.querySelector('#novel-screen .nv-doc');
+    const slider = () => [...document.querySelectorAll('#novel-screen .nv-slider input[type="range"]')]
+      .find(i => document.querySelector('label[for="' + i.id + '"]').textContent.indexOf('Column gap') !== -1);
+    const colsBtn = v => [...document.querySelectorAll('#novel-screen .nv-seg button')]
+      .find(b => b.dataset.value === v && b.closest('.nv-row').textContent.indexOf('Columns (paged)') !== -1);
+    const drag = v => { const i = slider(); i.value = String(v); i.dispatchEvent(new Event('input', { bubbles: true })); };
+
+    await this.reset();
+    await this.open(1);
+    ok(!!slider(), 'the settings sheet has a column gap slider');
+    ok(slider().disabled, 'disabled with one column');
+
+    colsBtn('2').click();
+    ok(!slider().disabled, 'enabled in two-column paged mode');
+    ok(doc().style.columnGap === '40px', 'defaults to the old 40 px gutter', doc().style.columnGap);
+
+    this.press('ArrowRight');
+    const before = window.NovelReader.state();
+    drag(96);
+    let s = window.NovelReader.state();
+    ok(s.prefs.colGap === 96 && doc().style.columnGap === '96px', 'dragging sets the gap live', doc().style.columnGap);
+    ok(s.anchor.chapterId === before.anchor.chapterId && s.anchor.blockIdx === before.anchor.blockIdx,
+       'reading place kept across the relayout', JSON.stringify(s.anchor));
+    ok(this.anchorVisible(), 'anchored block still on screen');
+    ok(document.getElementById('novel-screen').style.getPropertyValue('--nv-colgap') === '96px',
+       'the measure widens by the same gap');
+    ok(Store.prefs.getFor(SERIES.id, 'novel.colGap', null) === 96, 'saved per series',
+       Store.prefs.getFor(SERIES.id, 'novel.colGap', null));
+
+    drag(9999);
+    ok(window.NovelReader.state().prefs.colGap === 160, 'clamped to the maximum', window.NovelReader.state().prefs.colGap);
+
+    colsBtn('1').click();
+    ok(doc().style.columnGap === '40px', 'one column keeps the fixed page gutter', doc().style.columnGap);
+    ok(slider().disabled, 'disabled again with one column');
+
     window.NovelReader.close({ navigate: false });
     return out;
   },

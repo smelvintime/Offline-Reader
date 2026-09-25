@@ -1124,3 +1124,21 @@ body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
 #novel-screen[data-mode='paged'] .nv-figure img {
   max-height: min(70vh, var(--nv-colh, 70vh));
 }
+
+/* Two-column paged: each column keeps the chosen line width, so the measure
+   holds two of them plus the gap (COL_GAP in novel-reader.js). */
+#novel-screen[data-mode='paged'][data-cols='2'] .nv-measure {
+  max-width: calc(var(--nv-maxw) * 2 + 40px);
+}
+
+/* Brightness veil. Above everything, including the chrome and the settings
+   sheet, so the reader sees the setting take effect; never takes input. */
+#novel-screen::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: var(--nv-dim, 0);
+  pointer-events: none;
+  z-index: 2147483647;
+}

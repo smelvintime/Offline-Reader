@@ -287,8 +287,8 @@ guarded, so a deleted optional module's row falls through to
 
 | screen | action |
 | --- | --- |
-| `novel-screen` | Android: `NovelReader.close({ navigate: true })` — the module's own exit path (final flush, keydown unwire). Popstate: **cancel** — re-arm the sentinel and do nothing; a swipe never exits a reader |
-| `reader-screen` | Android: `#close-btn.click()` — runs BOTH registered close listeners (catalogue's progress sync + reader's teardown). Popstate: **cancel**, as above |
+| `novel-screen` | Android: `NovelReader.close({ navigate: true })` — the module's own exit path (final flush, keydown unwire). Popstate: the same close |
+| `reader-screen` | Android: `#close-btn.click()` — runs BOTH registered close listeners (catalogue's progress sync + reader's teardown). Popstate: the same click |
 | `loading-screen` | **cancel** (do nothing / re-arm) — a transitional screen; it resolves to a reader on its own, and tearing it down mid-fetch from a gesture helps nobody |
 | `import-screen` | `Importer.close()` |
 | `goals-screen` | `Goals.close()` |
@@ -301,8 +301,8 @@ guarded, so a deleted optional module's row falls through to
 
 The two reader screens must exit through their own close paths — a raw
 `goBack()` would only switch screens, leaving orphaned key handlers, a live
-progress timer, and no final progress flush. The sentinel's in-reader
-*cancel* honors the same rule by never exiting them at all.
+progress timer, and no final progress flush. Popstate follows the same
+rule, so browser back from a reader lands on its series screen.
 
 **The history sentinel** (catalogue-owned, PLAN7 §2.11-A): a **one-entry**
 sentinel, not a mirrored stack — one back gesture = one route through the
@@ -320,13 +320,11 @@ LIVE `data-screen`, so a transient mismatch resolves on the next event.
 Forward gestures are inert (there is never a forward entry) — a documented
 limitation, not a bug. No URL changes, no hash routing.
 
-What this buys: browser/PWA back and iOS Safari/PWA edge-swipe navigate one
-screen back everywhere except inside readers, where they are cancelled.
-**Cancelled, not invisible**: iOS plays its native swipe transition against
-a stale page snapshot before `popstate` fires, so an in-reader edge-swipe
-shows a slide-and-snap-back flicker. That artifact is cosmetic (no teardown,
-no state change) and is the honest price of same-document history on iOS —
-it has its own on-device row in `docs/mobile/TESTING.md`. On **native iOS**
+What this buys: browser/PWA back (toolbar button, mouse back button,
+Alt+Left / Cmd+[) and iOS Safari/PWA edge-swipe navigate one screen back
+everywhere: reader → series screen → home. On iOS Safari an edge-swipe
+inside a reader therefore closes the book, like any other back.
+On **native iOS**
 the WKWebView back gesture stays at its default — **off** — so the native
 app has no edge-swipe anywhere; back is the header affordances (the
 deliberate trade-off documented in NATIVE_BUILD.md's "Back gestures"

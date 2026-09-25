@@ -391,8 +391,8 @@ default is deliberate and load-bearing (PLAN7 §2.11-B; the user veto hook is
 PLAN7 §12.2). Do not flip it on while poking around a regenerated `ios/`.
 
 Why it stays off. The app is a same-document SPA: screens change via a
-`data-screen` attribute, and browser history holds at most a one-entry
-sentinel (catalogue.js). WKWebView animates edge-swipes against page
+`data-screen` attribute, and browser history holds one entry per
+navigation level (catalogue.js). WKWebView animates edge-swipes against page
 *snapshots*, and on same-document history every such animation is a stale
 snapshot that then snaps to the real screen. That leaves two honest options:
 
@@ -405,8 +405,8 @@ snapshot that then snaps to the real screen. That leaves two honest options:
   construction and no snapshot artifact exists anywhere, but the native iOS
   app has **no edge-swipe back at all**: navigation outside readers is the
   header back/close buttons and the home buttons in both readers. (Safari
-  and the installed PWA keep their edge-swipe — the history sentinel serves
-  them.)
+  and the installed PWA keep their edge-swipe — catalogue.js's history
+  levels serve them.)
 
 The shipped decision is the second: a stale-snapshot animation on every
 navigation is a worse everyday feel than reaching for the header. Android is

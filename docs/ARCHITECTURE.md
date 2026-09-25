@@ -280,7 +280,7 @@ web).
 
 **The unified back table.** Two dispatchers route "back" on
 `document.body.dataset.screen` — platform.js's Android hardware-back
-listener and catalogue.js's history-sentinel `popstate` handler (below).
+listener and catalogue.js's history `popstate` handler (below).
 They are the same semantic table, carried once here; every branch is
 guarded, so a deleted optional module's row falls through to
 `Catalogue.goBack()` harmlessly:
@@ -289,14 +289,14 @@ guarded, so a deleted optional module's row falls through to
 | --- | --- |
 | `novel-screen` | Android: `NovelReader.close({ navigate: true })` — the module's own exit path (final flush, keydown unwire). Popstate: the same close |
 | `reader-screen` | Android: `#close-btn.click()` — runs BOTH registered close listeners (catalogue's progress sync + reader's teardown). Popstate: the same click |
-| `loading-screen` | **cancel** (do nothing / re-arm) — a transitional screen; it resolves to a reader on its own, and tearing it down mid-fetch from a gesture helps nobody |
+| `loading-screen` | **cancel** (do nothing / step history back to where it was) — a transitional screen; it resolves to a reader on its own, and tearing it down mid-fetch from a gesture helps nobody |
 | `import-screen` | `Importer.close()` |
 | `goals-screen` | `Goals.close()` |
 | `settings-screen` | `AppSettings.close()` |
 | `sources-screen` | `Sources.close()` |
 | `thoughts-screen` | `Thoughts.close()` |
 | `series-screen` | `Catalogue.goBack()` |
-| `home-screen` / `upload-screen` | Android: minimize the app. Popstate: root — mark unarmed, do nothing |
+| `home-screen` / `upload-screen` | Android: minimize the app. Popstate: root — nothing to unwind |
 | anything else | `Catalogue.goBack()` (defensive fall-through) |
 
 The two reader screens must exit through their own close paths — a raw
@@ -304,32 +304,40 @@ The two reader screens must exit through their own close paths — a raw
 progress timer, and no final progress flush. Popstate follows the same
 rule, so browser back from a reader lands on its series screen.
 
-**The history sentinel** (catalogue-owned, PLAN7 §2.11-A): a **one-entry**
-sentinel, not a mirrored stack — one back gesture = one route through the
-table above. Boot runs `history.replaceState({ or: 'root' }, '')`; a
-`MutationObserver` on `body[data-screen]` arms it (`pushState({ or:
-'sentinel' })`) on entering any non-root screen and disarms it
-(`history.back()`, whose popstate is swallowed) on returning to
-`home-screen`/`upload-screen`. Two booleans, `armed` and `disarming`, gate
-every push; because `history.back()` is async, arming while a disarm is in
-flight is **queued through the swallowed popstate** — when it lands, the
-handler clears the flags and re-checks the live screen, arming then if the
-user already re-entered a non-root screen. At most one sentinel entry can
-ever exist, and the layer is self-healing: every popstate routes against the
-LIVE `data-screen`, so a transient mismatch resolves on the next event.
-Forward gestures are inert (there is never a forward entry) — a documented
-limitation, not a bug. No URL changes, no hash routing.
+**History levels** (catalogue-owned; supersedes PLAN7 §2.11-A's one-entry
+sentinel): browser history mirrors **depth**, not screens: library
+(`home-screen`/`upload-screen`) 0, a book's details and the module screens
+1, a reader 2. Boot runs `history.replaceState({ or: 'lvl', d: 0 }, '')`;
+each entry carries its depth, so a `popstate` says which way the user went.
+Below the live screen's level is **back**: one route through the table
+above. Above it is **forward**: reopen what was last shown at that depth
+(`trail[d]`), which is only ever a catalogue book (`openSeries`) or a
+reader on one (`resumeProgress`, so it reopens at the stored position).
+Nothing to reopen (a module screen, a local-file image session, a book
+since removed) steps history back again, so forward is inert there.
 
-What this buys: browser/PWA back (toolbar button, mouse back button,
-Alt+Left / Cmd+[) and iOS Safari/PWA edge-swipe navigate one screen back
-everywhere: reader → series screen → home. On iOS Safari an edge-swipe
+A `MutationObserver` on `body[data-screen]` runs `reconcile()` on every
+screen change: going up pushes one entry per level (dropping forward
+entries, as a link click would); going down calls `history.go(-n)`, keeping
+the forward entries, so a book closed with its own close button can still
+be reopened with forward. That `history.go` lands a tick later as a
+popstate the handler swallows (`histPending`); while it is in flight
+nothing may push, because a push would shift the pending traversal. The
+swallowed popstate re-runs `reconcile()` instead. Every decision reads the
+LIVE `data-screen`, so a transient mismatch resolves on the next event. No
+URL changes, no hash routing.
+
+What this buys: browser/PWA back and forward (toolbar buttons, mouse
+buttons, Alt+Left/Right / Cmd+[ and ]) and iOS Safari/PWA edge-swipes step
+reader ⇄ series screen ⇄ home. On iOS Safari an edge-swipe
 inside a reader therefore closes the book, like any other back.
 On **native iOS**
 the WKWebView back gesture stays at its default — **off** — so the native
 app has no edge-swipe anywhere; back is the header affordances (the
 deliberate trade-off documented in NATIVE_BUILD.md's "Back gestures"
-appendix, §2.3). Android hardware back never touches the sentinel — it goes
-through platform.js's native dispatch.
+appendix, §2.3). Android hardware back never touches history directly — it goes
+through platform.js's native dispatch, and the screen change it causes is
+reconciled like any other.
 
 **Home affordances in both readers.** The novel reader's header carries a
 Home icon button after the back chevron: full teardown + final flush

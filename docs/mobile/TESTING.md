@@ -104,16 +104,16 @@ fine".
 
 ### Phase 7 additions (PLAN7 §8.7; run on the same matrix rows)
 
-13. **History sentinel & iOS edge-swipe** (iOS Safari + installed PWA; also
-    desktop browser back on the Web column) — series → browser/edge-swipe
-    back lands on home; back at home is consumed at most once, then default
-    browser behavior; rapid home↔series flapping never accumulates history
-    entries (one back always leaves cleanly — the at-most-one-sentinel
-    invariant). **In-reader back:** browser back, the mouse back button,
+13. **History back/forward & iOS edge-swipe** (iOS Safari + installed PWA;
+    also desktop browser back/forward on the Web column) — series → back
+    lands on home, forward reopens the series; back at home leaves the app;
+    rapid home↔series flapping never accumulates history entries (history
+    length stays at root + one entry per level). **In-reader back:** browser back, the mouse back button,
     Alt+Left / Cmd+[, or an edge-swipe inside the novel or image reader
     closes the book to its series screen with progress flushed (reopening
     resumes at the same position, no console errors); a second back goes
-    home. **Native iOS:**
+    home; forward twice reopens the book at the same position. Closing the
+    book with its own close button then pressing forward reopens it too. **Native iOS:**
     verify there is NO edge-swipe back anywhere (gestures deliberately off,
     NATIVE_BUILD.md appendix) and the header back/home affordances cover
     every screen.
@@ -229,7 +229,7 @@ Copy one block per release candidate. Version = `Platform.appVersion()` +
 | 10 eviction drills E1–E3 + localStorage | | | | | | |
 | 11 app-update drill | | | | | | |
 | 12 upload resume / 1.5 GB | | | | | | |
-| 13 sentinel / iOS edge-swipe | | | | — | — | |
+| 13 history back/forward / iOS edge-swipe | | | | — | — | |
 | 14 hardware-back module tour | — | — | — | | | — |
 | 15 reader home buttons | | | | | | |
 | 16 nested-zip import (memory) | | | | | | — |

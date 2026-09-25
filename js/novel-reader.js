@@ -59,6 +59,7 @@
                   'cream-dark', 'sepia-dark', 'tan-dark', 'nord-light', 'forest-light', 'custom'];
   const PARAS  = ['tight', 'normal', 'loose'];
   const ALIGNS = ['left', 'justify'];
+  const COLS   = [1, 2];
 
   // Which typefaces need a file fetched before the layout they produce is
   // final. Selecting one has to wait for document.fonts before re-settling, or
@@ -123,6 +124,8 @@
     wordSpacing:   0,
     customBg:   CUSTOM_DEFAULT.bg,
     customFg:   CUSTOM_DEFAULT.fg,
+    columns:    1,
+    brightness: 100,
   };
 
   const PREF_KEY = {
@@ -131,6 +134,7 @@
     theme: 'novel.theme', paraSpacing: 'novel.paraSpacing', indent: 'novel.indent',
     letterSpacing: 'novel.letterSpacing', wordSpacing: 'novel.wordSpacing',
     customBg: 'novel.customBg', customFg: 'novel.customFg',
+    columns: 'novel.columns', brightness: 'novel.brightness',
   };
 
   // ── Reader-mode presets (PLAN7 §2.6) ──────────────────────────────────────
@@ -162,6 +166,9 @@
   // text size changes. The ceilings are where prose stops reading as prose.
   const LS_MIN = 0, LS_MAX = 0.24, LS_STEP = 0.01;
   const WS_MIN = 0, WS_MAX = 0.8,  WS_STEP = 0.04;
+  // Brightness is a black veil over the reader, not the screen backlight,
+  // which a web page cannot reach. The floor keeps the text findable.
+  const BR_MIN = 30, BR_MAX = 100, BR_STEP = 10;
 
   const WPM = 230;                 // "N min left" — deliberately slower than the
                                    // catalogue's 250, because that number is a
@@ -767,6 +774,21 @@
       { value: 'left',    label: 'Ragged' },
       { value: 'justify', label: 'Justified' },
     ], function () { return state.prefs.align; }, function (v) { setPref('align', v, true); }));
+
+    // Two columns side by side, like an open book. Paged mode only; the
+    // scroll modes ignore it.
+    body.appendChild(segRow('Columns (paged)', [
+      { value: 1, label: 'One' },
+      { value: 2, label: 'Two' },
+    ], function () { return String(state.prefs.columns); }, function (v) { setPref('columns', v, true); }));
+
+    body.appendChild(stepRow('Brightness', {
+      get:  function () { return state.prefs.brightness; },
+      fmt:  function (v) { return v + '%'; },
+      dec:  function () { setPref('brightness', clamp(state.prefs.brightness - BR_STEP, BR_MIN, BR_MAX), false); },
+      inc:  function () { setPref('brightness', clamp(state.prefs.brightness + BR_STEP, BR_MIN, BR_MAX), false); },
+      label: 'Brightness',
+    }));
 
     body.appendChild(segRow('Paragraph spacing', [
       { value: 'tight',  label: 'Tight' },
@@ -1464,6 +1486,8 @@
       // set to custom does not open books in a stranger's palette.
       customBg:    hexColor(storeGet(PREF_KEY.customBg, appGet('app.customBg', DEFAULTS.customBg)), DEFAULTS.customBg),
       customFg:    hexColor(storeGet(PREF_KEY.customFg, appGet('app.customFg', DEFAULTS.customFg)), DEFAULTS.customFg),
+      columns:     oneOf(num(storeGet(PREF_KEY.columns, DEFAULTS.columns), DEFAULTS.columns), COLS, DEFAULTS.columns),
+      brightness:  clamp(Math.round(num(storeGet(PREF_KEY.brightness, DEFAULTS.brightness), DEFAULTS.brightness)), BR_MIN, BR_MAX),
     };
     state.prefs = p;
     state.mode = p.mode;
@@ -1480,6 +1504,8 @@
     r.dataset.width  = p.width;
     r.dataset.para   = p.paraSpacing;
     r.dataset.indent = String(!!p.indent);
+    r.dataset.cols   = String(p.columns);
+    r.style.setProperty('--nv-dim', String((100 - p.brightness) / 100));
     r.style.setProperty('--nv-size', p.fontSize + 'px');
     r.style.setProperty('--nv-lh', String(p.lineHeight));
     r.style.setProperty('--nv-align', p.align);
@@ -1938,7 +1964,7 @@
     if (state.mode === 'paged') paginate();
     else {
       const d = dom.doc.style;
-      d.height = ''; d.columnWidth = ''; d.columnGap = ''; d.transform = '';
+      d.height = ''; d.columnWidth = ''; d.columnCount = ''; d.columnGap = ''; d.transform = '';
       state.pageCount = 1;
       state.page = 0;
     }
@@ -1956,7 +1982,10 @@
 
     const d = dom.doc.style;
     d.height = h + 'px';
-    d.columnWidth = w + 'px';
+    // Two columns: each is (w - gap) / 2 wide, so a pair plus one gap is still
+    // exactly one page step and every page-maths below is unchanged.
+    if (state.prefs.columns === 2) { d.columnWidth = 'auto'; d.columnCount = '2'; }
+    else { d.columnWidth = w + 'px'; d.columnCount = ''; }
     d.columnGap = COL_GAP + 'px';
     // Hand the column height to the stylesheet so an illustration can never be
     // taller than the page it has to fit on. Leave room for a caption.

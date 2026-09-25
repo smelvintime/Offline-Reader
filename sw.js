@@ -132,8 +132,8 @@ function isVoiceEngine(url) {
 // to the generated artwork, which the image error handlers already do.
 // Firefox and Chromium report themselves; everything on iOS is WebKit
 // whatever its name says (CriOS, FxiOS), so it gets the strict policy.
-const COEP = (/(Chrome|Chromium|Firefox)\//.test(self.navigator.userAgent)
-  && !/(iPhone|iPad|iPod|CriOS|FxiOS|EdgiOS)/.test(self.navigator.userAgent))
+const UA = (self.navigator && self.navigator.userAgent) || '';
+const COEP = (/(Chrome|Chromium|Firefox)\//.test(UA) && !/(iPhone|iPad|iPod|CriOS|FxiOS|EdgiOS)/.test(UA))
   ? 'credentialless' : 'require-corp';
 
 // Documents and workers carry the policy; subresources do not need it.

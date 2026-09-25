@@ -2247,6 +2247,9 @@
           setPreparing(false);
           primeNextClip(group);
           return channel.play(url, { rate: state.prefs.rate, onended: groupDone }).catch(function () {
+            // A skip or chapter jump stops this clip before play() settles,
+            // which rejects it; that is not a refusal of the clip now playing.
+            if (token !== state.speakToken) return;
             // Autoplay refusal — the chain lost its blessing (e.g. after a long
             // background stall). Pausing is honest; a tap resumes it.
             pause();

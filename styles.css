@@ -315,6 +315,11 @@
   }
   #chapter-label-btn:active { background: rgba(255,255,255,0.15); }
 
+  /* Browser full screen (web only; hidden where unsupported). Takes over the
+     push-right from the mode toggle when it is shown. */
+  #fullscreen-btn { margin-left: auto; }
+  #fullscreen-btn:not(.hidden) + #mode-toggle { margin-left: 0; }
+
   #mode-toggle {
     margin-left: auto;
     font-weight: 700;

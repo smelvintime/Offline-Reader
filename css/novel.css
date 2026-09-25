@@ -164,6 +164,41 @@
   --nv-chrome: rgba(26, 36, 32, 0.74);
 }
 
+/* The other half of each pair (Settings' Light / Dark switch flips between
+   them): warm darks for the paper themes, daylight versions of the cool ones. */
+#novel-screen[data-theme='cream-dark'] {
+  --nv-bg: #221f19; --nv-fg: #ebe3d0; --nv-muted: #a39a88;
+  --nv-surf: rgba(240, 226, 196, 0.06); --nv-surf-2: rgba(240, 226, 196, 0.12);
+  --nv-border: rgba(240, 226, 196, 0.13); --nv-accent: #d4b15e;
+  --nv-chrome: rgba(34, 31, 25, 0.76);
+}
+#novel-screen[data-theme='sepia-dark'] {
+  --nv-bg: #2b2219; --nv-fg: #e6d5b8; --nv-muted: #a8937a;
+  --nv-surf: rgba(236, 214, 178, 0.07); --nv-surf-2: rgba(236, 214, 178, 0.13);
+  --nv-border: rgba(236, 214, 178, 0.14); --nv-accent: #d99a5b;
+  --nv-chrome: rgba(43, 34, 25, 0.76);
+}
+#novel-screen[data-theme='tan-dark'] {
+  --nv-bg: #32271a; --nv-fg: #e5d2ae; --nv-muted: #ab9573;
+  --nv-surf: rgba(232, 208, 166, 0.07); --nv-surf-2: rgba(232, 208, 166, 0.14);
+  --nv-border: rgba(232, 208, 166, 0.15); --nv-accent: #d9914f;
+  --nv-chrome: rgba(50, 39, 26, 0.78);
+}
+#novel-screen[data-theme='nord-light'] {
+  --nv-bg: #eceff4; --nv-fg: #2e3440; --nv-muted: #5f6b7d;
+  --nv-surf: rgba(46, 52, 64, 0.06); --nv-surf-2: rgba(46, 52, 64, 0.11);
+  --nv-border: rgba(46, 52, 64, 0.15); --nv-accent: #5e81ac;
+  --nv-chrome: rgba(236, 239, 244, 0.76);
+  --nv-shadow: 0 -10px 40px rgba(46, 52, 64, 0.18);
+}
+#novel-screen[data-theme='forest-light'] {
+  --nv-bg: #eaf1ec; --nv-fg: #1d2a23; --nv-muted: #5b6f64;
+  --nv-surf: rgba(29, 42, 35, 0.06); --nv-surf-2: rgba(29, 42, 35, 0.11);
+  --nv-border: rgba(29, 42, 35, 0.15); --nv-accent: #2e7d53;
+  --nv-chrome: rgba(234, 241, 236, 0.76);
+  --nv-shadow: 0 -10px 40px rgba(29, 42, 35, 0.18);
+}
+
 /* Custom — the reader picks a background and a text colour and the rest of the
    palette is mixed from those two, so every surface, border and muted label
    stays in proportion no matter what pair they choose. --nv-bg and --nv-fg are
@@ -755,6 +790,10 @@ body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
   grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
   gap: 0.35rem;
 }
+/* The Light / Dark switch above the grid; the grid shows one side at a time. */
+.nv-theme-side { margin-bottom: 0.45rem; }
+.nv-swatch[hidden] { display: none; }
+
 .nv-swatch {
   position: relative;
   min-height: 56px;
@@ -856,6 +895,9 @@ body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
 }
 .nv-toggle[aria-pressed='true'] { border-color: var(--nv-accent); color: var(--nv-accent); }
 .nv-toggle[aria-pressed='true'] span.nv-pill { background: var(--nv-accent); color: #fff; }
+
+/* The prose's own opening heading while chapter titles are hidden (spoilers). */
+#novel-screen .nv-spoiler-hidden { display: none; }
 
 .nv-actions { display: flex; gap: 0.5rem; padding-top: 0.4rem; }
 .nv-actions button {

@@ -55,7 +55,8 @@
   const MODES  = ['paged', 'chapter', 'infinite'];
   const FONTS  = ['serif', 'sans', 'mono', 'literata', 'atkinson', 'dyslexic'];
   const WIDTHS = ['narrow', 'normal', 'wide', 'full'];
-  const THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest', 'custom'];
+  const THEMES = ['dark', 'dim', 'black', 'light', 'cream', 'sepia', 'tan', 'nord', 'forest',
+                  'cream-dark', 'sepia-dark', 'tan-dark', 'nord-light', 'forest-light', 'custom'];
   const PARAS  = ['tight', 'normal', 'loose'];
   const ALIGNS = ['left', 'justify'];
 
@@ -73,17 +74,36 @@
   // are duplicated from css/novel.css on purpose — a swatch is a *preview*, and
   // reading the real tokens back would mean mounting ten hidden elements to
   // resolve ten sets of custom properties.
+  //
+  // The fifth field is the side of the Light / Dark switch the theme lives on;
+  // the grid shows one side at a time.
   const THEME_SWATCHES = [
-    ['dark',   'Dark',   '#0a0a0a', '#e9e9ec'],
-    ['dim',    'Dim',    '#1a1b1e', '#dcdce1'],
-    ['black',  'Black',  '#000000', '#d6d6da'],
-    ['nord',   'Nord',   '#2e3440', '#e0e4ec'],
-    ['forest', 'Forest', '#1a2420', '#dbe4de'],
-    ['light',  'Light',  '#fbfaf8', '#1c1c1f'],
-    ['cream',  'Cream',  '#faf3e3', '#33302a'],
-    ['sepia',  'Sepia',  '#f4ecd8', '#43341f'],
-    ['tan',    'Tan',    '#e3d2b0', '#3a2c17'],
+    ['dark',         'Dark',         '#0a0a0a', '#e9e9ec', 'dark'],
+    ['dim',          'Dim',          '#1a1b1e', '#dcdce1', 'dark'],
+    ['black',        'Black',        '#000000', '#d6d6da', 'dark'],
+    ['cream-dark',   'Dark Cream',   '#221f19', '#ebe3d0', 'dark'],
+    ['sepia-dark',   'Dark Sepia',   '#2b2219', '#e6d5b8', 'dark'],
+    ['tan-dark',     'Dark Tan',     '#32271a', '#e5d2ae', 'dark'],
+    ['nord',         'Nord',         '#2e3440', '#e0e4ec', 'dark'],
+    ['forest',       'Forest',       '#1a2420', '#dbe4de', 'dark'],
+    ['light',        'Light',        '#fbfaf8', '#1c1c1f', 'light'],
+    ['cream',        'Cream',        '#faf3e3', '#33302a', 'light'],
+    ['sepia',        'Sepia',        '#f4ecd8', '#43341f', 'light'],
+    ['tan',          'Tan',          '#e3d2b0', '#3a2c17', 'light'],
+    ['nord-light',   'Nord Light',   '#eceff4', '#2e3440', 'light'],
+    ['forest-light', 'Forest Light', '#eaf1ec', '#1d2a23', 'light'],
   ];
+
+  // Each theme's partner on the other side of the switch. Dim and Black are
+  // darker takes on Dark, so they all come up as Light.
+  const THEME_PAIR = {
+    dark: 'light', dim: 'light', black: 'light', light: 'dark',
+    cream: 'cream-dark', 'cream-dark': 'cream',
+    sepia: 'sepia-dark', 'sepia-dark': 'sepia',
+    tan: 'tan-dark', 'tan-dark': 'tan',
+    nord: 'nord-light', 'nord-light': 'nord',
+    forest: 'forest-light', 'forest-light': 'forest',
+  };
 
   const CUSTOM_DEFAULT = { bg: '#f4ecd8', fg: '#43341f' };
 
@@ -119,6 +139,7 @@
   // saved setups is app-wide); APPLYING a preset writes ordinary per-series
   // prefs through the same storeSet path as every other sheet control.
   const PRESETS_KEY     = 'novel.presets';
+  const HIDE_TITLES_KEY = 'app.hideChapterTitles';
   const MAX_PRESETS     = 6;      // saved presets; the 7th save refuses, never evicts
   const PRESET_NAME_MAX = 40;
 
@@ -217,9 +238,22 @@
     return Number.isInteger(x) ? String(x) : String(x);
   }
 
+  // The spoiler toggle: `app.hideChapterTitles` is global (Settings, and the
+  // reading sheet's "Chapter titles" row). On, a chapter is only its number
+  // everywhere the reader names it — header, dividers, the heading above the
+  // prose, the lock-screen line the voice module asks for.
+  function titlesHidden() {
+    return !!appGet(HIDE_TITLES_KEY, false);
+  }
+
   function chapterLabel(ch) {
     if (!ch) return 'Chapter';
     const n = ch.num != null ? 'Ch. ' + fmtNum(ch.num) : '';
+    if (titlesHidden()) {
+      if (n) return n;
+      const i = chapterIndexOf(ch.id);
+      return i >= 0 ? 'Chapter ' + (i + 1) : 'Chapter';
+    }
     const t = ch.title ? String(ch.title) : '';
     if (n && t) return n + ' · ' + t;
     return n || t || 'Chapter';
@@ -317,6 +351,20 @@
    * just tapped; 'app' additionally pushes to `app.theme`, which settings.js
    * picks up through its Store.prefs.on gate and repaints the shell.
    */
+  /** 'light' or 'dark': the side of the switch this theme sits on. */
+  function themeSide(p) {
+    if (p.theme === 'custom') return luminance(p.customBg) < 0.4 ? 'dark' : 'light';
+    const sw = THEME_SWATCHES.find(function (t) { return t[0] === p.theme; });
+    return sw ? sw[4] : 'dark';
+  }
+
+  /** Flip to the current theme's partner on the other side. */
+  function setThemeSide(side) {
+    if (themeSide(state.prefs) === side) return;
+    const pair = THEME_PAIR[state.prefs.theme];
+    setThemeChoice(pair || (side === 'light' ? 'light' : 'dark'));
+  }
+
   function setThemeChoice(value) {
     setPref('theme', value, false);
     if (themeScope() === 'app') appSet('app.theme', value);
@@ -467,8 +515,18 @@
       listenBtn = iconBtn('Listen', 'listen');
       listenBtn.setAttribute('aria-pressed', 'false');
     }
-    if (listenBtn) header.append(back, homeBtn, titles, listenBtn, settingsBtn);
-    else header.append(back, homeBtn, titles, settingsBtn);
+    // Full screen (web only): hides the browser's own tabs and address bar.
+    // Not rendered where the Fullscreen API is missing (iPhone, native).
+    let fsBtn = null;
+    if (fullscreenApi()) {
+      fsBtn = iconBtn('Full screen', 'expand');
+      fsBtn.setAttribute('aria-pressed', 'false');
+      fsBtn.addEventListener('click', function () { fullscreenApi().toggle(); });
+    }
+    header.append(back, homeBtn, titles);
+    if (listenBtn) header.appendChild(listenBtn);
+    if (fsBtn) header.appendChild(fsBtn);
+    header.appendChild(settingsBtn);
     root.appendChild(header);
 
     // ── Footer ────────────────────────────────────────────────────────────
@@ -507,10 +565,15 @@
     Object.assign(dom, {
       root, viewport, stage, measure, doc,
       zones, zPrev, zMid, zNext,
-      header, back, homeBtn, title, subtitle, listenBtn, settingsBtn,
+      header, back, homeBtn, title, subtitle, listenBtn, fsBtn, settingsBtn,
       footer, prevCh, nextCh, statusLine, bar,
       scrim, sheet, toast,
     });
+
+    if (fsBtn) {
+      window.Platform.fullscreen.onChange(syncFullscreenBtn);
+      syncFullscreenBtn();
+    }
 
     // A zero-height marker pinned to the end of the document. Infinite mode
     // watches it with an IntersectionObserver instead of doing scroll maths.
@@ -534,7 +597,27 @@
     home: 'M12 3.5 L18.5 10 L12 16.5 L5.5 10 Z M5 20.5 L19 20.5',
     // Headphones — "Listen" (§2.14). Rendered only when NovelVoice is present.
     listen: 'M4 13 a8 8 0 0 1 16 0 M4 13 v4 a1.6 1.6 0 0 0 3.2 0 v-4 M20 13 v4 a1.6 1.6 0 0 1 -3.2 0 v-4',
+    // Browser full screen, and the way back out of it.
+    expand: 'M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15',
+    shrink: 'M9 4 V9 H4 M20 9 H15 V4 M15 20 V15 H20 M4 15 H9 V20',
   };
+
+  function fullscreenApi() {
+    const fs = window.Platform && window.Platform.fullscreen;
+    return fs && fs.supported() ? fs : null;
+  }
+
+  function syncFullscreenBtn() {
+    const b = dom.fsBtn;
+    if (!b) return;
+    const on = fullscreenApi().active();
+    const label = on ? 'Exit full screen' : 'Full screen';
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', label);
+    b.title = label + ' (F)';
+    const path = b.querySelector('path');
+    if (path) path.setAttribute('d', ICON_PATHS[on ? 'shrink' : 'expand']);
+  }
 
   function iconBtn(label, kind) {
     const b = el('button', 'nv-btn');
@@ -684,6 +767,23 @@
       toggle.lastChild.textContent = p.indent ? 'On' : 'Off';
     });
 
+    // Spoiler guard. Global rather than per-series, so it reads and writes the
+    // app pref directly instead of going through setPref.
+    const titlesRow = el('div', 'nv-row');
+    titlesRow.appendChild(el('span', 'nv-row-label', 'Chapter titles'));
+    const titlesToggle = el('button', 'nv-toggle');
+    titlesToggle.type = 'button';
+    titlesToggle.append(el('span', null, 'Hide chapter titles'), el('span', 'nv-pill', 'Off'));
+    titlesToggle.addEventListener('click', function () { setTitlesHidden(!titlesHidden()); });
+    titlesRow.appendChild(titlesToggle);
+    titlesRow.appendChild(el('p', 'nv-theme-note', 'Shows chapter numbers only, to avoid spoilers. Applies to every series.'));
+    body.appendChild(titlesRow);
+    sheetSync.push(function () {
+      const on = titlesHidden();
+      titlesToggle.setAttribute('aria-pressed', String(on));
+      titlesToggle.lastChild.textContent = on ? 'On' : 'Off';
+    });
+
     // Actions
     const actionRow = el('div', 'nv-row');
     actionRow.appendChild(el('span', 'nv-row-label', 'This series'));
@@ -711,6 +811,7 @@
       ['Smaller / larger text', ['−', '+']],
       ['Reading settings', ['S']],
       ['Show / hide controls', ['H']],
+      ['Full screen', ['F']],
       ['Close the reader', ['Esc']],
     ].forEach(function (pair) {
       const row = el('div');
@@ -775,6 +876,22 @@
     const row = el('div', 'nv-row');
     row.appendChild(el('span', 'nv-row-label', 'Theme'));
 
+    // Light / Dark: flips the current theme to its partner (Cream and Dark
+    // Cream, Nord and Nord Light…) and shows that side's themes below.
+    const side = el('div', 'nv-seg nv-theme-side');
+    side.setAttribute('role', 'group');
+    side.setAttribute('aria-label', 'Light or dark');
+    const sideBtns = [['light', 'Light'], ['dark', 'Dark']].map(function (o) {
+      const b = el('button', null, o[1]);
+      b.type = 'button';
+      b.dataset.value = o[0];
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { setThemeSide(o[0]); });
+      side.appendChild(b);
+      return b;
+    });
+    row.appendChild(side);
+
     const grid = el('div', 'nv-themes');
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'Theme');
@@ -790,6 +907,7 @@
       b.style.color = t[3];
       b.appendChild(el('span', 'nv-swatch-aa', 'Aa'));
       b.appendChild(el('span', 'nv-swatch-name', t[1]));
+      b.dataset.side = t[4];
       b.addEventListener('click', function () { setThemeChoice(t[0]); });
       grid.appendChild(b);
       return b;
@@ -857,8 +975,13 @@
     row.appendChild(scopeWrap);
 
     sheetSync.push(function (p) {
+      const cur = themeSide(p);
+      sideBtns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.value === cur));
+      });
       buttons.forEach(function (b) {
         b.setAttribute('aria-pressed', String(b.dataset.value === p.theme));
+        if (b.dataset.side) b.hidden = b.dataset.side !== cur;
       });
       custom.style.background = p.customBg;
       custom.style.color = p.customFg;
@@ -1543,6 +1666,17 @@
     return sec;
   }
 
+  // Does the prose open with a heading that names the chapter? Matches the
+  // exact title and the usual variants around it ("Chapter 3: The Fall" for a
+  // title of "The Fall", or the reverse).
+  function openingTitleHeading(first, chapter) {
+    if (!first || !/^h[1-3]$/.test(first.t) || !chapter || !chapter.title) return false;
+    const text = blockTextOf(first).trim().toLowerCase();
+    const title = String(chapter.title).trim().toLowerCase();
+    if (!text || !title) return false;
+    return text.indexOf(title) !== -1 || title.indexOf(text) !== -1;
+  }
+
   // Everything inside a section except the divider, which the caller owns
   // because it doubles as the IntersectionObserver target and must survive
   // collapse/expand cycles.
@@ -1556,7 +1690,11 @@
     const first = entry.blocks[0];
     const dupTitle = first && (first.t === 'h2' || first.t === 'h3') && entry.chapter.title &&
       blockTextOf(first).trim().toLowerCase() === String(entry.chapter.title).trim().toLowerCase();
-    if (!dupTitle) {
+    // With titles hidden, the prose's own opening heading is the spoiler: it
+    // stays in the DOM (block indices are load-bearing for progress, voice and
+    // thoughts) but is not shown, and our number-only heading stands in.
+    const hideFirst = titlesHidden() && openingTitleHeading(first, entry.chapter);
+    if (!dupTitle || hideFirst) {
       const h = el('div', 'nv-chapter-title', chapterLabel(entry.chapter));
       h.setAttribute('role', 'heading');
       h.setAttribute('aria-level', '2');
@@ -1570,6 +1708,7 @@
       for (let i = 0; i < entry.blocks.length; i++) {
         const node = renderBlock(entry.blocks[i]);
         node.dataset.b = String(i);
+        if (i === 0 && hideFirst) node.classList.add('nv-spoiler-hidden');
         entry.blockEls[i] = node;
         sec.appendChild(node);
       }
@@ -2703,6 +2842,19 @@
   // Mode switching
   // ─────────────────────────────────────────────────────────────────────────
 
+  function setTitlesHidden(on) {
+    if (titlesHidden() === !!on) return;
+    appSet(HIDE_TITLES_KEY, !!on);
+    syncSheet();
+    if (!state.open) return;
+    // Headings and dividers are baked into the sections, so re-render them in
+    // place and put the reader back on the same sentence.
+    const anchor = currentAnchor();
+    rebuildForMode(anchor);
+    settleLayout(anchor);
+    updateChrome();
+  }
+
   function setMode(mode) {
     if (MODES.indexOf(mode) === -1 || mode === state.mode) return;
     const anchor = currentAnchor();
@@ -2871,6 +3023,9 @@
 
     switch (e.key) {
       case 'Escape':
+        // Esc belongs to the browser while full screen: it leaves full screen
+        // and must not also close the book (some browsers still deliver it).
+        if (fullscreenApi() && fullscreenApi().active()) return;
         e.preventDefault();
         if (readerSheetVisible() || document.querySelector('#novel-screen .vc-sheet:not([hidden])')) {
           closeSheet();
@@ -2913,6 +3068,9 @@
         e.preventDefault(); return;
       case 's': readerSheetVisible() ? closeSheet() : openSheet(); e.preventDefault(); return;
       case 'h': toggleChrome(); e.preventDefault(); return;
+      case 'f':
+        if (fullscreenApi()) { fullscreenApi().toggle(); e.preventDefault(); }
+        return;
       case '?': openSheet(); e.preventDefault(); return;
     }
   }
@@ -3059,9 +3217,12 @@
       /** Chapter content by id, if the reader has it (stack or LRU cache). */
       entry: function (chapterId) {
         const e = entryFor(chapterId);
-        if (e) return { chapter: e.chapter, blocks: e.blocks };
+        const hidden = function (c, blocks) {
+          return titlesHidden() && blocks && openingTitleHeading(blocks[0], c) ? 0 : -1;
+        };
+        if (e) return { chapter: e.chapter, blocks: e.blocks, hiddenBlock: hidden(e.chapter, e.blocks) };
         const d = state.loaded.get(chapterId);
-        return d ? { chapter: d.chapter, blocks: d.blocks } : null;
+        return d ? { chapter: d.chapter, blocks: d.blocks, hiddenBlock: hidden(d.chapter, d.blocks) } : null;
       },
 
       /** The rendered block elements for a chapter, or null when not in the

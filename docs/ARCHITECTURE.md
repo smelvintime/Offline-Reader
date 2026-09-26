@@ -994,6 +994,13 @@ ORT's default reads, since kokoro-js does not export ORT's `env`. The voice
 sheet's "Ready" line says how many cores the engine got. The native app has no
 service worker and runs the model natively; none of this applies there.
 
+Three cores still measured short of real time on a current iPhone, so the
+opt-in GPU toggle (`voice.gpu`) is offered on a phone's browser build too, not
+only on a desktop; the native app never shows it. The crash guard records which
+device was running (`or.voiceGuard.device`, for loads and first sentences
+alike), and a crash on `webgpu` turns `voice.gpu` off before the paused session
+comes up, so the retry runs on wasm instead of repeating the crash.
+
 **Two narrators, named rather than ranked.** The iPhone's own voice
 (`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
 immediately and costs nothing to run. The natural voice sounds better and has to
@@ -1477,7 +1484,7 @@ renders after the series is gone. A deliberate non-cascade.
 | `voice.rate` | number `0.6..1.6` (default `1`) — utterance rate / audio playbackRate | novel-voice |
 | `voice.pitch` | number `0.8..1.2` (default `1`; device engine only) | novel-voice |
 | `voice.neuralVoice` | one of the curated Kokoro narrator ids (default `af_heart`; unknown → default) | novel-voice |
-| `voice.neuralDevice` | `wasm` \| `webgpu` (default `wasm` — webgpu is opt-in, its fp32 weights are a ~330 MB download) | novel-voice |
+| `voice.gpu` | boolean (default `false`): run the natural voice on WebGPU with the fp32 weights, a ~330 MB download. Offered wherever the browser has WebGPU except the native app; switched off automatically after a crash attributed to the GPU (§2.14) | novel-voice |
 | `voice.follow` | boolean (default `true`) — narration turns pages / scrolls, persisting progress | novel-voice |
 | `voice.autoNext` | boolean (default `true`) — keep reading into the next chapter | novel-voice |
 | `voice.highlight` | boolean (default `true`) — mark the spoken sentence | novel-voice |

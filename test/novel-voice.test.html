@@ -725,6 +725,34 @@ const T = {
     pass = ok(neuralStub.spoken.length === 0, 'and nothing is generated until asked again') && pass;
     localStorage.removeItem('or.voiceGuard');
     endSession();
+
+    // A crash on the GPU switches the GPU off, for loading and speaking alike,
+    // so the retry runs on the engine that worked rather than the one that
+    // took the page down. A wasm crash leaves the setting alone.
+    for (const phase of ['model', 'speak']) {
+      await freshOpen();
+      Store.prefs.set('voice.gpu', true);
+      VT().state.prefs.gpu = true;
+      localStorage.setItem('or.voiceGuard', JSON.stringify({ t: Date.now(), phase: phase, device: 'webgpu' }));
+      V().toggle();
+      await pause(200);
+      pass = ok(V().state().active && !V().state().playing, 'a GPU ' + phase + ' crash starts paused') && pass;
+      pass = ok(VT().state.prefs.gpu === false && Store.prefs.get('voice.gpu', null) === false,
+        'and switches the GPU off, in memory and in the saved pref') && pass;
+      localStorage.removeItem('or.voiceGuard');
+      endSession();
+    }
+    await freshOpen();
+    Store.prefs.set('voice.gpu', true);
+    VT().state.prefs.gpu = true;
+    localStorage.setItem('or.voiceGuard', JSON.stringify({ t: Date.now(), phase: 'model', device: 'wasm' }));
+    V().toggle();
+    await pause(200);
+    pass = ok(VT().state.prefs.gpu === true, 'a crash on wasm leaves the GPU setting alone') && pass;
+    localStorage.removeItem('or.voiceGuard');
+    Store.prefs.set('voice.gpu', false);
+    VT().state.prefs.gpu = false;
+    endSession();
     return { name: 'crash guard', pass };
   },
 
@@ -2482,8 +2510,8 @@ const T = {
           'reading faster asks for less air, not the same air stretched') && pass;
       } finally { t.state.sentences = gapSentences; t.state.prefs.rate = gapRate; }
 
-      // The GPU path: desktop only, opt-in only, and fp32 because that is what
-      // WebGPU runs. Single-core wasm measured 0.23x realtime on a computer,
+      // The GPU path: opt-in only, never in the native app, and fp32 because
+      // that is what WebGPU runs. Single-core wasm measured 0.23x realtime on a computer,
       // which no amount of queue depth can rescue.
       const hadGpu = 'gpu' in navigator;
       let gpuStubbed = false;
@@ -2515,9 +2543,19 @@ const T = {
         pass = ok(t.neuralDevice() === 'wasm', 'a desktop that did not opt in stays on wasm') && pass;
         t.state.prefs.gpu = true;
         window.Platform = { tuning: function () { return { desktop: false }; } };
+        if (gpuPresent) {
+          pass = ok(t.neuralDevice() === 'webgpu',
+            'a phone browser that opted in uses the GPU too') && pass;
+        }
+        t.state.prefs.gpu = false;
+        pass = ok(t.neuralDevice() === 'wasm', 'and one that did not stays on wasm') && pass;
+        t.state.prefs.gpu = true;
+        window.Platform = { isNative: true, tuning: function () { return { desktop: false }; } };
         pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),
-          'a phone never takes the GPU path, opted in or not') && pass;
+          'the native app never takes the GPU path, opted in or not') && pass;
         pass = ok(t.neuralDtype('wasm') === 'q8', 'and keeps the quantized bundle') && pass;
+        window.Platform = { tuning: function () { return { desktop: false }; } };
+        t.state.prefs.gpu = false;
         pass = ok(t.lookaheadSeconds() === 20 && t.lookaheadMaxGroups() === 4 && t.wavCacheMax() === 32,
           'a fast phone keeps the shallow cushion that lets it go idle') && pass;
       } finally {

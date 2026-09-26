@@ -181,6 +181,9 @@ the `desktop` tuning flag, a toggle in voice settings that names the ~330 MB
 fp32 download, and a fallback to wasm (once per session) if the GPU init fails.
 The comment that deleted it is preserved, because every word of it was a phone
 argument and phones still take the wasm path.
+*Since widened:* a phone's browser build is offered the toggle too, because
+three wasm threads were still short of real time on a current iPhone. A crash
+attributed to the GPU switches the toggle off. The native app never sees it.
 
 Still open: whether a desktop on the GPU wants a bigger prebuffer. Re-measure
 `neuralMargin()` with the GPU on before touching that constant.

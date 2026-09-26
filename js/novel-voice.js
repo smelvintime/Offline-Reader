@@ -59,11 +59,16 @@
   // fallback meant a broken natural voice could masquerade as a working app.
   // When the natural voice cannot run, that is now said, not papered over.
   //
-  // wasm is the only path on a phone, for the reasons that deleted the GPU one:
-  // fp32 weights are four times the size, never bundled, and on a phone the
-  // result was a dead process rather than a faster one.
+  // wasm is the default everywhere. The GPU path was once deleted for phones:
+  // fp32 weights are four times the size, never bundled, and on the phones of
+  // the time the result was a dead process rather than a faster one. It is
+  // offered again on a phone's BROWSER build, still opt-in, because three
+  // wasm threads measured short of real time on a current iPhone, and the
+  // crash guard now switches the setting off if a GPU load or GPU playback
+  // takes the page down. The native app never takes it: it runs the model
+  // natively, which is the better answer there.
   //
-  // A desktop inverts every term of that. Measured in Chrome on a computer,
+  // A desktop inverts every term of the phone's case. Measured in Chrome on a computer,
   // single-core wasm generates 0.23 seconds of audio per second of compute —
   // four times slower than speech — so the narrator waits before every
   // sentence and no amount of queue depth or prebuffering can fix a deficit
@@ -83,10 +88,7 @@
   function gpuCapable() {
     if (gpuInitFailed) return false;
     if (typeof navigator === 'undefined' || !navigator.gpu) return false;
-    try {
-      return !!(window.Platform && typeof window.Platform.tuning === 'function'
-        && window.Platform.tuning().desktop);
-    } catch (e) { return false; }
+    return !isNativeApp();
   }
 
   // How many cores the wasm engine may use. More than one needs the page to
@@ -2465,7 +2467,7 @@
     // Armed until two utterances complete: if speech takes the page down
     // (WebKit home-screen apps have form here; low-memory phones OOM), the
     // flag survives the crash and the next session refuses to auto-play.
-    if ((state.spokeOk | 0) < 2) guardArm('speak');
+    if ((state.spokeOk | 0) < 2) guardArm('speak', neuralEngine.device);
 
     if (!state.sentences.length || state.chapterId !== state.bridge.state().chapterId) seedFromReader();
     if (!state.sentences.length) { state.playing = false; onChapterExhausted(); return; }
@@ -2597,7 +2599,24 @@
     // never got two sentences out — on some platforms because it took the
     // whole page down. Starting paused turns a crash loop into a choice.
     const crashed = guardRead();
+    // A crash on the GPU is the GPU's fault until shown otherwise, and on a
+    // phone it is the likely one: the full-precision weights are the largest
+    // thing this app ever holds. Switching the setting off is what turns
+    // "press play to try again" into a retry on the engine that worked, rather
+    // than the same crash a second time.
+    if (crashed && crashed.device === GPU_DEVICE && state.prefs.gpu) {
+      state.prefs.gpu = false;
+      prefSet(PREF.gpu, false);
+      voiceEvent('gpu-crash-off', { phase: crashed.phase });
+    }
     if (crashed) {
+      if (crashed.device === GPU_DEVICE) {
+        toast('The graphics chip closed the app last time, so it is switched off. Press play to use the standard engine.');
+        state.neuralBlocked = crashed.phase === 'model';
+        syncSheet();
+        updateBar();
+        return;
+      }
       if (crashed.phase === 'model') {
         // The app died LOADING the model. Retrying that load on open is
         // retrying the crash, and there is no other voice to hand the book to,
@@ -3045,13 +3064,17 @@
 
     natAction.addEventListener('click', function () { downloadNeural(); });
 
-    // Desktop only, and only where the browser actually has WebGPU. Off by
-    // default: the speed comes from full-precision weights, and downloading
-    // 330 MB is the reader's decision to make, not a default to discover.
-    if (gpuCapable()) {
-      body.appendChild(toggleRow(
-        'Use this computer’s GPU',
-        'Much faster narration. Downloads ~330 MB of full-precision voice once.',
+    // Only where the browser actually has WebGPU, and never in the native app.
+    // Off by default: the speed comes from full-precision weights, and
+    // downloading 330 MB is the reader's decision to make, not a default to
+    // discover. Re-checked on every sync, so it disappears the moment it
+    // stops applying (a failed GPU init this session, or the native app).
+    if (typeof navigator !== 'undefined' && navigator.gpu) {
+      const gpuRow = toggleRow(
+        isDesktop() ? 'Use this computer’s GPU' : 'Use the graphics chip',
+        isDesktop()
+          ? 'Much faster narration. Downloads ~330 MB of full-precision voice once.'
+          : 'Much faster narration on a recent phone. Downloads ~330 MB once. Switches itself off if it crashes.',
         'gpu', PREF.gpu,
         function () {
           // The device is fixed when the engine is built, so the running one
@@ -3061,7 +3084,13 @@
           toast(state.prefs.gpu
             ? 'GPU narration on — the first chapter downloads the full-precision voice.'
             : 'Back to the standard voice engine.');
-        }));
+        });
+      body.appendChild(gpuRow);
+      sheetSync.push(function () {
+        const off = !gpuCapable();
+        gpuRow.hidden = off;
+        gpuRow.firstChild.hidden = off;   // the toggle itself, for anything that asks it
+      });
     }
 
     // ── Speed / pitch ─────────────────────────────────────────────────────

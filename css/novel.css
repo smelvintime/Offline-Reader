@@ -1109,6 +1109,19 @@ body #novel-screen:not([data-sheet-owner='reader']) > .nv-sheet {
 }
 #novel-screen[data-mode='paged'] .nv-zones { touch-action: none; }
 
+/* A long press on the zones used to start an iOS selection: the empty buttons
+   got selected as blocks, painting a highlight over two thirds of the page,
+   and it could not be tapped away because the zones' mousedown preventDefault
+   also stops the tap that would normally collapse it. Paged mode has no use
+   for a selection (the zones sit over the prose), so none may start here. */
+#novel-screen[data-mode='paged'] .nv-zones,
+#novel-screen[data-mode='paged'] .nv-zone,
+#novel-screen[data-mode='paged'] .nv-viewport {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* Touch/overscroll hardening (PLAN7 §2.11-C): the scroll modes scroll
    vertically only — pan-y keeps a sideways wobble from starting a horizontal
    scroll, and overscroll-behavior-x stops chained horizontal rubber-banding on

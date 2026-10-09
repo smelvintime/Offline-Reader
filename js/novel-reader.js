@@ -3266,6 +3266,10 @@
   function onPointerDown(e) {
     if (state.mode !== 'paged' || !state.open) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Any selection that got through anyway (one made before switching to
+    // paged, or by a WebView that ignores user-select) would be stranded: the
+    // zones swallow the tap that normally dismisses it. Touching them clears it.
+    clearSelection();
     drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: (performance || Date).now(), active: false };
   }
 
@@ -3311,6 +3315,13 @@
     if (d.dx < 0 && (Math.abs(d.dx) > threshold || flick)) nextPage();
     else if (d.dx > 0 && (Math.abs(d.dx) > threshold || flick)) prevPage();
     else setTranslate(-state.page * pageStep(), true);          // spring back
+  }
+
+  function clearSelection() {
+    try {
+      const sel = window.getSelection && window.getSelection();
+      if (sel && sel.rangeCount && !sel.isCollapsed) sel.removeAllRanges();
+    } catch (err) { /* nothing to clear */ }
   }
 
   function swallowClick() {

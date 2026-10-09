@@ -59,14 +59,12 @@
   // fallback meant a broken natural voice could masquerade as a working app.
   // When the natural voice cannot run, that is now said, not papered over.
   //
-  // wasm is the default everywhere. The GPU path was once deleted for phones:
-  // fp32 weights are four times the size, never bundled, and on the phones of
-  // the time the result was a dead process rather than a faster one. It is
-  // offered again on a phone's BROWSER build, still opt-in, because three
-  // wasm threads measured short of real time on a current iPhone, and the
-  // crash guard now switches the setting off if a GPU load or GPU playback
-  // takes the page down. The native app never takes it: it runs the model
-  // natively, which is the better answer there.
+  // wasm is the only path on a phone: fp32 weights are four times the size,
+  // never bundled, and on a phone the result is a dead process rather than a
+  // faster one. That was re-tested on an iPhone 18 Pro Max's browser build
+  // (three wasm threads were short of real time, so the GPU was offered as an
+  // opt-in): Safari killed the page. A phone that is behind pays the deficit
+  // up front instead, through the pre-buffer below.
   //
   // A desktop inverts every term of the phone's case. Measured in Chrome on a computer,
   // single-core wasm generates 0.23 seconds of audio per second of compute —
@@ -88,7 +86,11 @@
   function gpuCapable() {
     if (gpuInitFailed) return false;
     if (typeof navigator === 'undefined' || !navigator.gpu) return false;
-    return !isNativeApp();
+    if (isNativeApp()) return false;
+    try {
+      return !!(window.Platform && typeof window.Platform.tuning === 'function'
+        && window.Platform.tuning().desktop);
+    } catch (e) { return false; }
   }
 
   // How many cores the wasm engine may use. More than one needs the page to
@@ -217,7 +219,13 @@
   // up front and the rest plays through without a gap. One wait a reader can
   // see the end of beats a stutter every few seconds, which is the actual
   // complaint.
-  const NEURAL_PREBUFFER_MAX_SEC = 15;    // thermal-bounded startup generation
+  //
+  // The cap was fifteen seconds. On an iPhone's browser build, three wasm
+  // threads still fell behind and the ring spun between sentences within
+  // the first minute, so the reader asked for a longer wait up front instead.
+  // Forty-five wall seconds buys forty-five times the margin in audio; heat
+  // and low power still skip it entirely (prebufferTargetSeconds).
+  const NEURAL_PREBUFFER_MAX_SEC = 45;    // thermal-bounded startup generation
   const NEURAL_PREBUFFER_SAFETY = 1.35;   // the margin drifts, and phones throttle
   const NEURAL_PREBUFFER_FLOOR = 1.05;    // above this there is no deficit to pay
   const NEURAL_PREBUFFER_TICK_MS = 400;
@@ -2197,7 +2205,7 @@
     if (target <= 0) return Promise.resolve(true);
     // The first clip is part of the same full-load startup burst. Its generation
     // begins before this function, so carry the original deadline through
-    // rather than granting a fresh fifteen seconds after that work completes.
+    // rather than granting a fresh budget after that work completes.
     const deadline = startupDeadline || startupPrebufferDeadline();
     state.prebuffer = { target: target, got: 0 };
     updateBar();
@@ -3064,17 +3072,15 @@
 
     natAction.addEventListener('click', function () { downloadNeural(); });
 
-    // Only where the browser actually has WebGPU, and never in the native app.
+    // Desktop only, where the browser actually has WebGPU, never the native app.
     // Off by default: the speed comes from full-precision weights, and
     // downloading 330 MB is the reader's decision to make, not a default to
     // discover. Re-checked on every sync, so it disappears the moment it
     // stops applying (a failed GPU init this session, or the native app).
     if (typeof navigator !== 'undefined' && navigator.gpu) {
       const gpuRow = toggleRow(
-        isDesktop() ? 'Use this computer’s GPU' : 'Use the graphics chip',
-        isDesktop()
-          ? 'Much faster narration. Downloads ~330 MB of full-precision voice once.'
-          : 'Much faster narration on a recent phone. Downloads ~330 MB once. Switches itself off if it crashes.',
+        'Use this computer’s GPU',
+        'Much faster narration. Downloads ~330 MB of full-precision voice once.',
         'gpu', PREF.gpu,
         function () {
           // The device is fixed when the engine is built, so the running one

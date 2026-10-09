@@ -1789,12 +1789,12 @@ const T = {
       // ── a real deficit, capped at what anyone will sit through ──────────
       // The phone's own number. 0.92x over a 2000-second chapter is 160
       // seconds short, which is far past the cap, so the cap is what applies.
-      // Startup is intentionally thermal-bounded: fifteen wall seconds of
-      // generating buys 15 x 0.92 seconds of audio, then playback begins.
+      // Startup is intentionally thermal-bounded: forty-five wall seconds of
+      // generating buys 45 x 0.92 seconds of audio, then playback begins.
       ne.noteSpeed({ ms: 1000, seconds: 0.92, chars: 18.4 });
       const capped = VT().prebufferTargetSeconds();
-      pass = ok(VT().NEURAL_PREBUFFER_MAX_SEC === 15 && Math.abs(capped - 15 * 0.92) < 0.5,
-        'a long chapter gets at most fifteen wall seconds of startup generation',
+      pass = ok(VT().NEURAL_PREBUFFER_MAX_SEC === 45 && Math.abs(capped - 45 * 0.92) < 0.5,
+        'a long chapter gets at most forty-five wall seconds of startup generation',
         capped.toFixed(1) + 's') && pass;
 
       // A short chapter's whole deficit fits inside the cap, so it is paid in
@@ -1808,9 +1808,9 @@ const T = {
       pass = ok(full < capped, 'and a short chapter never waits longer than a long one',
         full.toFixed(1) + 's < ' + capped.toFixed(1) + 's') && pass;
 
-      // The fifteen-second heat budget starts before the first clip renders.
+      // The startup heat budget starts before the first clip renders.
       // Advancing a fake clock through that first render must not buy a fresh
-      // fifteen seconds for speculative clips behind it.
+      // budget for speculative clips behind it.
       pass = ok(typeof VT().startupPrebufferDeadline === 'function',
         'the startup budget has one deadline shared by first clip and lookahead') && pass;
       if (typeof VT().startupPrebufferDeadline === 'function') {
@@ -1819,8 +1819,8 @@ const T = {
         Date.now = function () { return fakeNow; };
         const deadline = VT().startupPrebufferDeadline();
         fakeNow += 12000;              // first clip consumed twelve seconds
-        pass = ok(deadline - Date.now() === 3000,
-          'first-clip generation is charged against the fifteen-second startup budget',
+        pass = ok(deadline - Date.now() === 33000,
+          'first-clip generation is charged against the forty-five-second startup budget',
           (deadline - Date.now()) + 'ms remain') && pass;
         Date.now = realNow;
       }
@@ -1877,7 +1877,7 @@ const T = {
         pass = ok(generated.length === 1,
           'the prefetch pump stays off while the first clip consumes startup budget',
           'generation calls=' + generated.length) && pass;
-        fakeNow += 16000;           // first clip finished after the budget expired
+        fakeNow += VT().NEURAL_PREBUFFER_MAX_SEC * 1000 + 1000;   // first clip finished after the budget expired
         finishFirst('blob:first');
         await pause(50);
         pass = ok(generated.length === 1,
@@ -2510,8 +2510,8 @@ const T = {
           'reading faster asks for less air, not the same air stretched') && pass;
       } finally { t.state.sentences = gapSentences; t.state.prefs.rate = gapRate; }
 
-      // The GPU path: opt-in only, never in the native app, and fp32 because
-      // that is what WebGPU runs. Single-core wasm measured 0.23x realtime on a computer,
+      // The GPU path: desktop only, opt-in only, and fp32 because that is what
+      // WebGPU runs. A phone's browser build was tried and Safari killed the page. Single-core wasm measured 0.23x realtime on a computer,
       // which no amount of queue depth can rescue.
       const hadGpu = 'gpu' in navigator;
       let gpuStubbed = false;
@@ -2543,14 +2543,9 @@ const T = {
         pass = ok(t.neuralDevice() === 'wasm', 'a desktop that did not opt in stays on wasm') && pass;
         t.state.prefs.gpu = true;
         window.Platform = { tuning: function () { return { desktop: false }; } };
-        if (gpuPresent) {
-          pass = ok(t.neuralDevice() === 'webgpu',
-            'a phone browser that opted in uses the GPU too') && pass;
-        }
-        t.state.prefs.gpu = false;
-        pass = ok(t.neuralDevice() === 'wasm', 'and one that did not stays on wasm') && pass;
-        t.state.prefs.gpu = true;
-        window.Platform = { isNative: true, tuning: function () { return { desktop: false }; } };
+        pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),
+          'a phone browser never takes the GPU path, opted in or not') && pass;
+        window.Platform = { isNative: true, tuning: function () { return { desktop: true }; } };
         pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),
           'the native app never takes the GPU path, opted in or not') && pass;
         pass = ok(t.neuralDtype('wasm') === 'q8', 'and keeps the quantized bundle') && pass;

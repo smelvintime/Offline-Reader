@@ -1901,8 +1901,9 @@
       speakSystem(s, token, done, fail);
       return;
     }
-    // Prepared audio: playing a stored clip is what keeps the phone cool.
-    if (chapterPrepared(state.chapterId)) {
+    // Prepared audio: playing a stored clip is what keeps the phone cool. Under
+    // the rule a book plays only once all of it is prepared.
+    if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) {
       speakPrepared(s, token, done, fail);
       return;
     }
@@ -2712,6 +2713,18 @@
     return !!(idx && chapterId != null && idx.chapters.has(chapterId));
   }
 
+  /** Every chapter of the open book has stored audio. Listening needs this. */
+  function bookFullyPrepared() {
+    const idx = preparedIndexCurrent();
+    const b = state.bridge;
+    if (!idx || !b || !b.chapters) return false;
+    const chapters = b.chapters();
+    return chapters.length > 0 && chapters.every(function (c) { return idx.chapters.has(c.id); });
+  }
+
+  // What playback asks: the book is whole, and this chapter's audio is there.
+  function canPlayPrepared(chapterId) { return bookFullyPrepared() && chapterPrepared(chapterId); }
+
   function bookHasPrepared() {
     const idx = preparedIndexCurrent();
     return !!(idx && idx.chapters.size);
@@ -3136,7 +3149,7 @@
     preparedIndexReady().then(function () {
       if (!state.playing || token !== state.speakToken) return;
       // Prepared: nothing to load, play now.
-      if (chapterPrepared(state.chapterId)) { speakCurrent(); return; }
+      if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) { speakCurrent(); return; }
       if (preparedOnly) { notPreparedYet(true); return; }
       ensureNeuralThenSpeak();
     });
@@ -3150,7 +3163,7 @@
   function notPreparedYet(fromPlay) {
     const partly = bookHasPrepared();
     const msg = partly
-      ? 'This chapter is not prepared yet, so nothing plays here. Prepare the rest of the book to listen to it.'
+      ? 'Listening starts once the whole book is prepared. Prepare the rest of the book to listen.'
       : 'This book is not prepared yet, so it can only be read on screen. Prepare it to listen.';
     setPreparing(false);
     finishSession(msg);
@@ -3779,7 +3792,7 @@
         if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
-          + (preparedOnly ? 'Only prepared chapters play.' : 'The rest use the live voice until prepared.');
+          + (preparedOnly ? 'Listening starts once the whole book is prepared.' : 'The rest use the live voice until prepared.');
         else line = (preparedOnly ? 'This book is not prepared, so it cannot be read aloud yet. ' : '')
           + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;

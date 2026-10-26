@@ -2724,9 +2724,10 @@ const T = {
       pass = ok(k !== VT().preparedClipKey('b', 'c', 'af_heart', Object.assign({}, g, { text: 'The lamp guttered.' })),
                 'text is part of the key') && pass;
 
-      // 5. A partly prepared book plays its prepared chapters and stops at
-      //    the first one that is not, with no other voice standing in, even
-      //    where an iPhone voice exists and was the stored choice.
+      // 5. A partly prepared book plays nothing, not even its prepared
+      //    chapters: listening starts once the whole book is done. No other
+      //    voice stands in, even where an iPhone voice exists and was the
+      //    stored choice.
       const platformBefore = window.Platform;
       let systemSpoke = 0;
       window.Platform = { speech: {
@@ -2748,11 +2749,15 @@ const T = {
         const playedIn = [];
         chP.play = function () { playedIn.push(V().state().chapterId); return playReal.apply(chP, arguments); };
         V().toggle();
-        await waitFor(() => !V().isActive(), 15000, 'stopped at the unprepared chapter');
+        await waitFor(() => !V().isActive(), 15000, 'session ended');
+        await pause(200);
         chP.play = playReal;
-        pass = ok(playedIn.length > 0 && playedIn.every(c => c === CHAPTERS[0].id),
-                  'the prepared chapter played, and nothing after it', playedIn.length + ' clips') && pass;
-        pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice for the unprepared chapter',
+        pass = ok(playedIn.length === 0, 'a partly prepared book plays nothing, prepared chapters included',
+                  playedIn.length + ' clips') && pass;
+        pass = ok(/whole book/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'the sheet says listening needs the whole book') && pass;
+        V().closeSheet();
+        pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice either',
                   neuralStub.spoken.length + ' generated, ' + loads + ' loads') && pass;
         pass = ok(systemSpoke === 0, 'the iPhone voice never speaks', systemSpoke) && pass;
       } finally {

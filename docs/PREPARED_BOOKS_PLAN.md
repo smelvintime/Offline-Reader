@@ -11,10 +11,9 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   (16-bit WAV, about 170 MB per hour of audio). Progress, a stop button,
   resume from the first missing group, and "Delete prepared audio".
 - Playback of a prepared chapter plays stored clips and never loads the model.
-- Narration plays prepared chapters only. An unprepared book is read on
-  screen only, and Play opens the sheet on Prepare; an unprepared chapter of
-  a partly prepared book stops narration. No live model while listening, and
-  the iPhone voice is never used.
+- Narration plays only once the whole book is prepared. Until then the book
+  is read on screen only, and Play opens the sheet on Prepare. No live model
+  while listening, and the iPhone voice is never used.
 - Preparing pauses at serious heat, stops when listening starts or the book
   closes, and keeps running with the screen locked through a silent audio loop.
 

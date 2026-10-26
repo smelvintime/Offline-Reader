@@ -1287,10 +1287,11 @@ chapter never loads the model: `speakPrepared` snaps the cursor to the start of
 the stored group holding it and plays the clip through the same channel, gaps
 and highlight.
 
-**Narration plays prepared audio and nothing else** (`preparedOnly`). A chapter
-without stored clips is read on screen only: Play on an unprepared book ends
-the session and opens the voice sheet on Prepare, and reaching an unprepared
-chapter of a partly prepared book stops narration with a toast. The live model
+**Narration plays prepared audio and nothing else** (`preparedOnly`), and only
+once the whole book is prepared (`bookFullyPrepared`). Until then the book is
+read on screen only: Play ends the session and opens the voice sheet on
+Prepare, which says listening starts when the book is done. A series that
+gains a chapter later is not fully prepared again until that chapter is. The live model
 never runs for listening, so it is never prewarmed either, and the iPhone voice
 is not offered at all (`defaultNarrator()` is always `natural`, the narrator
 row is hidden). The live engine remains as the thing preparing runs on, and

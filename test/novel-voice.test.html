@@ -301,6 +301,10 @@ const neuralStub = {
 async function freshOpen(opts) {
   // Ensure a clean session and default prefs unless a test overrides them.
   if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
+  // Production plays prepared audio only. The older suites test the live
+  // engine that preparing runs on, so they get it back; the prepared suites
+  // pass { preparedOnly: true }.
+  VT().setPreparedOnly(!!(opts && opts.preparedOnly));
   neuralStub.reset();
   try { localStorage.removeItem('or.voiceGuard'); } catch (e) {}
   Store.prefs.set('voice.rate', 1);
@@ -2621,7 +2625,7 @@ const T = {
     const ne = VT().neuralEngine;
     const P = VT().preparer;
     try {
-      await freshOpen();
+      await freshOpen({ preparedOnly: true });
       await VT().deletePrepared();
       pass = ok(VT().preparedSummary().ready === 0, 'starts unprepared') && pass;
 
@@ -2706,7 +2710,7 @@ const T = {
       // 3. Play stops a preparation; starting again renders nothing new.
       VT().pause();
       endSession();
-      await freshOpen();
+      await freshOpen({ preparedOnly: true });
       await VT().loadPreparedIndex();
       neuralStub.spoken = [];
       P.start();
@@ -2720,13 +2724,59 @@ const T = {
       pass = ok(k !== VT().preparedClipKey('b', 'c', 'af_heart', Object.assign({}, g, { text: 'The lamp guttered.' })),
                 'text is part of the key') && pass;
 
-      // 5. Deleted audio: back to the live voice, not silence.
+      // 5. A partly prepared book plays its prepared chapters and stops at
+      //    the first one that is not, with no other voice standing in, even
+      //    where an iPhone voice exists and was the stored choice.
+      const platformBefore = window.Platform;
+      let systemSpoke = 0;
+      window.Platform = { speech: {
+        available: () => true, voices: () => Promise.resolve([]),
+        speak: () => { systemSpoke++; return Promise.resolve(true); },
+        stop: () => Promise.resolve(), pause: () => Promise.resolve(), resume: () => Promise.resolve(),
+      } };
+      try {
+        Store.prefs.set('voice.narrator', 'iphone');
+        await freshOpen({ preparedOnly: true });
+        await VT().loadPreparedIndex();
+        pass = ok(VT().state.prefs.narrator === 'natural', 'the narrator is always the natural voice') && pass;
+        VT().state.preparedIndex.chapters.delete(CHAPTERS[1].id);   // chapter 2 now unprepared
+        neuralStub.spoken = [];
+        loads = 0;
+        ne.dispose();
+        ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+        const chP = VT().channel, playReal = chP.play;
+        const playedIn = [];
+        chP.play = function () { playedIn.push(V().state().chapterId); return playReal.apply(chP, arguments); };
+        V().toggle();
+        await waitFor(() => !V().isActive(), 15000, 'stopped at the unprepared chapter');
+        chP.play = playReal;
+        pass = ok(playedIn.length > 0 && playedIn.every(c => c === CHAPTERS[0].id),
+                  'the prepared chapter played, and nothing after it', playedIn.length + ' clips') && pass;
+        pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice for the unprepared chapter',
+                  neuralStub.spoken.length + ' generated, ' + loads + ' loads') && pass;
+        pass = ok(systemSpoke === 0, 'the iPhone voice never speaks', systemSpoke) && pass;
+      } finally {
+        ne.ensureReady = realEnsure;
+        window.Platform = platformBefore;
+        Store.prefs.set('voice.narrator', 'natural');
+      }
+
+      // 6. A book with nothing prepared does not play at all; Play opens the
+      //    sheet on Prepare instead.
+      endSession();
+      await freshOpen({ preparedOnly: true });
       await VT().deletePrepared();
       pass = ok(!VT().chapterPrepared(CHAPTERS[0].id), 'delete forgets the chapters') && pass;
       neuralStub.spoken = [];
       V().toggle();
-      await waitFor(() => neuralStub.spoken.length > 0, 5000, 'live generation after delete');
-      pass = ok(true, 'unprepared book still narrates live') && pass;
+      await waitFor(() => !V().isActive(), 5000, 'session ended');
+      await pause(200);
+      pass = ok(neuralStub.spoken.length === 0, 'an unprepared book plays nothing', neuralStub.spoken.length) && pass;
+      pass = ok(V().state().sheetOpen, 'Play opens the voice sheet instead') && pass;
+      const prepBtn = document.querySelector('#novel-screen .vc-prepared-action');
+      pass = ok(prepBtn && !prepBtn.closest('[hidden]') && /Prepare/.test(prepBtn.textContent), 'with Prepare on offer',
+                prepBtn && prepBtn.textContent) && pass;
+      V().closeSheet();
     } finally {
       if (P.running) P.stop(null);
       await VT().deletePrepared();
@@ -2765,7 +2815,7 @@ const T = {
       },
     };
     try {
-      await freshOpen();
+      await freshOpen({ preparedOnly: true });
       await VT().deletePrepared();
       P.start();
       await waitFor(() => !P.running, 15000, 'preparing finished');
@@ -2783,7 +2833,7 @@ const T = {
       pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback') && pass;
       VT().pause();
       endSession();
-      await freshOpen();
+      await freshOpen({ preparedOnly: true });
       await VT().deletePrepared();
       pass = ok(removed.length >= 1 && disk.size === 0, 'delete removes the files', removed.join(',')) && pass;
 

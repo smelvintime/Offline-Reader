@@ -11,7 +11,10 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   (16-bit WAV, about 170 MB per hour of audio). Progress, a stop button,
   resume from the first missing group, and "Delete prepared audio".
 - Playback of a prepared chapter plays stored clips and never loads the model.
-- Unprepared chapters of a prepared book use the iPhone voice where it exists.
+- Narration plays prepared chapters only. An unprepared book is read on
+  screen only, and Play opens the sheet on Prepare; an unprepared chapter of
+  a partly prepared book stops narration. No live model while listening, and
+  the iPhone voice is never used.
 - Preparing pauses at serious heat, stops when listening starts or the book
   closes, and keeps running with the screen locked through a silent audio loop.
 
@@ -47,11 +50,10 @@ preparation.
 Consequences:
 
 - A chapter is playable with the natural voice only once its audio is on disk.
-- There is no live natural-voice fallback during playback by default. Live
-  generation is exactly the heat source being removed. If a reader reaches an
-  unprepared chapter, the app offers the iPhone's own voice (which costs nearly
-  nothing) or stops with "this chapter isn't prepared yet". Live natural voice
-  can remain as an explicit, off-by-default setting.
+- There is no fallback during playback. Live generation is exactly the heat
+  source being removed, and the iPhone's own voice is not good enough to
+  offer. An unprepared chapter, or a book with none prepared, is read on
+  screen only; narration stops and says the chapter is not prepared yet.
 - The "Quick" mode from the first draft (render ahead while listening) is
   dropped. It renders during playback, which breaks requirement 1.
 
@@ -141,7 +143,7 @@ crosses back to JavaScript, which today happens for every clip.
 3. **Narration script builder.** Segmentation and grouping moved to import,
    versioned and keyed.
 4. **Prepared playback.** Native player, speed, highlight from offsets, lock
-   screen, iPhone-voice fallback for unprepared chapters.
+   screen, and stopping (no other voice) at unprepared chapters.
 5. **Preparation scheduling.** Charging screen, `BGProcessingTask`, thermal
    and battery guards, estimate, storage controls.
 6. **Verify the requirements on the phone.** An hour of locked-screen

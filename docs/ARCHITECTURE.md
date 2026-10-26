@@ -1285,8 +1285,16 @@ widest caps from the start of the chapter (`preparedPlan`), never the adaptive
 or fast-start caps, so a clip made earlier is found again. A Play on a prepared
 chapter never loads the model: `speakPrepared` snaps the cursor to the start of
 the stored group holding it and plays the clip through the same channel, gaps
-and highlight. In a book with any prepared chapter, an unprepared one reads
-with the iPhone voice where it exists, live otherwise. Off the charger (or when
+and highlight.
+
+**Narration plays prepared audio and nothing else** (`preparedOnly`). A chapter
+without stored clips is read on screen only: Play on an unprepared book ends
+the session and opens the voice sheet on Prepare, and reaching an unprepared
+chapter of a partly prepared book stops narration with a toast. The live model
+never runs for listening, so it is never prewarmed either, and the iPhone voice
+is not offered at all (`defaultNarrator()` is always `natural`, the narrator
+row is hidden). The live engine remains as the thing preparing runs on, and
+the test page switches `preparedOnly` off to exercise it. Off the charger (or when
 `Platform.charging()` cannot tell, as in Safari) the Prepare tap asks first,
 since preparing heats the phone and drains it. Preparing never runs
 under a listening session (Play stops it), pauses at serious heat, and loops a

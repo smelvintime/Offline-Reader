@@ -516,6 +516,7 @@
    * decides what happens before anyone has expressed one.
    */
   function defaultNarrator() {
+    if (preparedOnly) return 'natural';
     const stored = prefGet(PREF.narrator, null);
     if (NARRATORS.indexOf(stored) !== -1) return stored;
     return systemSpeech().available() ? 'iphone' : 'natural';
@@ -1900,22 +1901,13 @@
       speakSystem(s, token, done, fail);
       return;
     }
-    // Prepared audio first: playing a stored clip is what keeps the phone cool.
+    // Prepared audio: playing a stored clip is what keeps the phone cool.
     if (chapterPrepared(state.chapterId)) {
       speakPrepared(s, token, done, fail);
       return;
     }
-    // A book that is being prepared but has not reached this chapter reads it
-    // with the iPhone voice rather than running the model live, which is the
-    // heat preparing exists to avoid.
-    if (bookHasPrepared() && systemSpeech().available()) {
-      if (state.fallbackNoted !== state.chapterId) {
-        state.fallbackNoted = state.chapterId;
-        toast('This chapter is not prepared yet, so the iPhone voice is reading it.');
-      }
-      speakSystem(s, token, done, fail);
-      return;
-    }
+    // Not prepared: nothing plays. No live model, no lesser voice.
+    if (preparedOnly) { notPreparedYet(false); return; }
     // Playback that began on prepared audio never loaded the model.
     if (!neuralEngine.ready || !neuralEngine.worker) {
       ensureNeuralThenSpeak();
@@ -2538,6 +2530,13 @@
   // of the reader, which does not apply; fixed boundaries are what let a clip
   // made last night be found tonight.
 
+  // The rule (docs/PREPARED_BOOKS_PLAN.md): narration plays prepared audio
+  // and nothing else. No live model while listening, which is the heat, and
+  // never the iPhone voice, which is not good enough to offer. A chapter that
+  // is not prepared reads on screen only. A variable, not a constant, only so
+  // the test page can still exercise the live engine that preparing uses.
+  let preparedOnly = true;
+
   const PREPARED_DB = 'or-voice-prepared';
   // Bump when segmentation, normalisation or grouping changes what a group
   // says: every stored clip is then ignored and the book shows as unprepared.
@@ -3136,14 +3135,26 @@
     const token = state.speakToken;
     preparedIndexReady().then(function () {
       if (!state.playing || token !== state.speakToken) return;
-      // Prepared, or covered by the iPhone voice: nothing to load, play now.
-      if (chapterPrepared(state.chapterId)
-          || (bookHasPrepared() && systemSpeech().available())) {
-        speakCurrent();
-        return;
-      }
+      // Prepared: nothing to load, play now.
+      if (chapterPrepared(state.chapterId)) { speakCurrent(); return; }
+      if (preparedOnly) { notPreparedYet(true); return; }
       ensureNeuralThenSpeak();
     });
+  }
+
+  /**
+   * The chapter under the cursor has no stored audio, so narration stops and
+   * says why. From a Play tap the voice sheet opens on the Prepare button,
+   * since that is the one thing that would let this book be heard.
+   */
+  function notPreparedYet(fromPlay) {
+    const partly = bookHasPrepared();
+    const msg = partly
+      ? 'This chapter is not prepared yet, so nothing plays here. Prepare the rest of the book to listen to it.'
+      : 'This book is not prepared yet, so it can only be read on screen. Prepare it to listen.';
+    setPreparing(false);
+    finishSession(msg);
+    if (fromPlay) { ensureDom(); openSheet(); syncSheet(); }
   }
 
   function ensureNeuralThenSpeak() {
@@ -3614,7 +3625,7 @@
     }
 
     sheetSync.push(function () {
-      const hasSystem = systemSpeech().available();
+      const hasSystem = !preparedOnly && systemSpeech().available();
       narRow.hidden = !hasSystem;
       const onSystem = hasSystem && state.prefs.narrator === 'iphone';
       sysRow.hidden = !onSystem;
@@ -3742,7 +3753,7 @@
     });
 
     sheetSync.push(function () {
-      const onSystem = systemSpeech().available() && state.prefs.narrator === 'iphone';
+      const onSystem = !preparedOnly && systemSpeech().available() && state.prefs.narrator === 'iphone';
       prepRow.hidden = onSystem || !state.bridge;
       if (prepRow.hidden) return;
       const sum = preparedSummary();
@@ -3768,8 +3779,9 @@
         if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
-          + (systemSpeech().available() ? 'The rest read with the iPhone voice until prepared.' : 'The rest use the live voice until prepared.');
-        else line = 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
+          + (preparedOnly ? 'Only prepared chapters play.' : 'The rest use the live voice until prepared.');
+        else line = (preparedOnly ? 'This book is not prepared, so it cannot be read aloud yet. ' : '')
+          + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;
       }
       prepText.textContent = line;
@@ -4131,6 +4143,8 @@
 
 
   function prewarmNeural() {
+    // Playback never uses the live model, so there is nothing to warm.
+    if (preparedOnly) return;
     // Memory capacity alone is not permission for speculative computation.
     if ((window.Platform && window.Platform.isNative) || resources.lowPower || thermalHot()) return;
     if (!neuralEngine.available()) return;
@@ -4462,6 +4476,8 @@
       chapterPrepared: chapterPrepared,
       deletePrepared: deletePrepared,
       preparedSummary: preparedSummary,
+      setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
+      preparedOnly: function () { return preparedOnly; },
     },
   };
 })();

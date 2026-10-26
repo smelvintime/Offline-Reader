@@ -1,9 +1,9 @@
 # Prepare on my computer: plan
 
-Status: groundwork done on branch `claude/mac-prepare` (see "Already done").
-The app side is not built. This page is written to be handed to a fresh
-session: it says what exists, what to build, in what order, and how to know
-it works.
+Status: steps 1 to 7 of "To build" are done on branch `claude/mac-prepare`.
+The server was run against the real model on a Mac (q8 and fp32), and the
+app's own `localHttp` → server → stored book path was run end to end in
+Chromium. Step 8 (on the phone) is what is left, and needs the owner.
 
 Read first: `CLAUDE.md` (repo rules, including the CACHE_NAME rule and that
 tests are browser pages), `docs/PREPARED_BOOKS_PLAN.md` (why prepared books

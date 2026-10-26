@@ -374,6 +374,11 @@ what it changed, and stays quiet when there is nothing to do:
   why this list shrank into a script.
 - **iOS URL scheme** (`CFBundleURLTypes`) — §5.
 - **Android intent-filter** (`VIEW` + `offlinereader`) — §8.3.
+- **iOS local network** (`NSLocalNetworkUsageDescription`, and
+  `NSAppTransportSecurity → NSAllowsLocalNetworking`) — for "Prepare on my
+  computer" (`docs/MAC_PREPARE_PLAN.md`): plain http to a LAN address, and the
+  prompt iOS shows before the app may reach the home network. Existing ATS
+  keys are kept.
 
 It never overwrites a value you put there yourself: an existing
 `UIBackgroundModes` gains `audio` alongside whatever else is in it, existing

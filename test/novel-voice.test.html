@@ -54,6 +54,7 @@
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
   <button onclick="T.testThermalLifecycle().then(T.report)">thermal lifecycle</button>
   <button onclick="T.testPreparedBook().then(T.report)">prepared book</button>
+  <button onclick="T.testPreparedOnComputer().then(T.report)">prepared on computer</button>
   <button onclick="T.testPreparedNativeClips().then(T.report)">prepared native clips</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
@@ -2797,6 +2798,114 @@ const T = {
     return { name: 'prepared book', pass };
   },
 
+  // Preparing on a computer (docs/MAC_PREPARE_PLAN.md): voice-server is
+  // faked behind Platform.localHttp. Only the render step moves, so the book
+  // ends up prepared exactly as the phone would leave it, and the phone's own
+  // engine is never loaded.
+  async testPreparedOnComputer() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const P = VT().preparer;
+    const oldPlatform = window.Platform;
+    const realEnsure = ne.ensureReady;
+    const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 100 ms
+    const server = {
+      ready: true, status: 200, fail: false, renders: [], inFlight: 0, maxInFlight: 0, statusCalls: 0,
+    };
+    const remote = { base: 'http://192.168.1.20:8787', code: '424242' };
+    let asked = 0;
+    window.Platform = {
+      charging: () => Promise.resolve(false),
+      confirm: () => { asked++; return Promise.resolve(true); },
+      localHttp: async (url, o) => {
+        if (server.fail) throw new Error('network down');
+        if (server.status !== 200) return { status: server.status, headers: {}, data: { error: 'nope' } };
+        if (url.endsWith('/status')) {
+          server.statusCalls++;
+          return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null } };
+        }
+        server.renders.push({ url, code: o.headers['x-voice-code'], voice: o.json.voice, binary: o.binary });
+        server.inFlight++;
+        server.maxInFlight = Math.max(server.maxInFlight, server.inFlight);
+        await pause(15);
+        server.inFlight--;
+        return { status: 200, headers: { 'x-seconds': '0.1' }, data: wav.slice(0) };
+      },
+    };
+    let loads = 0;
+    try {
+      pass = ok(VT().remoteBase(' 192.168.1.20 ') === 'http://192.168.1.20:8787', 'address gets scheme and port') && pass;
+      pass = ok(VT().remoteBase('http://mac.local:9000/') === 'http://mac.local:9000', 'given port kept, slash dropped') && pass;
+
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      ne.dispose();
+      ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+      neuralStub.spoken = [];
+
+      // 1. The whole book, on the computer.
+      const started = await P.request({ remote });
+      pass = ok(started && P.running, 'preparing started') && pass;
+      pass = ok(asked === 0, 'no charging question for the computer', asked) && pass;
+      await waitFor(() => P.chapterAt > 0, 5000, 'first chapter');
+      pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      const sum = VT().preparedSummary();
+      pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready + '/' + sum.total + ' ' + P.message) && pass;
+      let groups = 0;
+      VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
+      pass = ok(server.renders.length === groups, 'one render per group', server.renders.length + '/' + groups) && pass;
+      pass = ok(server.renders.every(r => r.code === '424242' && r.voice === VT().state.prefs.neuralVoice && r.binary
+                && r.url === remote.base + '/render'), 'each render carries the code and voice') && pass;
+      pass = ok(server.maxInFlight === 2, 'the next part is asked for early, never more than one', server.maxInFlight) && pass;
+      pass = ok(loads === 0, 'the phone model was never loaded', loads) && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'the phone engine generated nothing', neuralStub.spoken.length) && pass;
+      const diag = VT().voiceDiagnostics().prepared;
+      pass = ok(diag.source === 'computer' && diag.remote === remote.base && !/424242/.test(JSON.stringify(diag)),
+                'diagnostics name the computer, not the code', JSON.stringify(diag)) && pass;
+
+      // 2. Again: everything is stored, nothing is rendered.
+      server.renders = [];
+      P.start({ remote });
+      await waitFor(() => !P.running, 5000, 'second pass finished');
+      pass = ok(server.renders.length === 0, 'a prepared book renders nothing again', server.renders.length) && pass;
+
+      // 3. Failures stop with a sentence to act on; nothing falls back to the phone.
+      await VT().deletePrepared();
+      server.status = 401;
+      P.start({ remote });
+      await waitFor(() => !P.running, 5000, '401 stops');
+      pass = ok(/code does not match/.test(P.message), 'wrong code is named', P.message) && pass;
+      server.status = 200;
+      server.fail = true;
+      P.start({ remote });
+      await waitFor(() => !P.running, 5000, 'network error stops');
+      pass = ok(/Could not reach your computer at http:\/\/192\.168\.1\.20:8787/.test(P.message), 'unreachable is named', P.message) && pass;
+      server.fail = false;
+      pass = ok(loads === 0 && neuralStub.spoken.length === 0, 'no fall back to the phone', loads) && pass;
+
+      // 4. A computer still loading the model: wait, then prepare.
+      server.ready = false;
+      server.statusCalls = 0;
+      server.renders = [];
+      P.start({ remote });
+      await waitFor(() => P.remoteLoading, 3000, 'waiting for the computer');
+      pass = ok(/loading the voice/.test(VT().preparerLine()), 'the line says it is loading', VT().preparerLine()) && pass;
+      pass = ok(server.renders.length === 0, 'nothing sent while it loads') && pass;
+      server.ready = true;
+      await waitFor(() => !P.running, 20000, 'prepared after loading');
+      pass = ok(server.statusCalls >= 2 && VT().preparedSummary().ready === CHAPTERS.length,
+                'waited, then prepared', server.statusCalls + ' polls') && pass;
+    } finally {
+      if (P.running) P.stop(null);
+      ne.ensureReady = realEnsure;
+      window.Platform = oldPlatform;
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared on computer', pass };
+  },
+
   // On a build whose plugin can write AAC, clips go to disk through it and
   // IndexedDB keeps only the path. The plugin is faked here; the Swift side is
   // exercised on a device.
@@ -2871,7 +2980,7 @@ const T = {
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedNativeClips, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {
@@ -2898,6 +3007,7 @@ const headlessTest = headlessRun === 'thermal' ? T.testThermalLifecycle
   : headlessRun === 'memory' ? T.testMemoryTier
   : headlessRun === 'playback' ? T.testPlayback
   : headlessRun === 'prepared' ? T.testPreparedBook
+  : headlessRun === 'computer' ? T.testPreparedOnComputer
   : headlessRun === 'all' ? T.all : null;
 if (headlessTest) {
   headlessTest().then(function (result) {

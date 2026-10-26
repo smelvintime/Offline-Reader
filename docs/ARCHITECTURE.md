@@ -1295,7 +1295,16 @@ gains a chapter later is not fully prepared again until that chapter is. The liv
 never runs for listening, so it is never prewarmed either, and the iPhone voice
 is not offered at all (`defaultNarrator()` is always `natural`, the narrator
 row is hidden). The live engine remains as the thing preparing runs on, and
-the test page switches `preparedOnly` off to exercise it. Off the charger (or when
+the test page switches `preparedOnly` off to exercise it.
+
+Stored audio is managed library-wide through
+`NovelVoice.preparedLibrary`: `list()` sums every book's clips (all voices and
+versions, so half-prepared and stale audio count) with the title kept on its
+chapter records, and `remove(seriesId)` deletes a book's IndexedDB records and
+its native AAC folder whether or not it is open. Settings lists it under
+**Prepared audio** (read when the screen opens, not at boot), including books
+no longer in the library, and removing a book from the library
+(`catalogue.confirmDelete`) removes its audio too. Off the charger (or when
 `Platform.charging()` cannot tell, as in Safari) the Prepare tap asks first,
 since preparing heats the phone and drains it. Preparing never runs
 under a listening session (Play stops it), pauses at serious heat, and loops a

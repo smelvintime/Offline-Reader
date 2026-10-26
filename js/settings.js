@@ -648,6 +648,99 @@
     return row;
   }
 
+  // ── Prepared audio (docs/PREPARED_BOOKS_PLAN.md) ──────────────────────────
+  //
+  // Every book with stored narration, its size, and a way to delete it. The
+  // data lives in js/novel-voice.js (window.NovelVoice.preparedLibrary); this
+  // row is only rendered when that module is present. Books no longer in the
+  // library are listed too: their audio is still on the phone until deleted.
+
+  function prepared() {
+    const V = window.NovelVoice;
+    return V && V.preparedLibrary && typeof V.preparedLibrary.list === 'function' ? V.preparedLibrary : null;
+  }
+
+  function formatBytes(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
+    if (n >= 1e6) return Math.round(n / 1e6) + ' MB';
+    return Math.max(1, Math.round(n / 1e3)) + ' KB';
+  }
+
+  function seriesFor(id) {
+    try {
+      const C = window.Catalogue;
+      return C && typeof C.getSeries === 'function' ? C.getSeries(id) : null;
+    } catch (e) { return null; }
+  }
+
+  function confirmAsk(opts) {
+    const P = window.Platform;
+    if (P && typeof P.confirm === 'function') return Promise.resolve(P.confirm(opts));
+    try { return Promise.resolve(window.confirm(opts.message)); } catch (e) { return Promise.resolve(false); }
+  }
+
+  let preparedSeq = 0;
+
+  function renderPrepared() {
+    const lib = prepared();
+    const list = ui.preparedList;
+    if (!lib || !list) return Promise.resolve();
+    const seq = ++preparedSeq;
+    return lib.list().then(function (books) {
+      if (seq !== preparedSeq) return;        // a newer render is on its way
+      list.textContent = '';
+      let total = 0;
+      books.forEach(function (b) {
+        total += b.bytes || 0;
+        const s = seriesFor(b.book);
+        const name = (s && s.title) || b.title || 'Untitled book';
+        const chapterCount = s ? ((s.chapters && s.chapters.length) || s.chapterCount || 0) : 0;
+        const row = el('div', 'set-sec-row set-prep-row');
+        row.dataset.book = b.book;
+        const info = el('div', 'set-sec-info');
+        info.appendChild(el('span', 'set-sec-name', name));
+        const parts = [formatBytes(b.bytes || 0)];
+        if (!s) parts.push('no longer in your library');
+        else if (chapterCount && b.chapters >= chapterCount) parts.push('ready to listen');
+        else if (chapterCount) parts.push(b.chapters + ' of ' + chapterCount + ' chapters prepared');
+        info.appendChild(el('span', 'set-sec-note', parts.join(' · ')));
+        row.appendChild(info);
+
+        const controls = el('div', 'set-sec-controls');
+        const del = el('button', 'set-text-btn set-prep-delete', 'Delete');
+        del.type = 'button';
+        del.setAttribute('aria-label', 'Delete prepared audio for ' + name);
+        del.addEventListener('click', function () {
+          confirmAsk({
+            title: 'Delete prepared audio',
+            message: 'Delete the stored audio for “' + name + '”? The book stays in your library and reads on screen; prepare it again to listen.',
+            okLabel: 'Delete', cancelLabel: 'Cancel',
+          }).then(function (ok) {
+            if (!ok) return null;
+            del.disabled = true;
+            return lib.remove(b.book).then(function () { return renderPrepared(); });
+          });
+        });
+        controls.appendChild(del);
+        row.appendChild(controls);
+        list.appendChild(row);
+      });
+      ui.preparedNote.textContent = books.length
+        ? 'Total ' + formatBytes(total) + '. Deleting audio keeps the book; it reads on screen until prepared again.'
+        : 'No books have prepared audio. Prepare one from the voice button in the reader.';
+    });
+  }
+
+  function preparedSection() {
+    const row = el('div', 'set-row');
+    row.appendChild(el('span', 'set-row-label', 'Prepared audio'));
+    ui.preparedList = el('div', 'set-sec-list set-prep-list');
+    row.appendChild(ui.preparedList);
+    ui.preparedNote = el('p', 'set-note', '');
+    row.appendChild(ui.preparedNote);
+    return row;
+  }
+
   // ── Screen assembly ───────────────────────────────────────────────────────
 
   function buildScreen() {
@@ -690,6 +783,8 @@
       function (v) { prefSet('app.hideChapterTitles', v === 'hide'); }));
 
     view.appendChild(layoutSection());
+
+    if (prepared()) view.appendChild(preparedSection());
 
     // Browser full screen (web only). The readers carry their own button; this
     // one covers browsing. Not rendered where the Fullscreen API is missing.
@@ -753,6 +848,8 @@
     const from = bodyScreen();
     if (from && from !== SCREEN_ID) returnScreen = from;
     syncUI();
+    // Read when the screen opens, not at boot: it walks the audio store.
+    renderPrepared();
     if (typeof window.showScreen === 'function') {
       window.showScreen(SCREEN_ID);
     } else if (ui.root) {

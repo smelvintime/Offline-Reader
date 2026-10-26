@@ -24,6 +24,9 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   48 kbps `.m4a` on disk (about 22 MB per hour). The web and older builds keep
   WAV; an encoder failure falls back to WAV and is shown in diagnostics.
 
+- Settings → **Prepared audio** lists every book with stored audio, its size
+  and status, with Delete; removing a book from the library deletes its audio.
+
 Still to do from the phases below: the overnight `BGProcessingTask`, a native
 player, and the side-by-side battery measurement.
 

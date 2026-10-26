@@ -472,6 +472,7 @@
 
     appending: false,
     suppressSyncUntil: 0,
+    suppressSyncTop: 0,
   };
 
   const dom = {};          // built once in ensureDom()
@@ -2269,17 +2270,32 @@
       const want = dom.viewport.getBoundingClientRect().top + stagePadTop();
       const delta = rect.top - want;
       if (Math.abs(delta) > 0.5) {
-        suppressSync(250);
         dom.viewport.scrollTop = clamp(
           dom.viewport.scrollTop + delta,
           0,
           Math.max(0, dom.viewport.scrollHeight - dom.viewport.clientHeight)
         );
+        suppressSync(250);
       }
     }
   }
 
-  function suppressSync(ms) { state.suppressSyncUntil = Date.now() + ms; }
+  // Called right AFTER one of our own scrollTop writes, so the scroll event it
+  // fires does not re-capture the anchor off the position we just restored.
+  // Only that echo is swallowed: a frame where the viewport has moved off the
+  // value we wrote is the reader scrolling, and it must sync. A blanket time
+  // window also ate the reader's own frames, the anchor went stale, and in
+  // endless mode the next window shift resized .nv-measure, whose resize
+  // settle restored that stale anchor and re-armed the window: a scroll-back
+  // loop the reader could not get out of.
+  function suppressSync(ms) {
+    state.suppressSyncUntil = Date.now() + ms;
+    state.suppressSyncTop = dom.viewport.scrollTop;
+  }
+  function syncSuppressed() {
+    return Date.now() < state.suppressSyncUntil
+      && Math.abs(dom.viewport.scrollTop - state.suppressSyncTop) < 1;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Character offsets ↔ Progress
@@ -2937,8 +2953,8 @@
     const after = sec.offsetHeight;
     // Content that grows above the fold pushes the reader down; undo that.
     if (above && after !== before) {
-      suppressSync(200);
       dom.viewport.scrollTop = Math.max(0, dom.viewport.scrollTop + (after - before));
+      suppressSync(200);
     }
   }
 
@@ -3205,7 +3221,7 @@
     if (scrollRaf) return;
     scrollRaf = requestAnimationFrame(function () {
       scrollRaf = 0;
-      if (Date.now() < state.suppressSyncUntil) return;
+      if (syncSuppressed()) return;
       trackCurrentChapter();
       syncPosition();
     });

@@ -190,6 +190,34 @@ IndexedDB live in the app container, which survives updates and dies only on
 delete), at most 3 sideloaded apps at a time, and a small weekly cap on new
 app ids. The paid program removes all three.
 
+## 6b. Or: install with Sideloadly, no Xcode needed
+
+The **iOS app** workflow (`.github/workflows/ios-ipa.yml`) does §1–§4 and the
+build on a GitHub Mac and hands back an **unsigned** `.ipa`. Sideloadly
+(sideloadly.io, Mac or Windows) signs it with your Apple ID as it installs, so
+nothing secret lives in the repo.
+
+1. GitHub → **Actions** → **iOS app (.ipa for Sideloadly)** → **Run workflow**
+   (pick the branch, usually `main`). It takes about 15–30 minutes; the first
+   run also downloads the voice weights, later runs reuse them.
+2. When it is green, open the run and download **OfflineReader-ipa** from
+   *Artifacts*. It is a zip around `OfflineReader.ipa`; unzip it.
+3. Plug the iPhone into the computer, open Sideloadly, drag the `.ipa` in, type
+   your Apple ID, **Start**. (An app-specific password is not needed; Sideloadly
+   asks for the normal one and any two-factor code.)
+4. On the iPhone: Settings → General → **VPN & Device Management** → your Apple
+   ID → **Trust**, and Settings → Privacy & Security → **Developer Mode** → on
+   if iOS asks for it.
+
+The free-account limits in §6 apply the same way: the app stops opening after
+**7 days**. Re-install the same `.ipa` with Sideloadly (or turn on its
+auto-refresh) and it opens again with your books, prepared audio and settings
+intact, since reinstalling over the app keeps its data. Delete the app instead
+and all of that goes with it.
+
+If the workflow fails at **Build**, download the **xcodebuild-log** artifact
+from the same run: the first `error:` line in it is the one to fix.
+
 ## 7. The day-to-day loop
 
 ```bash

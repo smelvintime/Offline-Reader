@@ -1,0 +1,105 @@
+name: iOS app (.ipa for Sideloadly)
+
+# Builds the iPhone app on a GitHub Mac and hands back an UNSIGNED .ipa.
+# Sideloadly signs it with your own Apple ID when it installs it, so no
+# certificates or secrets live here. docs/mobile/NATIVE_BUILD.md §6b has the
+# install steps.
+#
+# Manual by default (Actions → "iOS app" → Run workflow): a Mac runner costs
+# far more minutes than the Linux CI, and a phone install is something you ask
+# for. Pull requests that touch native code also run it, because it is the
+# only place the Swift plugins get compiled outside someone's Mac.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - 'scripts/apply-native-config.mjs'
+      - '.github/workflows/ios-ipa.yml'
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'     # the Capacitor 8 CLI refuses older
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # The natural voice ships inside the app (~414 MB, gitignored). Cached so
+      # a rebuild does not fetch it from Hugging Face again.
+      - name: Cache voice weights
+        id: voice-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/tts/models
+            vendor/tts/voices
+          key: voice-weights-${{ hashFiles('scripts/fetch-voice-model.mjs') }}
+
+      - name: Fetch voice weights
+        if: steps.voice-cache.outputs.cache-hit != 'true'
+        run: node scripts/fetch-voice-model.mjs
+
+      # ios/ is generated, never committed (NATIVE_BUILD.md §3).
+      - name: Generate the iOS project
+        run: |
+          bash scripts/sync-www.sh
+          npx cap add ios
+          npm run sync
+
+      - name: App icons and splash
+        run: |
+          cp assets/icon-1024.png assets/logo.png
+          npx --yes @capacitor/assets generate --ios \
+            --iconBackgroundColor '#0a0a0a' --iconBackgroundColorDark '#0a0a0a' \
+            --splashBackgroundColor '#0a0a0a' --splashBackgroundColorDark '#0a0a0a'
+
+      # Unsigned on purpose: Sideloadly re-signs with the installer's Apple ID.
+      # cap add makes a CocoaPods workspace or a Swift Package project depending
+      # on the Capacitor version, so build whichever exists.
+      - name: Build
+        run: |
+          if [ -d ios/App/App.xcworkspace ]; then SRC="-workspace ios/App/App.xcworkspace"; else SRC="-project ios/App/App.xcodeproj"; fi
+          set -o pipefail
+          xcodebuild $SRC -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log | grep -E "error:|warning: .*OrKokoro|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/App.app
+
+      - name: Package the .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry OfflineReader.ipa Payload
+          ls -lh OfflineReader.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OfflineReader-ipa
+          path: OfflineReader.ipa
+          retention-days: 14
+          compression-level: 0     # already a zip
+
+      # On failure, the full compiler log is what anyone fixing it needs.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 7

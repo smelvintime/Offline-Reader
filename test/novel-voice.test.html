@@ -2670,8 +2670,18 @@ const T = {
       const realEnsure = ne.ensureReady;
       ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
       Store.prefs.set('voice.autoNext', true);
+      const ch = VT().channel;
+      const realPrime = ch.prime, realPlay = ch.play;
+      const primed = [], played = [];
+      ch.prime = function (u) { primed.push({ url: u, chapter: V().state().chapterId }); return realPrime.apply(ch, arguments); };
+      ch.play = function (u) { played.push({ url: u, chapter: V().state().chapterId }); return realPlay.apply(ch, arguments); };
       V().toggle();
       await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 15000, 'played into chapter 2');
+      await waitFor(() => played.some(p => p.chapter === CHAPTERS[1].id), 5000, 'chapter 2 clip played');
+      ch.prime = realPrime; ch.play = realPlay;
+      const firstOf2 = played.find(p => p.chapter === CHAPTERS[1].id).url;
+      pass = ok(primed.some(p => p.chapter === CHAPTERS[0].id && p.url === firstOf2),
+                'chapter 2\'s first clip was primed during chapter 1') && pass;
       pass = ok(V().state().playing, 'still playing across the chapter seam') && pass;
       pass = ok(loads === 0, 'the model was never loaded', loads + ' loads') && pass;
       pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback', neuralStub.spoken.length) && pass;

@@ -2797,6 +2797,8 @@
         preparedClipUrl(preparedClipKey(book, chapterId, voice, hit.next)).then(function (u) {
           if (u && token === state.speakToken) channel.prime(u);
         });
+      } else {
+        primeNextPreparedChapter(book, chapterId, voice, token);
       }
       return channel.play(url, { rate: state.prefs.rate, onended: groupEnd(group, token, done) }).catch(function () {
         if (token !== state.speakToken) return;
@@ -2804,6 +2806,24 @@
       });
     });
     mediaSessionUpdate();
+  }
+
+  // The last group of a chapter primes the first clip of the next one, so the
+  // chapter turn does not wait on storage. Only when autoNext will go there
+  // and that chapter is prepared; otherwise there is nothing to prime.
+  function primeNextPreparedChapter(book, chapterId, voice, token) {
+    const b = state.bridge;
+    if (!b || !state.prefs.autoNext || !b.loadEntry) return;
+    const chapters = b.chapters();
+    const next = chapters[b.chapterIndex(chapterId) + 1];
+    if (!next || !chapterPrepared(next.id)) return;
+    b.loadEntry(next.id).then(function (entry) {
+      if (!entry || token !== state.speakToken) return null;
+      const first = preparedPlan(segmentBlocks(entry.blocks, b.blockText, docLang(), entry.hiddenBlock))[0];
+      return first ? preparedClipUrl(preparedClipKey(book, next.id, voice, first)) : null;
+    }).then(function (u) {
+      if (u && token === state.speakToken) channel.prime(u);
+    }).catch(function () { /* priming is an optimisation */ });
   }
 
   /**
@@ -4116,6 +4136,9 @@
     if (!neuralEngine.available()) return;
     if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
     if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
+    // A prepared book plays from storage; warming the model for it is heat
+    // and battery spent on nothing.
+    if (bookHasPrepared()) return;
     // Opening a book must never be what kills the app. This path has no user
     // action behind it, so after a load-phase crash it is the first thing to
     // stand down — a background half-gigabyte is not worth one warm start.
@@ -4149,7 +4172,11 @@
     cancelNeuralPrewarm();
     prewarmTimer = setTimeout(function () {
       prewarmTimer = 0;
-      const run = function () { prewarmIdle = 0; if (state.bridge) prewarmNeural(); };
+      const run = function () {
+        prewarmIdle = 0;
+        // Only once it is known whether this book is prepared.
+        if (state.bridge) preparedIndexReady().then(function () { if (state.bridge) prewarmNeural(); });
+      };
       if (typeof requestIdleCallback === 'function') prewarmIdle = requestIdleCallback(run, { timeout: 3000 });
       else run();
     }, PREWARM_DELAY_MS);

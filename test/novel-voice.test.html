@@ -2653,9 +2653,16 @@ const T = {
       await waitFor(() => !P.running, 3000, 'stopped');
       neuralStub.spoken = [];
 
-      // 1. Prepare the whole book through the stub engine.
+      // 1. Prepare the whole book through the stub engine. Held at first so
+      //    the progress line can be read mid-chapter.
+      neuralStub.hold();
       P.start();
       pass = ok(P.running, 'preparing started') && pass;
+      await waitFor(() => P.chapterAt > 0 && neuralStub.held && neuralStub.held.length > 0, 5000, 'first part rendering');
+      const line = VT().preparerLine();
+      pass = ok(/chapter 1 of 3, part 1 of \d+ \(\d+(\.\d)?% of the book\)/.test(line),
+                'the progress line counts parts, not just chapters', line) && pass;
+      neuralStub.release();
       await waitFor(() => !P.running, 15000, 'preparing finished');
       const sum = VT().preparedSummary();
       pass = ok(sum.ready === CHAPTERS.length && sum.total === CHAPTERS.length,

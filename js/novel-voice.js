@@ -1288,7 +1288,9 @@
       return {
         storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'wav in IndexedDB' : 'not probed yet'),
         chapters: sum.ready + '/' + sum.total, bytes: sum.bytes, seconds: Math.round(sum.seconds),
-        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt : null,
+        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt + '/' + preparer.groupTotal : null,
+        partsRendered: preparer.rendered,
+        msPerPart: preparer.rendered ? Math.round(preparer.renderMs / preparer.rendered) : null,
         hot: preparer.hot, message: preparer.message || null, compressionError: preparer.compressionError || null,
       };
     } catch (e) { return { error: String(e && e.message) }; }
@@ -2858,6 +2860,8 @@
     groupTotal: 0,
     hot: false,
     asking: false,
+    rendered: 0,
+    renderMs: 0,
     compressionError: '',
     message: '',
     wakeLock: null,
@@ -2993,6 +2997,10 @@
       const order = chapters.slice(here).concat(chapters.slice(0, here));
       this.total = chapters.length;
       this.doneChapters = chapters.filter(function (c) { return idx && idx.chapters.has(c.id); }).length;
+      // Measured, for the time-left estimate: parts rendered this run and the
+      // compute they took. Stored parts skipped on a resume are not counted.
+      this.rendered = 0;
+      this.renderMs = 0;
       syncSheet();
       if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
 
@@ -3023,6 +3031,7 @@
           if (!rec) {
             // ensureReady again: the engine may have idled out between chapters.
             await neuralEngine.ensureReady();
+            const partStarted = Date.now();
             const live = 'prepare:' + key;
             const url = await neuralEngine.generate(live, preparedText(plan[gi]), voice);
             const blob = await fetch(url).then(function (r) { return r.blob(); });
@@ -3052,6 +3061,9 @@
             try { URL.revokeObjectURL(url); } catch (e) {}
             if (!this.alive(id)) return;
             await preparedStore.putClip(key, rec);
+            this.rendered++;
+            this.renderMs += Date.now() - partStarted;
+            syncSheetSoon();
           }
           seconds += rec.seconds || 0;
           bytes += rec.bytes || 0;
@@ -3068,6 +3080,44 @@
       toast('Book prepared. Listening now plays stored audio.');
     },
   };
+
+  // How much of the book is done, counting the parts of the chapter in hand.
+  function preparerFraction() {
+    const p = preparer;
+    if (!p.total) return 0;
+    return (p.doneChapters + (p.groupTotal ? p.groupAt / p.groupTotal : 0)) / p.total;
+  }
+
+  function formatDuration(ms) {
+    const min = Math.round(ms / 60000);
+    if (min < 1) return 'under a minute';
+    if (min < 60) return min + ' min';
+    const h = Math.floor(min / 60), m = min % 60;
+    return h + ' h' + (m ? ' ' + m + ' min' : '');
+  }
+
+  /**
+   * The progress line while preparing. A chapter is a hundred or more parts
+   * and each takes seconds, so the line counts parts and percent: a chapter
+   * count alone sat still for minutes and read as stuck. The time left is a
+   * guess from the parts rendered so far, assuming later chapters are about
+   * as long as this one, and only shown once a few parts have been timed.
+   */
+  function preparerLine() {
+    const p = preparer;
+    if (!p.total || !p.chapterAt) return 'Getting the voice ready. ';
+    let s = 'Preparing chapter ' + p.chapterAt + ' of ' + p.total;
+    if (p.groupTotal) s += ', part ' + Math.min(p.groupAt + 1, p.groupTotal) + ' of ' + p.groupTotal;
+    const pct = preparerFraction() * 100;
+    s += ' (' + (pct < 10 ? pct.toFixed(1) : Math.floor(pct)) + '% of the book';
+    if (p.rendered >= 3 && p.groupTotal) {
+      const perPart = p.renderMs / p.rendered;
+      const chaptersAfter = Math.max(0, p.total - p.doneChapters - 1);
+      const partsLeft = (p.groupTotal - p.groupAt) + p.groupTotal * chaptersAfter;
+      s += ', about ' + formatDuration(perPart * partsLeft) + ' left';
+    }
+    return s + '). ';
+  }
 
   function preparedSummary() {
     const idx = preparedIndexCurrent();
@@ -3778,15 +3828,9 @@
       if (preparer.running) {
         line = preparer.hot
           ? 'Paused while the phone cools down. It carries on by itself.'
-          : (preparer.total
-            ? 'Preparing chapter ' + preparer.chapterAt + ' (' + preparer.doneChapters + ' of ' + preparer.total + ' ready). '
-            : 'Getting the voice ready. ')
-            + 'Keep the app open. You can lock the screen.';
-        const frac = preparer.total
-          ? (preparer.doneChapters + (preparer.groupTotal ? preparer.groupAt / preparer.groupTotal : 0)) / preparer.total
-          : 0;
+          : preparerLine() + 'Keep the app open. You can lock the screen.';
         prepBar.hidden = false;
-        prepBar.firstChild.style.width = Math.round(Math.min(1, frac) * 100) + '%';
+        prepBar.firstChild.style.width = (Math.min(1, preparerFraction()) * 100).toFixed(1) + '%';
       } else {
         prepBar.hidden = true;
         if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
@@ -4489,6 +4533,7 @@
       chapterPrepared: chapterPrepared,
       deletePrepared: deletePrepared,
       preparedSummary: preparedSummary,
+      preparerLine: preparerLine,
       setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
       preparedOnly: function () { return preparedOnly; },
     },

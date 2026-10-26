@@ -15,9 +15,12 @@ The JavaScript slice, which runs in both builds and needs no new native code:
 - Preparing pauses at serious heat, stops when listening starts or the book
   closes, and keeps running with the screen locked through a silent audio loop.
 
+- Off the charger, Prepare asks "are you sure" (warmth and battery) and
+  then runs if the reader says yes. Unplugged preparing is allowed.
+
 Still to do from the phases below: AAC encoding in the native plugin (smaller
-files), the overnight `BGProcessingTask`, a charging check before starting,
-and the side-by-side battery measurement.
+files), the overnight `BGProcessingTask`, and the side-by-side battery
+measurement.
 
 ## Requirements, in priority order
 
@@ -70,8 +73,8 @@ Consequences:
   - Overnight: a `BGProcessingTask` with `requiresExternalPower`, which iOS
     runs when the phone is idle and charging. iOS decides when and for how
     long, so it must save progress after every chunk and resume cleanly.
-- **Unplugged only if the reader asks**, behind a warning that the phone will
-  get warm. It stops on its own if the thermal state reaches `serious`.
+- **Unplugged after an "are you sure?"** saying the phone will get warm and
+  use battery. It pauses on its own if the thermal state reaches `serious`.
 - The web/PWA build cannot run in the background on iOS. It can prepare only
   while open. The native build is the target.
 

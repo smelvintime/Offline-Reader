@@ -2624,6 +2624,30 @@ const T = {
       await VT().deletePrepared();
       pass = ok(VT().preparedSummary().ready === 0, 'starts unprepared') && pass;
 
+      // 0. Off the charger it asks first; Cancel starts nothing.
+      const oldPlatform = window.Platform;
+      const asked = [];
+      try {
+        window.Platform = { charging: () => Promise.resolve(false),
+                            confirm: o => { asked.push(o.message); return Promise.resolve(false); } };
+        let started = await P.request();
+        pass = ok(asked.length === 1 && /not plugged in/.test(asked[0]), 'unplugged: asks first', asked[0]) && pass;
+        pass = ok(!started && !P.running, 'Cancel leaves it unprepared') && pass;
+        window.Platform.confirm = o => { asked.push(o.message); return Promise.resolve(true); };
+        started = await P.request();
+        pass = ok(started && P.running, 'Prepare anyway starts it') && pass;
+        P.stop(null);
+        asked.length = 0;
+        window.Platform.charging = () => Promise.resolve(true);
+        started = await P.request();
+        pass = ok(started && asked.length === 0, 'plugged in: no question') && pass;
+        P.stop(null);
+      } finally {
+        window.Platform = oldPlatform;
+      }
+      await waitFor(() => !P.running, 3000, 'stopped');
+      neuralStub.spoken = [];
+
       // 1. Prepare the whole book through the stub engine.
       P.start();
       pass = ok(P.running, 'preparing started') && pass;

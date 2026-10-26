@@ -2776,9 +2776,46 @@
     groupAt: 0,
     groupTotal: 0,
     hot: false,
+    asking: false,
     message: '',
     wakeLock: null,
     runId: 0,
+
+    /**
+     * From the Prepare tap. Off the charger it asks first: preparing works the
+     * phone hard, and that is the reader's call, not a reason to refuse.
+     * → Promise<boolean> started.
+     */
+    request: function () {
+      if (this.running || this.asking || !state.bridge || !preparedBook()) return Promise.resolve(false);
+      const cap = neuralCapability();
+      if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return Promise.resolve(false); }
+      if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
+      // Bless the audio elements inside the tap: the dialog below spends the
+      // gesture, and the silent loop that keeps preparing alive needs it.
+      channel.bless(silentWavUrl());
+      const P = window.Platform;
+      const self = this;
+      this.asking = true;
+      return Promise.resolve(P && typeof P.charging === 'function' ? P.charging() : null)
+        .catch(function () { return null; })
+        .then(function (plugged) {
+          if (plugged === true) return true;
+          const message = (plugged === false
+            ? 'Your phone is not plugged in. Preparing works it hard, so it will get warm and use a lot of battery while it runs.'
+            : 'If your phone is not plugged in, preparing will make it warm and use a lot of battery while it runs.')
+            + ' Listening afterwards stays cool either way. Prepare anyway?';
+          const opts = { title: 'Prepare this book?', message: message, okLabel: 'Prepare', cancelLabel: 'Cancel' };
+          if (P && typeof P.confirm === 'function') return P.confirm(opts);
+          try { return window.confirm(message); } catch (e) { return false; }
+        })
+        .then(function (go) {
+          self.asking = false;
+          if (!go) return false;
+          self.start();
+          return self.running;
+        }, function () { self.asking = false; return false; });
+    },
 
     start: function () {
       if (this.running || !state.bridge) return;
@@ -2832,7 +2869,8 @@
     keepAwake: function (on) {
       const self = this;
       if (on) {
-        // The tap on Prepare is the gesture the silent clip needs.
+        // request() blessed the elements during the tap; a direct start()
+        // (tests) still is one.
         channel.bless(silentWavUrl());
         channel.play(silentWavUrl(), { loop: true }).catch(function () {});
         try {
@@ -3601,7 +3639,7 @@
 
     prepAction.addEventListener('click', function () {
       if (preparer.running) preparer.stop('Preparing paused. Finished chapters are kept.');
-      else preparer.start();
+      else preparer.request();
     });
     prepDelete.addEventListener('click', function () {
       deletePrepared().then(function () { toast('Prepared audio deleted for this book.'); syncSheet(); });
@@ -3623,7 +3661,7 @@
           : (preparer.total
             ? 'Preparing chapter ' + preparer.chapterAt + ' (' + preparer.doneChapters + ' of ' + preparer.total + ' ready). '
             : 'Getting the voice ready. ')
-            + 'Keep the app open and plugged in. You can lock the screen.';
+            + 'Keep the app open. You can lock the screen.';
         const frac = preparer.total
           ? (preparer.doneChapters + (preparer.groupTotal ? preparer.groupAt / preparer.groupTotal : 0)) / preparer.total
           : 0;
@@ -3635,7 +3673,7 @@
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
           + (systemSpeech().available() ? 'The rest read with the iPhone voice until prepared.' : 'The rest use the live voice until prepared.');
-        else line = 'Prepare once, on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about 170 MB of storage per hour of listening.';
+        else line = 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about 170 MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;
       }
       prepText.textContent = line;

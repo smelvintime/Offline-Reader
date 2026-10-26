@@ -328,6 +328,27 @@
     try { return window.confirm(o.message || ''); } catch (e) { return false; }
   }
 
+  /**
+   * Is the device on a charger? → Promise<true | false | null>, null when it
+   * cannot tell (Safari has no battery API). Callers treat null as "ask".
+   */
+  async function charging() {
+    const Device = plugin('Device');
+    if (Device && Device.getBatteryInfo) {
+      try {
+        const b = await Device.getBatteryInfo();
+        if (b && typeof b.isCharging === 'boolean') return b.isCharging;
+      } catch (e) { /* fall through */ }
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.getBattery) {
+        const b = await navigator.getBattery();
+        if (b && typeof b.charging === 'boolean') return b.charging;
+      }
+    } catch (e) { /* unknown */ }
+    return null;
+  }
+
   function haptic(kind) {
     const Haptics = plugin('Haptics');
     if (!Haptics) return; // no-op on web
@@ -1228,6 +1249,7 @@
       return { app: info, source: revision };
     },
     confirm: confirm,
+    charging: charging,
     haptic: haptic,
     memoryClass: memoryClass,
     tuning: tuning,

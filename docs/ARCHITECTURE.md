@@ -380,6 +380,8 @@ window.Platform = {
   appVersion(),   // → Promise<string | null>   (App.getInfo; null on web)
   confirm({ title, message, okLabel, cancelLabel }),
                   // → Promise<boolean>. Dialog plugin; window.confirm fallback.
+  charging(),     // → Promise<true|false|null>. Device plugin's battery info, then
+                  // navigator.getBattery; null when it cannot tell (Safari).
   haptic(kind),   // 'light' | 'medium' | 'success' | 'warning' → void. No-op on web.
   memoryClass(),  // → 'low' | 'mid' | 'high' — SYNCHRONOUS. Resolution order:
                   //   (1) pref platform.memoryClass when 'low'|'mid'|'high';
@@ -1284,7 +1286,9 @@ or fast-start caps, so a clip made earlier is found again. A Play on a prepared
 chapter never loads the model: `speakPrepared` snaps the cursor to the start of
 the stored group holding it and plays the clip through the same channel, gaps
 and highlight. In a book with any prepared chapter, an unprepared one reads
-with the iPhone voice where it exists, live otherwise. Preparing never runs
+with the iPhone voice where it exists, live otherwise. Off the charger (or when
+`Platform.charging()` cannot tell, as in Safari) the Prepare tap asks first,
+since preparing heats the phone and drains it. Preparing never runs
 under a listening session (Play stops it), pauses at serious heat, and loops a
 silent clip so the background audio mode keeps it running with the screen
 locked. It stops when the book closes; tapping Prepare again resumes at the

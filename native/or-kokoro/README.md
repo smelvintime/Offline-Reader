@@ -78,6 +78,10 @@ All methods degrade to `null` off-device, per ARCHITECTURE §2.3.
 | `available()` | `{ available, provider, loaded }` |
 | `infer({ ids, style, speed })` | `{ pcm, sampleRate, provider, ms }` |
 | `release()` | `void` |
+| `clipsAvailable()` | `{ available: true }` (rejects on builds without it) |
+| `saveClip({ dir, name, wav, bitrate? })` | `{ path, bytes, seconds }`: base64 WAV in, AAC `.m4a` written to Application Support `prepared-audio/<dir>/<name>.m4a` |
+| `readClip({ path })` | `{ data }`: the file as base64 |
+| `deleteClips({ dir })` | `void`: removes one book's folder |
 
 `available: false` from a *present* plugin means the build shipped no weights —
 a different problem from the plugin missing, with a different fix, so it gets a

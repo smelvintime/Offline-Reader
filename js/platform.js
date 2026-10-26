@@ -505,6 +505,43 @@
       try { return OrKokoro.release().catch(function () {}); }
       catch (e) { return Promise.resolve(); }
     },
+
+    /**
+     * Prepared-book clips as AAC files on disk (docs/PREPARED_BOOKS_PLAN.md),
+     * about a sixth the size of the WAV the app renders. Only on a build whose
+     * plugin has the methods; `supported()` asks it once, and a build from
+     * before rejects the probe, so callers keep WAV in IndexedDB there.
+     */
+    clips: {
+      probe: null,
+      supported: function () {
+        const OrKokoro = plugin('OrKokoro');
+        if (!OrKokoro) return Promise.resolve(false);
+        if (!this.probe) {
+          let p;
+          try { p = Promise.resolve(OrKokoro.clipsAvailable()); } catch (e) { p = Promise.reject(e); }
+          this.probe = p.then(function (r) { return !!(r && r.available); }, function () { return false; });
+        }
+        return this.probe;
+      },
+      // (dir, name, base64 WAV) → Promise<{ path, bytes, seconds }>
+      save: function (dir, name, wavBase64) {
+        return plugin('OrKokoro').saveClip({ dir: dir, name: name, wav: wavBase64 });
+      },
+      // path from save() → Promise<Blob>
+      read: function (path) {
+        return plugin('OrKokoro').readClip({ path: path }).then(function (r) {
+          const bin = atob((r && r.data) || '');
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          return new Blob([bytes], { type: 'audio/mp4' });
+        });
+      },
+      remove: function (dir) {
+        const OrKokoro = plugin('OrKokoro');
+        return OrKokoro ? OrKokoro.deleteClips({ dir: dir }) : Promise.resolve();
+      },
+    },
   };
 
   // ── Native file picking (PLAN.md §6.1) ────────────────────────────────────

@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import AVFoundation
 import Capacitor
 
 // The SPM package's PRODUCT is `onnxruntime`, but its TARGET — and therefore
@@ -51,7 +52,11 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "available", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "infer", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clipsAvailable", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveClip", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readClip", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteClips", returnType: CAPPluginReturnPromise)
     ]
 
     /// Inference blocks for seconds at a time. Never on the main thread: the
@@ -327,6 +332,152 @@ public class OrKokoroPlugin: CAPPlugin, CAPBridgedPlugin {
             ])
         }
         return first
+    }
+
+    // MARK: - Prepared clips
+
+    /// A prepared book's audio, compressed (docs/PREPARED_BOOKS_PLAN.md).
+    ///
+    /// The app renders a group to a 16-bit WAV as it always has, then hands it
+    /// here once to become AAC on disk: about a sixth of the size, and decoded
+    /// in hardware when it plays. Files live under Application Support so iOS
+    /// does not purge them like a cache, excluded from backup because they can
+    /// always be rendered again. Paths are `<dir>/<name>.m4a`, relative to that
+    /// root, and both parts are checked so nothing from JS can name a file
+    /// outside it.
+    private let clipQueue = DispatchQueue(label: "com.offlinereader.orkokoro.clips", qos: .utility)
+
+    private func clipsRoot() throws -> URL {
+        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                               appropriateFor: nil, create: true)
+        var root = base.appendingPathComponent("prepared-audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? root.setResourceValues(values)
+        return root
+    }
+
+    /// ASCII letters, digits, `-` and `_` only. No dots, so no `..`.
+    static func safeClipName(_ s: String?) -> String? {
+        guard let s = s, !s.isEmpty, s.count <= 128 else { return nil }
+        for c in s.unicodeScalars {
+            let ok = (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "-" || c == "_"
+            if !ok { return nil }
+        }
+        return s
+    }
+
+    /// `<dir>/<name>.m4a` → its file URL, or nil when it is not that shape.
+    private func clipURL(_ relative: String?) throws -> URL? {
+        guard let rel = relative else { return nil }
+        let parts = rel.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, let dir = Self.safeClipName(parts[0]), parts[1].hasSuffix(".m4a"),
+              let name = Self.safeClipName(String(parts[1].dropLast(4))) else { return nil }
+        return try clipsRoot().appendingPathComponent(dir, isDirectory: true).appendingPathComponent(name + ".m4a")
+    }
+
+    /// Feature probe. A build from before this existed rejects the call, and
+    /// the app keeps WAV in IndexedDB instead.
+    @objc func clipsAvailable(_ call: CAPPluginCall) { call.resolve(["available": true]) }
+
+    /// { dir, name, wav (base64), bitrate? } → { path, bytes, seconds }
+    @objc func saveClip(_ call: CAPPluginCall) {
+        guard let dir = Self.safeClipName(call.getString("dir")),
+              let name = Self.safeClipName(call.getString("name")),
+              let b64 = call.getString("wav"), let wav = Data(base64Encoded: b64) else {
+            call.reject("saveClip needs a dir, a name and base64 WAV")
+            return
+        }
+        let bitrate = call.getInt("bitrate") ?? 48000
+        clipQueue.async {
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+            defer { try? fm.removeItem(at: tmp) }
+            do {
+                let folder = try self.clipsRoot().appendingPathComponent(dir, isDirectory: true)
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                try wav.write(to: tmp)
+
+                let input = try AVAudioFile(forReading: tmp)
+                let format = input.processingFormat
+                let frames = AVAudioFrameCount(input.length)
+                guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+                    throw NSError(domain: "OrKokoro", code: 10, userInfo: [NSLocalizedDescriptionKey: "the clip is empty"])
+                }
+                try input.read(into: buffer)
+
+                // Written under a temporary name and moved into place, so a
+                // kill mid-write never leaves a truncated file at the real path.
+                let out = folder.appendingPathComponent(name + ".m4a")
+                let part = folder.appendingPathComponent(name + "-part.m4a")
+                try? fm.removeItem(at: part)
+                let settings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channelCount,
+                    AVEncoderBitRateKey: bitrate,
+                ]
+                try Self.writeAAC(buffer, to: part, settings: settings, format: format)
+                try? fm.removeItem(at: out)
+                try fm.moveItem(at: part, to: out)
+
+                let size = (try? fm.attributesOfItem(atPath: out.path)[.size] as? NSNumber)?.intValue ?? 0
+                call.resolve([
+                    "path": dir + "/" + name + ".m4a",
+                    "bytes": size,
+                    "seconds": Double(frames) / format.sampleRate,
+                ])
+            } catch {
+                call.reject("Could not save the clip: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Its own function so the writer is released, which is what finishes the
+    /// file, before the caller moves it.
+    private static func writeAAC(_ buffer: AVAudioPCMBuffer, to url: URL, settings: [String: Any],
+                                 format: AVAudioFormat) throws {
+        let writer = try AVAudioFile(forWriting: url, settings: settings,
+                                     commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+        try writer.write(from: buffer)
+    }
+
+    /// { path } → { data (base64) }. Clips are tens of kilobytes, so the bridge
+    /// is fine; it also sidesteps whether the WebView's file scheme answers
+    /// the range requests an <audio> element makes.
+    @objc func readClip(_ call: CAPPluginCall) {
+        clipQueue.async {
+            do {
+                guard let url = try self.clipURL(call.getString("path")) else {
+                    call.reject("readClip needs a path from saveClip")
+                    return
+                }
+                let data = try Data(contentsOf: url)
+                call.resolve(["data": data.base64EncodedString()])
+            } catch {
+                call.reject("Could not read the clip: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// { dir } → removes that book's folder. Missing is fine.
+    @objc func deleteClips(_ call: CAPPluginCall) {
+        guard let dir = Self.safeClipName(call.getString("dir")) else {
+            call.reject("deleteClips needs a dir")
+            return
+        }
+        clipQueue.async {
+            do {
+                let folder = try self.clipsRoot().appendingPathComponent(dir, isDirectory: true)
+                if FileManager.default.fileExists(atPath: folder.path) {
+                    try FileManager.default.removeItem(at: folder)
+                }
+                call.resolve()
+            } catch {
+                call.reject("Could not delete the clips: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - PCM

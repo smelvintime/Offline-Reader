@@ -1295,6 +1295,18 @@ locked. It stops when the book closes; tapping Prepare again resumes at the
 first missing group. `PREPARED_VERSION` invalidates every stored clip when
 segmentation, normalisation or grouping changes what a group says.
 
+On a native build whose `or-kokoro` has the clip methods
+(`Platform.kokoro.clips`: `clipsAvailable`, `saveClip`, `readClip`,
+`deleteClips`), each rendered WAV is handed over once and stored as AAC
+(48 kbps mono, about 22 MB per hour) under Application Support
+`prepared-audio/<book>/<clip>.m4a`, excluded from backup; IndexedDB keeps only
+the path. Names are 64-bit hashes in `[A-Za-z0-9_-]`, and the plugin rejects
+anything else, so JS cannot name a file outside that folder. Clips are read
+back over the bridge as base64 (tens of KB each) rather than through the
+WebView's file scheme. Older builds, the web, and a run whose encoder fails
+store WAV in IndexedDB instead; the failure is toasted once and kept in the
+voice diagnostics (`prepared.compressionError`).
+
 ---
 
 ## 3. `window.Store` — persistence API

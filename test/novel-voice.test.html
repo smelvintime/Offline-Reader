@@ -54,6 +54,7 @@
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
   <button onclick="T.testThermalLifecycle().then(T.report)">thermal lifecycle</button>
   <button onclick="T.testPreparedBook().then(T.report)">prepared book</button>
+  <button onclick="T.testPreparedNativeClips().then(T.report)">prepared native clips</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
 </div>
@@ -2724,13 +2725,81 @@ const T = {
     return { name: 'prepared book', pass };
   },
 
+  // On a build whose plugin can write AAC, clips go to disk through it and
+  // IndexedDB keeps only the path. The plugin is faked here; the Swift side is
+  // exercised on a device.
+  async testPreparedNativeClips() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const P = VT().preparer;
+    const oldPlatform = window.Platform;
+    const disk = new Map();
+    const removed = [];
+    window.Platform = {
+      kokoro: {
+        available: () => false, probe: () => Promise.resolve(null),
+        infer: () => Promise.resolve(null), release: () => Promise.resolve(),
+        clips: {
+          supported: () => Promise.resolve(true),
+          save: (dir, name, b64) => {
+            pass = ok(/^[A-Za-z0-9_-]+$/.test(dir) && /^[A-Za-z0-9_-]+$/.test(name), 'file names are safe', dir + '/' + name) && pass;
+            const path = dir + '/' + name + '.m4a';
+            disk.set(path, atob(b64).length);
+            return Promise.resolve({ path, bytes: 100, seconds: 0.01 });
+          },
+          read: path => disk.has(path)
+            ? Promise.resolve(new Blob([VT().encodeWav(new Float32Array(240), 24000)], { type: 'audio/wav' }))
+            : Promise.reject(new Error('missing')),
+          remove: dir => { removed.push(dir); [...disk.keys()].forEach(k => { if (k.startsWith(dir + '/')) disk.delete(k); }); return Promise.resolve(); },
+        },
+      },
+    };
+    try {
+      await freshOpen();
+      await VT().deletePrepared();
+      P.start();
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      const sum = VT().preparedSummary();
+      pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready) && pass;
+      pass = ok(disk.size === neuralStub.spoken.length && disk.size > 0, 'one file per rendered group', disk.size) && pass;
+      pass = ok(sum.bytes === disk.size * 100, 'sizes come from the files', sum.bytes) && pass;
+      const anyKey = [...disk.keys()][0];
+      pass = ok(disk.get(anyKey) > 44, 'the plugin was handed the WAV', disk.get(anyKey) + ' bytes') && pass;
+
+      ne.dispose();
+      neuralStub.spoken = [];
+      V().toggle();
+      await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 15000, 'played from files into chapter 2');
+      pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback') && pass;
+      VT().pause();
+      endSession();
+      await freshOpen();
+      await VT().deletePrepared();
+      pass = ok(removed.length >= 1 && disk.size === 0, 'delete removes the files', removed.join(',')) && pass;
+
+      // An encoder that fails on the device must not cost the book.
+      window.Platform.kokoro.clips.save = () => Promise.reject(new Error('encoder said no'));
+      P.start();
+      await waitFor(() => !P.running, 15000, 'fallback preparing finished');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'still prepared when compression fails') && pass;
+      pass = ok(/encoder said no/.test(P.compressionError), 'the failure is recorded', P.compressionError) && pass;
+      pass = ok(VT().voiceDiagnostics().prepared.compressionError === P.compressionError, 'and shown in diagnostics') && pass;
+    } finally {
+      if (P.running) P.stop(null);
+      window.Platform = oldPlatform;
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared native clips', pass };
+  },
+
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedNativeClips, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

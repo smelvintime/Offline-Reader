@@ -18,9 +18,12 @@ The JavaScript slice, which runs in both builds and needs no new native code:
 - Off the charger, Prepare asks "are you sure" (warmth and battery) and
   then runs if the reader says yes. Unplugged preparing is allowed.
 
-Still to do from the phases below: AAC encoding in the native plugin (smaller
-files), the overnight `BGProcessingTask`, and the side-by-side battery
-measurement.
+- AAC in the native plugin: `saveClip` turns each rendered WAV into a
+  48 kbps `.m4a` on disk (about 22 MB per hour). The web and older builds keep
+  WAV; an encoder failure falls back to WAV and is shown in diagnostics.
+
+Still to do from the phases below: the overnight `BGProcessingTask`, a native
+player, and the side-by-side battery measurement.
 
 ## Requirements, in priority order
 

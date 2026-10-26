@@ -1274,7 +1274,23 @@
       threads: neuralEngine.threads, isolated: typeof self !== 'undefined' && !!self.crossOriginIsolated,
       pending: neuralEngine.pending.size, cachedClips: neuralEngine.wavCache.size,
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
-      resources: Object.assign({}, resources), events: voiceEvents.slice() };
+      resources: Object.assign({}, resources),
+      prepared: preparedDiagnostics(),
+      events: voiceEvents.slice() };
+  }
+
+  // What the prepared-book path is doing, for the diagnostics panel. Read when
+  // it opens, so a phone test can see the format and any failure in place.
+  function preparedDiagnostics() {
+    try {
+      const sum = preparedSummary();
+      return {
+        storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'wav in IndexedDB' : 'not probed yet'),
+        chapters: sum.ready + '/' + sum.total, bytes: sum.bytes, seconds: Math.round(sum.seconds),
+        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt : null,
+        hot: preparer.hot, message: preparer.message || null, compressionError: preparer.compressionError || null,
+      };
+    } catch (e) { return { error: String(e && e.message) }; }
   }
   // A computer, per Platform's tuning row. Not cached: the row is cheap, and a
   // cached answer would outlive the stubbed Platform the tests swap in.
@@ -2606,8 +2622,8 @@
   };
 
   // FNV-1a, 32-bit. Only has to notice that a group's text changed.
-  function textHash(s) {
-    let h = 0x811c9dc5;
+  function textHash(s, seed) {
+    let h = seed || 0x811c9dc5;
     for (let i = 0; i < s.length; i++) {
       h ^= s.charCodeAt(i);
       h = Math.imul(h, 0x01000193);
@@ -2616,6 +2632,33 @@
   }
 
   function preparedText(g) { return normalizeForSpeech(g.text, 'neural'); }
+
+  // On-disk names for the native clip store: [A-Za-z0-9_-] only. 64 bits from
+  // two differently seeded hashes, since a long book holds thousands of clips
+  // and 32 bits would collide.
+  function hash64(s) { return textHash(s) + '_' + textHash(s, 0x01000193); }
+  function preparedDir(book) { return 'b' + hash64(String(book)); }
+
+  /** The native AAC store when this build has it, else null (WAV in IndexedDB). */
+  function nativeClips() {
+    try {
+      const k = window.Platform && window.Platform.kokoro;
+      if (!k || !k.clips) return Promise.resolve(null);
+      return k.clips.supported().then(function (ok) {
+        state.nativeClips = !!ok;
+        return ok ? k.clips : null;
+      }, function () { return null; });
+    } catch (e) { return Promise.resolve(null); }
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const r = new FileReader();
+      r.onload = function () { const u = String(r.result || ''); resolve(u.slice(u.indexOf(',') + 1)); };
+      r.onerror = function () { reject(r.error || new Error('could not read the clip')); };
+      r.readAsDataURL(blob);
+    });
+  }
 
   function preparedClipKey(book, chapterId, voice, g) {
     return [PREPARED_VERSION, book, chapterId, voice, g.blockIdx, g.start, g.end, textHash(preparedText(g))].join('|');
@@ -2650,6 +2693,7 @@
       .then(function (list) { list.forEach(function (r) { idx.chapters.set(r.chapter, r); }); })
       .catch(function () { /* no storage: nothing is prepared, live narration as before */ })
       .then(function () { idx.loaded = true; syncSheetSoon(); });
+    nativeClips();   // only to word the storage estimate
     return idx.promise;
   }
 
@@ -2696,8 +2740,13 @@
     const have = preparedUrls.get(key);
     if (have) return Promise.resolve(have);
     return preparedStore.getClip(key).then(function (rec) {
-      if (!rec || !rec.blob) return null;
-      const url = URL.createObjectURL(rec.blob);
+      if (!rec) return null;
+      if (rec.blob) return rec.blob;
+      if (!rec.file) return null;
+      return nativeClips().then(function (clips) { return clips ? clips.read(rec.file) : null; });
+    }).then(function (blob) {
+      if (!blob) return null;
+      const url = URL.createObjectURL(blob);
       preparedUrls.set(key, url);
       while (preparedUrls.size > PREPARED_URLS_MAX) {
         const oldest = Array.from(preparedUrls.keys()).find(function (k) {
@@ -2777,6 +2826,7 @@
     groupTotal: 0,
     hot: false,
     asking: false,
+    compressionError: '',
     message: '',
     wakeLock: null,
     runId: 0,
@@ -2915,6 +2965,11 @@
       if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
 
       await neuralEngine.ensureReady();
+      // AAC files through the native plugin where it can, WAV in IndexedDB
+      // where it cannot. Either plays the same way.
+      let clips = await nativeClips();
+      const dir = preparedDir(book);
+      this.compressionError = '';
       for (let ci = 0; ci < order.length; ci++) {
         const ch = order[ci];
         if (!this.alive(id)) return;
@@ -2939,7 +2994,25 @@
             const live = 'prepare:' + key;
             const url = await neuralEngine.generate(live, preparedText(plan[gi]), voice);
             const blob = await fetch(url).then(function (r) { return r.blob(); });
-            rec = { book: book, blob: blob, seconds: neuralEngine.clipSeconds.get(live) || 0, bytes: blob.size };
+            const secs = neuralEngine.clipSeconds.get(live) || 0;
+            let saved = null;
+            if (clips) {
+              try {
+                saved = await clips.save(dir, hash64(key), await blobToBase64(blob));
+              } catch (e) {
+                // A book stored large beats a book not stored. Say why, once,
+                // and carry on in WAV for the rest of this run.
+                clips = null;
+                this.compressionError = shortErr(e);
+                voiceEvent('prepare-compress-failed', { message: this.compressionError });
+                toast('Compressing audio failed, so this book is stored uncompressed: ' + this.compressionError);
+              }
+            }
+            if (saved) {
+              rec = { book: book, file: saved.path, seconds: secs, bytes: saved.bytes || 0 };
+            } else {
+              rec = { book: book, blob: blob, seconds: secs, bytes: blob.size };
+            }
             // Out of the live cache at once: a whole book must not pile up in memory.
             neuralEngine.wavCache.delete(live);
             neuralEngine.clipSeconds.delete(live);
@@ -2984,7 +3057,10 @@
     if (preparer.running) preparer.stop(null);
     preparedUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
     preparedUrls.clear();
-    return preparedStore.deleteBook(book).catch(function () {}).then(function () {
+    return preparedStore.deleteBook(book).catch(function () {})
+      .then(function () { return nativeClips(); })
+      .then(function (clips) { return clips ? clips.remove(preparedDir(book)).catch(function () {}) : null; })
+      .then(function () {
       preparer.message = '';
       return loadPreparedIndex();
     });
@@ -3673,7 +3749,7 @@
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
           + (systemSpeech().available() ? 'The rest read with the iPhone voice until prepared.' : 'The rest use the live voice until prepared.');
-        else line = 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about 170 MB of storage per hour of listening.';
+        else line = 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;
       }
       prepText.textContent = line;

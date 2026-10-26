@@ -3361,6 +3361,21 @@
         return d ? { chapter: d.chapter, blocks: d.blocks, hiddenBlock: hidden(d.chapter, d.blocks) } : null;
       },
 
+      /** Chapter content by id, loaded if the reader does not have it, without
+          navigating. → Promise<same shape as entry(), or null>. Preparing a
+          book for listening walks every chapter through this. */
+      loadEntry: function (chapterId) {
+        const i = chapterIndexOf(chapterId);
+        if (i < 0) return Promise.resolve(null);
+        return loadChapter(i).then(function (d) {
+          const e = voiceBridgeObj.entry(chapterId);
+          if (e || !d) return e;
+          // Pruned from the LRU between load and here: the data is still good.
+          return { chapter: d.chapter, blocks: d.blocks,
+                   hiddenBlock: titlesHidden() && openingTitleHeading(d.blocks[0], d.chapter) ? 0 : -1 };
+        });
+      },
+
       /** The rendered block elements for a chapter, or null when not in the
           DOM (not stacked, or an endless-mode collapsed spacer). */
       entryEls: function (chapterId) {

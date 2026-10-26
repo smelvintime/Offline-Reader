@@ -516,6 +516,7 @@
    * decides what happens before anyone has expressed one.
    */
   function defaultNarrator() {
+    if (preparedOnly) return 'natural';
     const stored = prefGet(PREF.narrator, null);
     if (NARRATORS.indexOf(stored) !== -1) return stored;
     return systemSpeech().available() ? 'iphone' : 'natural';
@@ -1274,7 +1275,23 @@
       threads: neuralEngine.threads, isolated: typeof self !== 'undefined' && !!self.crossOriginIsolated,
       pending: neuralEngine.pending.size, cachedClips: neuralEngine.wavCache.size,
       cachedBytes: Array.from(neuralEngine.clipBytes.values()).reduce(function (a, b) { return a + b; }, 0),
-      resources: Object.assign({}, resources), events: voiceEvents.slice() };
+      resources: Object.assign({}, resources),
+      prepared: preparedDiagnostics(),
+      events: voiceEvents.slice() };
+  }
+
+  // What the prepared-book path is doing, for the diagnostics panel. Read when
+  // it opens, so a phone test can see the format and any failure in place.
+  function preparedDiagnostics() {
+    try {
+      const sum = preparedSummary();
+      return {
+        storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'wav in IndexedDB' : 'not probed yet'),
+        chapters: sum.ready + '/' + sum.total, bytes: sum.bytes, seconds: Math.round(sum.seconds),
+        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt : null,
+        hot: preparer.hot, message: preparer.message || null, compressionError: preparer.compressionError || null,
+      };
+    } catch (e) { return { error: String(e && e.message) }; }
   }
   // A computer, per Platform's tuning row. Not cached: the row is cheap, and a
   // cached answer would outlive the stubbed Platform the tests swap in.
@@ -1884,6 +1901,19 @@
       speakSystem(s, token, done, fail);
       return;
     }
+    // Prepared audio: playing a stored clip is what keeps the phone cool. Under
+    // the rule a book plays only once all of it is prepared.
+    if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) {
+      speakPrepared(s, token, done, fail);
+      return;
+    }
+    // Not prepared: nothing plays. No live model, no lesser voice.
+    if (preparedOnly) { notPreparedYet(false); return; }
+    // Playback that began on prepared audio never loaded the model.
+    if (!neuralEngine.ready || !neuralEngine.worker) {
+      ensureNeuralThenSpeak();
+      return;
+    }
     speakNeural(s, token, done, fail);
   }
 
@@ -2226,17 +2256,10 @@
     });
   }
 
-  function speakNeural(s, token, done, fail) {
-    const group = neuralGroupAt(state.index, state.fastStart ? FAST_START_CAPS : null)
-      || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
-    // The highlight covers the whole spoken group, so the mark and the audio
-    // always agree on what is being read.
-    highlighter.apply(group);
-    setPreparingSoon();
-    state.group = group;         // the pump tops up from here while this plays
-    const chapterId = state.chapterId;
-    const startupDeadline = state.fastStart ? startupPrebufferDeadline() : 0;
-    const groupDone = function () {
+  // What happens when a group's clip ends, for both the live and the prepared
+  // path: land on its last sentence, breathe, then advance.
+  function groupEnd(group, token, done) {
+    return function () {
       if (token !== state.speakToken || !state.playing) return;
       state.index = group.to;      // land on the group's last sentence…
       const gap = sentenceGapMs(group);
@@ -2249,6 +2272,19 @@
         done();
       }, gap);
     };
+  }
+
+  function speakNeural(s, token, done, fail) {
+    const group = neuralGroupAt(state.index, state.fastStart ? FAST_START_CAPS : null)
+      || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
+    // The highlight covers the whole spoken group, so the mark and the audio
+    // always agree on what is being read.
+    highlighter.apply(group);
+    setPreparingSoon();
+    state.group = group;         // the pump tops up from here while this plays
+    const chapterId = state.chapterId;
+    const startupDeadline = state.fastStart ? startupPrebufferDeadline() : 0;
+    const groupDone = groupEnd(group, token, done);
     neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text, 'neural'), state.prefs.neuralVoice)
       .then(function (url) {
         if (token !== state.speakToken || !state.playing) return;
@@ -2314,6 +2350,8 @@
    */
   function prefetchNeural(currentGroup) {
     if (!neuralEngine.worker || !currentGroup) return;
+    // Its audio is already stored; generating it again is the heat we avoid.
+    if (chapterPrepared(state.chapterId)) return;
     const rate = state.prefs.rate || 1;
     const want = lookaheadSeconds();
     let from = currentGroup.to + 1;
@@ -2393,7 +2431,20 @@
     // A skip lands somewhere nothing has been generated for, so this is a wait
     // someone is sitting through, same as a tap on Play.
     state.fastStart = true;
-    advance(delta);
+    advance(preparedSkipDelta(delta));
+  }
+
+  // Stored clips are whole groups and playback snaps to a group's start, so a
+  // one-sentence step would land back in the group it left. Step by group.
+  function preparedSkipDelta(delta) {
+    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return delta;
+    if (!chapterPrepared(state.chapterId)) return delta;
+    const plan = currentPreparedPlan();
+    const hit = preparedGroupContaining(plan, state.index);
+    if (!hit) return delta;
+    if (delta > 0) return hit.group.to + 1 - state.index;
+    const prev = preparedGroupContaining(plan, hit.group.from - 1);
+    return (prev ? prev.group.from : 0) - state.index;
   }
 
   function onChapterExhausted() {
@@ -2462,11 +2513,598 @@
     setPreparing(false);
   }
 
+  // ── Prepared books ────────────────────────────────────────────────────────
+  //
+  // docs/PREPARED_BOOKS_PLAN.md. Running the model is what heats the phone, so
+  // a prepared book runs it once, ahead of time, on the charger, and listening
+  // becomes playing stored clips the way a music app does: instant, with no
+  // model loaded at all.
+  //
+  // One clip per group, stored in IndexedDB (both builds have it, the native
+  // app's WebView included) and keyed by everything that decides what the clip
+  // says. Per-group rather than per-chapter files so playback reuses the same
+  // audio channel, gaps and highlight as live narration, and so an interrupted
+  // preparation resumes at the group it stopped on.
+  //
+  // Groups use the widest caps, always, from the start of the chapter. The
+  // adaptive narrowing and the fast start exist to keep live generation ahead
+  // of the reader, which does not apply; fixed boundaries are what let a clip
+  // made last night be found tonight.
+
+  // The rule (docs/PREPARED_BOOKS_PLAN.md): narration plays prepared audio
+  // and nothing else. No live model while listening, which is the heat, and
+  // never the iPhone voice, which is not good enough to offer. A chapter that
+  // is not prepared reads on screen only. A variable, not a constant, only so
+  // the test page can still exercise the live engine that preparing uses.
+  let preparedOnly = true;
+
+  const PREPARED_DB = 'or-voice-prepared';
+  // Bump when segmentation, normalisation or grouping changes what a group
+  // says: every stored clip is then ignored and the book shows as unprepared.
+  const PREPARED_VERSION = 1;
+  const PREPARED_CAPS = { target: NEURAL_GROUP_TARGET, max: NEURAL_GROUP_MAX, contMax: NEURAL_GROUP_CONT_MAX };
+  const PREPARED_URLS_MAX = 4;          // decoded clips held as blob URLs
+  const PREPARED_COOL_POLL_MS = 30000;  // re-check a hot phone this often
+
+  const preparedStore = {
+    dbPromise: null,
+
+    open: function () {
+      if (this.dbPromise) return this.dbPromise;
+      this.dbPromise = new Promise(function (resolve, reject) {
+        if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
+        const req = indexedDB.open(PREPARED_DB, 1);
+        req.onupgradeneeded = function () {
+          const db = req.result;
+          const clips = db.createObjectStore('clips');
+          clips.createIndex('book', 'book');
+          const chapters = db.createObjectStore('chapters');
+          chapters.createIndex('book', 'book');
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error || new Error('IndexedDB open failed')); };
+      });
+      const self = this;
+      this.dbPromise.catch(function () { self.dbPromise = null; });
+      return this.dbPromise;
+    },
+
+    tx: function (store, mode, fn) {
+      return this.open().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          const t = db.transaction(store, mode);
+          let out;
+          t.oncomplete = function () { resolve(out); };
+          t.onerror = t.onabort = function () { reject(t.error || new Error('IndexedDB ' + mode + ' failed')); };
+          fn(t.objectStore(store), function (v) { out = v; });
+        });
+      });
+    },
+
+    getClip: function (key) {
+      return this.tx('clips', 'readonly', function (s, set) {
+        s.get(key).onsuccess = function (e) { set(e.target.result || null); };
+      });
+    },
+
+    putClip: function (key, rec) {
+      return this.tx('clips', 'readwrite', function (s) { s.put(rec, key); });
+    },
+
+    putChapter: function (rec) {
+      return this.tx('chapters', 'readwrite', function (s) {
+        s.put(rec, [rec.v, rec.book, rec.voice, rec.chapter].join('|'));
+      });
+    },
+
+    /** Finished chapters of one book in one voice. → Promise<rec[]> */
+    chapters: function (book, voice) {
+      return this.tx('chapters', 'readonly', function (s, set) {
+        s.index('book').getAll(book).onsuccess = function (e) {
+          set((e.target.result || []).filter(function (r) { return r.v === PREPARED_VERSION && r.voice === voice; }));
+        };
+      });
+    },
+
+    /** Every clip and chapter record of a book, all voices. */
+    deleteBook: function (book) {
+      const drop = function (s) {
+        s.index('book').openKeyCursor(IDBKeyRange.only(book)).onsuccess = function (e) {
+          const c = e.target.result;
+          if (!c) return;
+          s.delete(c.primaryKey);
+          c.continue();
+        };
+      };
+      const self = this;
+      return this.tx('chapters', 'readwrite', drop).then(function () { return self.tx('clips', 'readwrite', drop); });
+    },
+  };
+
+  // FNV-1a, 32-bit. Only has to notice that a group's text changed.
+  function textHash(s, seed) {
+    let h = seed || 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(36);
+  }
+
+  function preparedText(g) { return normalizeForSpeech(g.text, 'neural'); }
+
+  // On-disk names for the native clip store: [A-Za-z0-9_-] only. 64 bits from
+  // two differently seeded hashes, since a long book holds thousands of clips
+  // and 32 bits would collide.
+  function hash64(s) { return textHash(s) + '_' + textHash(s, 0x01000193); }
+  function preparedDir(book) { return 'b' + hash64(String(book)); }
+
+  /** The native AAC store when this build has it, else null (WAV in IndexedDB). */
+  function nativeClips() {
+    try {
+      const k = window.Platform && window.Platform.kokoro;
+      if (!k || !k.clips) return Promise.resolve(null);
+      return k.clips.supported().then(function (ok) {
+        state.nativeClips = !!ok;
+        return ok ? k.clips : null;
+      }, function () { return null; });
+    } catch (e) { return Promise.resolve(null); }
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const r = new FileReader();
+      r.onload = function () { const u = String(r.result || ''); resolve(u.slice(u.indexOf(',') + 1)); };
+      r.onerror = function () { reject(r.error || new Error('could not read the clip')); };
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function preparedClipKey(book, chapterId, voice, g) {
+    return [PREPARED_VERSION, book, chapterId, voice, g.blockIdx, g.start, g.end, textHash(preparedText(g))].join('|');
+  }
+
+  /** The whole chapter's groups, from its first sentence, at the fixed caps. */
+  function preparedPlan(sentences) {
+    const out = [];
+    let from = 0;
+    while (from < sentences.length) {
+      const g = groupSentences(sentences, from, PREPARED_CAPS);
+      if (!g) break;
+      out.push(g);
+      from = g.to + 1;
+    }
+    return out;
+  }
+
+  function preparedBook() {
+    const info = state.bridge && state.bridge.seriesInfo ? state.bridge.seriesInfo() : null;
+    return info && info.id ? String(info.id) : null;
+  }
+
+  // { book, voice, chapters: Map<chapterId, rec>, promise }
+  function loadPreparedIndex() {
+    const book = preparedBook();
+    const voice = state.prefs && state.prefs.neuralVoice;
+    const idx = { book: book, voice: voice, chapters: new Map(), loaded: false, promise: null };
+    state.preparedIndex = idx;
+    state.preparedPlanCache = null;
+    idx.promise = (book ? preparedStore.chapters(book, voice) : Promise.resolve([]))
+      .then(function (list) { list.forEach(function (r) { idx.chapters.set(r.chapter, r); }); })
+      .catch(function () { /* no storage: nothing is prepared, live narration as before */ })
+      .then(function () { idx.loaded = true; syncSheetSoon(); });
+    nativeClips();   // only to word the storage estimate
+    return idx.promise;
+  }
+
+  function preparedIndexReady() {
+    const idx = state.preparedIndex;
+    if (!idx || idx.book !== preparedBook() || idx.voice !== state.prefs.neuralVoice) return loadPreparedIndex();
+    return idx.promise;
+  }
+
+  function preparedIndexCurrent() {
+    const idx = state.preparedIndex;
+    return idx && idx.loaded && idx.book === preparedBook() && idx.voice === state.prefs.neuralVoice ? idx : null;
+  }
+
+  function chapterPrepared(chapterId) {
+    const idx = preparedIndexCurrent();
+    return !!(idx && chapterId != null && idx.chapters.has(chapterId));
+  }
+
+  /** Every chapter of the open book has stored audio. Listening needs this. */
+  function bookFullyPrepared() {
+    const idx = preparedIndexCurrent();
+    const b = state.bridge;
+    if (!idx || !b || !b.chapters) return false;
+    const chapters = b.chapters();
+    return chapters.length > 0 && chapters.every(function (c) { return idx.chapters.has(c.id); });
+  }
+
+  // What playback asks: the book is whole, and this chapter's audio is there.
+  function canPlayPrepared(chapterId) { return bookFullyPrepared() && chapterPrepared(chapterId); }
+
+  function bookHasPrepared() {
+    const idx = preparedIndexCurrent();
+    return !!(idx && idx.chapters.size);
+  }
+
+  function currentPreparedPlan() {
+    const c = state.preparedPlanCache;
+    if (c && c.chapterId === state.chapterId && c.sentences === state.sentences) return c.plan;
+    const plan = preparedPlan(state.sentences);
+    state.preparedPlanCache = { chapterId: state.chapterId, sentences: state.sentences, plan: plan };
+    return plan;
+  }
+
+  function preparedGroupContaining(plan, index) {
+    for (let i = 0; i < plan.length; i++) {
+      if (plan[i].from <= index && plan[i].to >= index) return { group: plan[i], next: plan[i + 1] || null };
+    }
+    return null;
+  }
+
+  // Blob URLs for the last few clips read. FIFO, never the one playing.
+  const preparedUrls = new Map();
+
+  function preparedClipUrl(key) {
+    const have = preparedUrls.get(key);
+    if (have) return Promise.resolve(have);
+    return preparedStore.getClip(key).then(function (rec) {
+      if (!rec) return null;
+      if (rec.blob) return rec.blob;
+      if (!rec.file) return null;
+      return nativeClips().then(function (clips) { return clips ? clips.read(rec.file) : null; });
+    }).then(function (blob) {
+      if (!blob) return null;
+      const url = URL.createObjectURL(blob);
+      preparedUrls.set(key, url);
+      while (preparedUrls.size > PREPARED_URLS_MAX) {
+        const oldest = Array.from(preparedUrls.keys()).find(function (k) {
+          const u = preparedUrls.get(k);
+          return k !== key && !(channel.pool || []).some(function (a) { return a.src === u; });
+        });
+        if (oldest === undefined) break;
+        try { URL.revokeObjectURL(preparedUrls.get(oldest)); } catch (e) {}
+        preparedUrls.delete(oldest);
+      }
+      return url;
+    }).catch(function () { return null; });
+  }
+
+  /**
+   * One group from stored audio. Same channel, gaps and highlight as the live
+   * path; what it skips is the whole engine.
+   *
+   * The cursor snaps back to the start of the prepared group holding it, since
+   * that is where the stored clip begins.
+   */
+  function speakPrepared(s, token, done, fail) {
+    const book = preparedBook();
+    const voice = state.prefs.neuralVoice;
+    const chapterId = state.chapterId;
+    const hit = preparedGroupContaining(currentPreparedPlan(), state.index);
+    if (!hit) { fail(); return; }
+    const group = hit.group;
+    // A live chapter before this one may have left the lookahead pump running.
+    stopPrefetchPump();
+    state.index = group.from;
+    highlighter.apply(group);
+    state.group = group;
+    setPreparingSoon();
+    preparedClipUrl(preparedClipKey(book, chapterId, voice, group)).then(function (url) {
+      if (token !== state.speakToken || !state.playing) return;
+      if (!url) {
+        // Storage was cleared under us, or the chapter changed since it was
+        // prepared. Forget it and let speakCurrent pick the next best voice.
+        const idx = preparedIndexCurrent();
+        if (idx) idx.chapters.delete(chapterId);
+        setPreparing(false);
+        speakCurrent();
+        return;
+      }
+      setPreparing(false);
+      if (hit.next) {
+        preparedClipUrl(preparedClipKey(book, chapterId, voice, hit.next)).then(function (u) {
+          if (u && token === state.speakToken) channel.prime(u);
+        });
+      } else {
+        primeNextPreparedChapter(book, chapterId, voice, token);
+      }
+      return channel.play(url, { rate: state.prefs.rate, onended: groupEnd(group, token, done) }).catch(function () {
+        if (token !== state.speakToken) return;
+        pause();
+      });
+    });
+    mediaSessionUpdate();
+  }
+
+  // The last group of a chapter primes the first clip of the next one, so the
+  // chapter turn does not wait on storage. Only when autoNext will go there
+  // and that chapter is prepared; otherwise there is nothing to prime.
+  function primeNextPreparedChapter(book, chapterId, voice, token) {
+    const b = state.bridge;
+    if (!b || !state.prefs.autoNext || !b.loadEntry) return;
+    const chapters = b.chapters();
+    const next = chapters[b.chapterIndex(chapterId) + 1];
+    if (!next || !chapterPrepared(next.id)) return;
+    b.loadEntry(next.id).then(function (entry) {
+      if (!entry || token !== state.speakToken) return null;
+      const first = preparedPlan(segmentBlocks(entry.blocks, b.blockText, docLang(), entry.hiddenBlock))[0];
+      return first ? preparedClipUrl(preparedClipKey(book, next.id, voice, first)) : null;
+    }).then(function (u) {
+      if (u && token === state.speakToken) channel.prime(u);
+    }).catch(function () { /* priming is an optimisation */ });
+  }
+
+  /**
+   * Renders a book's clips, chapter by chapter, from the reader's chapter on.
+   *
+   * Never runs under a listening session (play() stops it). Pauses while the
+   * phone reports serious heat and carries on when it cools. A silent looping
+   * clip keeps the app running with the screen locked, the same background
+   * audio mode narration already uses, so a phone left on the charger keeps
+   * going.
+   */
+  const preparer = {
+    running: false,
+    stopping: false,
+    book: null,
+    total: 0,
+    doneChapters: 0,
+    chapterAt: 0,        // 1-based chapter being rendered
+    groupAt: 0,
+    groupTotal: 0,
+    hot: false,
+    asking: false,
+    compressionError: '',
+    message: '',
+    wakeLock: null,
+    runId: 0,
+
+    /**
+     * From the Prepare tap. Off the charger it asks first: preparing works the
+     * phone hard, and that is the reader's call, not a reason to refuse.
+     * → Promise<boolean> started.
+     */
+    request: function () {
+      if (this.running || this.asking || !state.bridge || !preparedBook()) return Promise.resolve(false);
+      const cap = neuralCapability();
+      if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return Promise.resolve(false); }
+      if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
+      // Bless the audio elements inside the tap: the dialog below spends the
+      // gesture, and the silent loop that keeps preparing alive needs it.
+      channel.bless(silentWavUrl());
+      const P = window.Platform;
+      const self = this;
+      this.asking = true;
+      return Promise.resolve(P && typeof P.charging === 'function' ? P.charging() : null)
+        .catch(function () { return null; })
+        .then(function (plugged) {
+          if (plugged === true) return true;
+          const message = (plugged === false
+            ? 'Your phone is not plugged in. Preparing works it hard, so it will get warm and use a lot of battery while it runs.'
+            : 'If your phone is not plugged in, preparing will make it warm and use a lot of battery while it runs.')
+            + ' Listening afterwards stays cool either way. Prepare anyway?';
+          const opts = { title: 'Prepare this book?', message: message, okLabel: 'Prepare', cancelLabel: 'Cancel' };
+          if (P && typeof P.confirm === 'function') return P.confirm(opts);
+          try { return window.confirm(message); } catch (e) { return false; }
+        })
+        .then(function (go) {
+          self.asking = false;
+          if (!go) return false;
+          self.start();
+          return self.running;
+        }, function () { self.asking = false; return false; });
+    },
+
+    start: function () {
+      if (this.running || !state.bridge) return;
+      const book = preparedBook();
+      if (!book) return;
+      const cap = neuralCapability();
+      if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return; }
+      if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return; }
+      if (state.playing) pause();
+      this.running = true;
+      this.stopping = false;
+      this.book = book;
+      this.message = '';
+      this.hot = false;
+      const id = ++this.runId;
+      this.keepAwake(true);
+      // A website's storage can be cleared after a week unused unless the
+      // browser is asked to keep it. The answer does not change what we do.
+      try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+      voiceEvent('prepare-start', { book: book });
+      const self = this;
+      this.run(id).catch(function (e) {
+        if (id !== self.runId) return;
+        if (!self.stopping) self.message = 'Preparing stopped: ' + shortErr(e);
+      }).then(function () {
+        if (id !== self.runId) return;
+        self.finish();
+      });
+      syncSheet();
+    },
+
+    stop: function (message) {
+      if (!this.running) return;
+      this.stopping = true;
+      this.message = message || '';
+      neuralEngine.cancelPending();
+      this.runId++;          // the loop notices at its next await
+      this.finish();
+      if (message) toast(message);
+    },
+
+    finish: function () {
+      this.running = false;
+      this.hot = false;
+      this.keepAwake(false);
+      neuralEngine.release();
+      voiceEvent('prepare-end', { chapters: this.doneChapters, total: this.total });
+      syncSheet();
+    },
+
+    keepAwake: function (on) {
+      const self = this;
+      if (on) {
+        // request() blessed the elements during the tap; a direct start()
+        // (tests) still is one.
+        channel.bless(silentWavUrl());
+        channel.play(silentWavUrl(), { loop: true }).catch(function () {});
+        try {
+          if (navigator.wakeLock && navigator.wakeLock.request) {
+            navigator.wakeLock.request('screen').then(function (l) {
+              if (self.running) self.wakeLock = l; else l.release();
+            }).catch(function () {});
+          }
+        } catch (e) {}
+        return;
+      }
+      // Only our own silent loop: a session that started since owns the channel.
+      if (!state.playing) channel.stop();
+      if (this.wakeLock) { try { this.wakeLock.release(); } catch (e) {} this.wakeLock = null; }
+    },
+
+    alive: function (id) { return id === this.runId && this.running; },
+
+    waitCool: function (id) {
+      const self = this;
+      if (!thermalHot()) { if (this.hot) { this.hot = false; syncSheet(); } return Promise.resolve(); }
+      this.hot = true;
+      syncSheet();
+      return new Promise(function (r) { setTimeout(r, PREPARED_COOL_POLL_MS); })
+        .then(function () { return self.alive(id) ? self.waitCool(id) : null; });
+    },
+
+    run: async function (id) {
+      const b = state.bridge;
+      const book = this.book;
+      const voice = state.prefs.neuralVoice;
+      const lang = docLang();
+      await preparedIndexReady();
+      const idx = preparedIndexCurrent();
+      const chapters = b.chapters();
+      const here = Math.max(0, b.chapterIndex(b.state().chapterId));
+      // From where the reader is, then the start of the book.
+      const order = chapters.slice(here).concat(chapters.slice(0, here));
+      this.total = chapters.length;
+      this.doneChapters = chapters.filter(function (c) { return idx && idx.chapters.has(c.id); }).length;
+      syncSheet();
+      if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
+
+      await neuralEngine.ensureReady();
+      // AAC files through the native plugin where it can, WAV in IndexedDB
+      // where it cannot. Either plays the same way.
+      let clips = await nativeClips();
+      const dir = preparedDir(book);
+      this.compressionError = '';
+      for (let ci = 0; ci < order.length; ci++) {
+        const ch = order[ci];
+        if (!this.alive(id)) return;
+        if (idx && idx.chapters.has(ch.id)) continue;
+        const entry = await b.loadEntry(ch.id);
+        if (!this.alive(id)) return;
+        const sentences = entry ? segmentBlocks(entry.blocks, b.blockText, lang, entry.hiddenBlock) : [];
+        const plan = preparedPlan(sentences);
+        this.chapterAt = chapters.indexOf(ch) + 1;
+        this.groupTotal = plan.length;
+        let seconds = 0, bytes = 0;
+        for (let gi = 0; gi < plan.length; gi++) {
+          this.groupAt = gi;
+          syncSheetSoon();
+          await this.waitCool(id);
+          if (!this.alive(id)) return;
+          const key = preparedClipKey(book, ch.id, voice, plan[gi]);
+          let rec = await preparedStore.getClip(key);
+          if (!rec) {
+            // ensureReady again: the engine may have idled out between chapters.
+            await neuralEngine.ensureReady();
+            const live = 'prepare:' + key;
+            const url = await neuralEngine.generate(live, preparedText(plan[gi]), voice);
+            const blob = await fetch(url).then(function (r) { return r.blob(); });
+            const secs = neuralEngine.clipSeconds.get(live) || 0;
+            let saved = null;
+            if (clips) {
+              try {
+                saved = await clips.save(dir, hash64(key), await blobToBase64(blob));
+              } catch (e) {
+                // A book stored large beats a book not stored. Say why, once,
+                // and carry on in WAV for the rest of this run.
+                clips = null;
+                this.compressionError = shortErr(e);
+                voiceEvent('prepare-compress-failed', { message: this.compressionError });
+                toast('Compressing audio failed, so this book is stored uncompressed: ' + this.compressionError);
+              }
+            }
+            if (saved) {
+              rec = { book: book, file: saved.path, seconds: secs, bytes: saved.bytes || 0 };
+            } else {
+              rec = { book: book, blob: blob, seconds: secs, bytes: blob.size };
+            }
+            // Out of the live cache at once: a whole book must not pile up in memory.
+            neuralEngine.wavCache.delete(live);
+            neuralEngine.clipSeconds.delete(live);
+            neuralEngine.clipBytes.delete(live);
+            try { URL.revokeObjectURL(url); } catch (e) {}
+            if (!this.alive(id)) return;
+            await preparedStore.putClip(key, rec);
+          }
+          seconds += rec.seconds || 0;
+          bytes += rec.bytes || 0;
+        }
+        if (!this.alive(id)) return;
+        const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: ch.id,
+                       groups: plan.length, seconds: seconds, bytes: bytes, at: Date.now() };
+        await preparedStore.putChapter(done);
+        if (idx) idx.chapters.set(ch.id, done);
+        this.doneChapters++;
+        syncSheetSoon();
+      }
+      this.message = 'This book is ready to listen to.';
+      toast('Book prepared. Listening now plays stored audio.');
+    },
+  };
+
+  function preparedSummary() {
+    const idx = preparedIndexCurrent();
+    let bytes = 0, seconds = 0;
+    if (idx) idx.chapters.forEach(function (r) { bytes += r.bytes || 0; seconds += r.seconds || 0; });
+    const total = state.bridge && state.bridge.chapters ? state.bridge.chapters().length : 0;
+    return { ready: idx ? idx.chapters.size : 0, total: total, bytes: bytes, seconds: seconds, loaded: !!idx };
+  }
+
+  function formatBytes(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
+    if (n >= 1e6) return Math.round(n / 1e6) + ' MB';
+    return Math.max(1, Math.round(n / 1e3)) + ' KB';
+  }
+
+  function deletePrepared() {
+    const book = preparedBook();
+    if (!book) return Promise.resolve();
+    if (preparer.running) preparer.stop(null);
+    preparedUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+    preparedUrls.clear();
+    return preparedStore.deleteBook(book).catch(function () {})
+      .then(function () { return nativeClips(); })
+      .then(function (clips) { return clips ? clips.remove(preparedDir(book)).catch(function () {}) : null; })
+      .then(function () {
+      preparer.message = '';
+      return loadPreparedIndex();
+    });
+  }
+
   // ── Play / pause / stop ───────────────────────────────────────────────────
 
   function play() {
     if (!state.bridge) return;
     if (state.playing) return;
+    // Preparing is the hot part. It never runs under a listening session.
+    if (preparer.running) preparer.stop('Preparing stopped so you can listen. Start it again any time.');
     state.playing = true;
     syncBarWithReaderChrome();
     state.errors = 0;
@@ -2504,7 +3142,32 @@
       speakCurrent();
       return;
     }
-    ensureNeuralThenSpeak();
+    // Which chapters are prepared is read once per book; the first Play can
+    // arrive before that read finishes, and guessing "not prepared" would load
+    // the model for nothing.
+    const token = state.speakToken;
+    preparedIndexReady().then(function () {
+      if (!state.playing || token !== state.speakToken) return;
+      // Prepared: nothing to load, play now.
+      if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) { speakCurrent(); return; }
+      if (preparedOnly) { notPreparedYet(true); return; }
+      ensureNeuralThenSpeak();
+    });
+  }
+
+  /**
+   * The chapter under the cursor has no stored audio, so narration stops and
+   * says why. From a Play tap the voice sheet opens on the Prepare button,
+   * since that is the one thing that would let this book be heard.
+   */
+  function notPreparedYet(fromPlay) {
+    const partly = bookHasPrepared();
+    const msg = partly
+      ? 'Listening starts once the whole book is prepared. Prepare the rest of the book to listen.'
+      : 'This book is not prepared yet, so it can only be read on screen. Prepare it to listen.';
+    setPreparing(false);
+    finishSession(msg);
+    if (fromPlay) { ensureDom(); openSheet(); syncSheet(); }
   }
 
   function ensureNeuralThenSpeak() {
@@ -2710,9 +3373,11 @@
       // open() also fires when a NEW book replaces the current one without a
       // close in between; narration must never carry across that seam.
       if (state.active) stopSession();
+      if (preparer.running) preparer.stop(null);
       closeSheet();
       state.bridge = bridge || state.bridge;
       state.prefs = readPrefs();
+      loadPreparedIndex();
       scheduleNeuralPrewarm();
       return;
     }
@@ -2720,6 +3385,8 @@
 
     if (kind === 'close') {
       cancelNeuralPrewarm();
+      // It reads chapters through the reader, so it cannot outlive the book.
+      if (preparer.running) preparer.stop('Preparing stopped because the book was closed. Open it again to carry on.');
       stopSession();
       neuralEngine.release();
       closeSheet();
@@ -2971,7 +3638,7 @@
     }
 
     sheetSync.push(function () {
-      const hasSystem = systemSpeech().available();
+      const hasSystem = !preparedOnly && systemSpeech().available();
       narRow.hidden = !hasSystem;
       const onSystem = hasSystem && state.prefs.narrator === 'iphone';
       sysRow.hidden = !onSystem;
@@ -3071,6 +3738,67 @@
     body.appendChild(natRow);
 
     natAction.addEventListener('click', function () { downloadNeural(); });
+
+    // ── Prepared book ─────────────────────────────────────────────────────
+    //
+    // The cool way to listen. Preparing does the hot work once, on the
+    // charger; after that the natural voice plays stored audio.
+    const prepRow = el('div', 'vc-row vc-prepared-row');
+    prepRow.appendChild(el('span', 'vc-row-label', 'Listen without heat'));
+    const prepText = el('div', 'vc-hint vc-prepared-status');
+    const prepBar = el('div', 'vc-progress');
+    prepBar.appendChild(el('i'));
+    prepBar.hidden = true;
+    const prepAction = el('button', 'vc-action vc-prepared-action');
+    prepAction.type = 'button';
+    const prepDelete = el('button', 'vc-action vc-action-quiet vc-prepared-delete');
+    prepDelete.type = 'button';
+    prepDelete.textContent = 'Delete prepared audio';
+    prepRow.append(prepText, prepBar, prepAction, prepDelete);
+    body.appendChild(prepRow);
+
+    prepAction.addEventListener('click', function () {
+      if (preparer.running) preparer.stop('Preparing paused. Finished chapters are kept.');
+      else preparer.request();
+    });
+    prepDelete.addEventListener('click', function () {
+      deletePrepared().then(function () { toast('Prepared audio deleted for this book.'); syncSheet(); });
+    });
+
+    sheetSync.push(function () {
+      const onSystem = !preparedOnly && systemSpeech().available() && state.prefs.narrator === 'iphone';
+      prepRow.hidden = onSystem || !state.bridge;
+      if (prepRow.hidden) return;
+      const sum = preparedSummary();
+      const all = sum.total > 0 && sum.ready >= sum.total;
+      prepAction.textContent = preparer.running ? 'Stop preparing'
+        : sum.ready ? (all ? 'Check for new chapters' : 'Prepare the rest of the book') : 'Prepare this book';
+      prepDelete.hidden = preparer.running || !sum.ready;
+      let line;
+      if (preparer.running) {
+        line = preparer.hot
+          ? 'Paused while the phone cools down. It carries on by itself.'
+          : (preparer.total
+            ? 'Preparing chapter ' + preparer.chapterAt + ' (' + preparer.doneChapters + ' of ' + preparer.total + ' ready). '
+            : 'Getting the voice ready. ')
+            + 'Keep the app open. You can lock the screen.';
+        const frac = preparer.total
+          ? (preparer.doneChapters + (preparer.groupTotal ? preparer.groupAt / preparer.groupTotal : 0)) / preparer.total
+          : 0;
+        prepBar.hidden = false;
+        prepBar.firstChild.style.width = Math.round(Math.min(1, frac) * 100) + '%';
+      } else {
+        prepBar.hidden = true;
+        if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
+        else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
+        else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
+          + (preparedOnly ? 'Listening starts once the whole book is prepared.' : 'The rest use the live voice until prepared.');
+        else line = (preparedOnly ? 'This book is not prepared, so it cannot be read aloud yet. ' : '')
+          + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
+        if (preparer.message) line = preparer.message + ' ' + line;
+      }
+      prepText.textContent = line;
+    });
 
     // Desktop only, where the browser actually has WebGPU, never the native app.
     // Off by default: the speed comes from full-precision weights, and
@@ -3428,11 +4156,16 @@
 
 
   function prewarmNeural() {
+    // Playback never uses the live model, so there is nothing to warm.
+    if (preparedOnly) return;
     // Memory capacity alone is not permission for speculative computation.
     if ((window.Platform && window.Platform.isNative) || resources.lowPower || thermalHot()) return;
     if (!neuralEngine.available()) return;
     if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
     if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
+    // A prepared book plays from storage; warming the model for it is heat
+    // and battery spent on nothing.
+    if (bookHasPrepared()) return;
     // Opening a book must never be what kills the app. This path has no user
     // action behind it, so after a load-phase crash it is the first thing to
     // stand down — a background half-gigabyte is not worth one warm start.
@@ -3466,7 +4199,11 @@
     cancelNeuralPrewarm();
     prewarmTimer = setTimeout(function () {
       prewarmTimer = 0;
-      const run = function () { prewarmIdle = 0; if (state.bridge) prewarmNeural(); };
+      const run = function () {
+        prewarmIdle = 0;
+        // Only once it is known whether this book is prepared.
+        if (state.bridge) preparedIndexReady().then(function () { if (state.bridge) prewarmNeural(); });
+      };
       if (typeof requestIdleCallback === 'function') prewarmIdle = requestIdleCallback(run, { timeout: 3000 });
       else run();
     }, PREWARM_DELAY_MS);
@@ -3744,6 +4481,16 @@
       NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,
       NEURAL_LOOKAHEAD_MAX: NEURAL_LOOKAHEAD_MAX,
       NEURAL_PUMP_MS: NEURAL_PUMP_MS,
+      preparedStore: preparedStore,
+      preparer: preparer,
+      preparedPlan: preparedPlan,
+      preparedClipKey: preparedClipKey,
+      loadPreparedIndex: loadPreparedIndex,
+      chapterPrepared: chapterPrepared,
+      deletePrepared: deletePrepared,
+      preparedSummary: preparedSummary,
+      setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
+      preparedOnly: function () { return preparedOnly; },
     },
   };
 })();

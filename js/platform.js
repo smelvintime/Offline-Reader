@@ -328,6 +328,27 @@
     try { return window.confirm(o.message || ''); } catch (e) { return false; }
   }
 
+  /**
+   * Is the device on a charger? → Promise<true | false | null>, null when it
+   * cannot tell (Safari has no battery API). Callers treat null as "ask".
+   */
+  async function charging() {
+    const Device = plugin('Device');
+    if (Device && Device.getBatteryInfo) {
+      try {
+        const b = await Device.getBatteryInfo();
+        if (b && typeof b.isCharging === 'boolean') return b.isCharging;
+      } catch (e) { /* fall through */ }
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.getBattery) {
+        const b = await navigator.getBattery();
+        if (b && typeof b.charging === 'boolean') return b.charging;
+      }
+    } catch (e) { /* unknown */ }
+    return null;
+  }
+
   function haptic(kind) {
     const Haptics = plugin('Haptics');
     if (!Haptics) return; // no-op on web
@@ -483,6 +504,43 @@
       if (!OrKokoro) return Promise.resolve();
       try { return OrKokoro.release().catch(function () {}); }
       catch (e) { return Promise.resolve(); }
+    },
+
+    /**
+     * Prepared-book clips as AAC files on disk (docs/PREPARED_BOOKS_PLAN.md),
+     * about a sixth the size of the WAV the app renders. Only on a build whose
+     * plugin has the methods; `supported()` asks it once, and a build from
+     * before rejects the probe, so callers keep WAV in IndexedDB there.
+     */
+    clips: {
+      probe: null,
+      supported: function () {
+        const OrKokoro = plugin('OrKokoro');
+        if (!OrKokoro) return Promise.resolve(false);
+        if (!this.probe) {
+          let p;
+          try { p = Promise.resolve(OrKokoro.clipsAvailable()); } catch (e) { p = Promise.reject(e); }
+          this.probe = p.then(function (r) { return !!(r && r.available); }, function () { return false; });
+        }
+        return this.probe;
+      },
+      // (dir, name, base64 WAV) → Promise<{ path, bytes, seconds }>
+      save: function (dir, name, wavBase64) {
+        return plugin('OrKokoro').saveClip({ dir: dir, name: name, wav: wavBase64 });
+      },
+      // path from save() → Promise<Blob>
+      read: function (path) {
+        return plugin('OrKokoro').readClip({ path: path }).then(function (r) {
+          const bin = atob((r && r.data) || '');
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          return new Blob([bytes], { type: 'audio/mp4' });
+        });
+      },
+      remove: function (dir) {
+        const OrKokoro = plugin('OrKokoro');
+        return OrKokoro ? OrKokoro.deleteClips({ dir: dir }) : Promise.resolve();
+      },
     },
   };
 
@@ -1228,6 +1286,7 @@
       return { app: info, source: revision };
     },
     confirm: confirm,
+    charging: charging,
     haptic: haptic,
     memoryClass: memoryClass,
     tuning: tuning,

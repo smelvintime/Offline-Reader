@@ -380,6 +380,8 @@ window.Platform = {
   appVersion(),   // → Promise<string | null>   (App.getInfo; null on web)
   confirm({ title, message, okLabel, cancelLabel }),
                   // → Promise<boolean>. Dialog plugin; window.confirm fallback.
+  charging(),     // → Promise<true|false|null>. Device plugin's battery info, then
+                  // navigator.getBattery; null when it cannot tell (Safari).
   haptic(kind),   // 'light' | 'medium' | 'success' | 'warning' → void. No-op on web.
   memoryClass(),  // → 'low' | 'mid' | 'high' — SYNCHRONOUS. Resolution order:
                   //   (1) pref platform.memoryClass when 'low'|'mid'|'high';
@@ -1248,7 +1250,7 @@ page turn), and renders the header Listen button only when `window.NovelVoice`
 exists. Everything the voice module does to the reader goes through the
 `bridge` (novel-reader's `voiceBridge()`): `state()`, `blockText` (the shared
 canonical text function — offsets must agree or anchors drift), `entry` /
-`entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`
+`loadEntry` (any chapter's blocks, loaded without navigating) / `entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`
 (carrying the book's own `lang`),
 `anchorVisible(anchor)`, `reveal(anchor)` (→ `settleLayout`, so listening
 persists progress through the exact path a page turn uses), `goChapter(delta)`,
@@ -1272,6 +1274,47 @@ User chapter navigation mid-narration re-seeds and keeps reading from the new
 position; opening a different book stops the session; closing the reader stops
 it and terminates the worker (the model's working set is not a thing to hold
 while someone browses their shelf — the weights stay cached on disk).
+
+**Prepared books** (`docs/PREPARED_BOOKS_PLAN.md`). Running the model is what
+heats the phone, so a book can be prepared once and then played from storage.
+"Prepare this book" in the voice sheet renders every group of every chapter,
+from the reader's chapter on, into IndexedDB (`or-voice-prepared`: `clips`
+keyed by version, book, chapter, voice, group range and a hash of the spoken
+text; `chapters` recording each finished chapter). Groups are always cut at the
+widest caps from the start of the chapter (`preparedPlan`), never the adaptive
+or fast-start caps, so a clip made earlier is found again. A Play on a prepared
+chapter never loads the model: `speakPrepared` snaps the cursor to the start of
+the stored group holding it and plays the clip through the same channel, gaps
+and highlight.
+
+**Narration plays prepared audio and nothing else** (`preparedOnly`), and only
+once the whole book is prepared (`bookFullyPrepared`). Until then the book is
+read on screen only: Play ends the session and opens the voice sheet on
+Prepare, which says listening starts when the book is done. A series that
+gains a chapter later is not fully prepared again until that chapter is. The live model
+never runs for listening, so it is never prewarmed either, and the iPhone voice
+is not offered at all (`defaultNarrator()` is always `natural`, the narrator
+row is hidden). The live engine remains as the thing preparing runs on, and
+the test page switches `preparedOnly` off to exercise it. Off the charger (or when
+`Platform.charging()` cannot tell, as in Safari) the Prepare tap asks first,
+since preparing heats the phone and drains it. Preparing never runs
+under a listening session (Play stops it), pauses at serious heat, and loops a
+silent clip so the background audio mode keeps it running with the screen
+locked. It stops when the book closes; tapping Prepare again resumes at the
+first missing group. `PREPARED_VERSION` invalidates every stored clip when
+segmentation, normalisation or grouping changes what a group says.
+
+On a native build whose `or-kokoro` has the clip methods
+(`Platform.kokoro.clips`: `clipsAvailable`, `saveClip`, `readClip`,
+`deleteClips`), each rendered WAV is handed over once and stored as AAC
+(48 kbps mono, about 22 MB per hour) under Application Support
+`prepared-audio/<book>/<clip>.m4a`, excluded from backup; IndexedDB keeps only
+the path. Names are 64-bit hashes in `[A-Za-z0-9_-]`, and the plugin rejects
+anything else, so JS cannot name a file outside that folder. Clips are read
+back over the bridge as base64 (tens of KB each) rather than through the
+WebView's file scheme. Older builds, the web, and a run whose encoder fails
+store WAV in IndexedDB instead; the failure is toasted once and kept in the
+voice diagnostics (`prepared.compressionError`).
 
 ---
 

@@ -53,6 +53,8 @@
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
   <button onclick="T.testThermalLifecycle().then(T.report)">thermal lifecycle</button>
+  <button onclick="T.testPreparedBook().then(T.report)">prepared book</button>
+  <button onclick="T.testPreparedNativeClips().then(T.report)">prepared native clips</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
 </div>
@@ -299,6 +301,10 @@ const neuralStub = {
 async function freshOpen(opts) {
   // Ensure a clean session and default prefs unless a test overrides them.
   if (window.NovelReader.isOpen()) window.NovelReader.close({ navigate: false });
+  // Production plays prepared audio only. The older suites test the live
+  // engine that preparing runs on, so they get it back; the prepared suites
+  // pass { preparedOnly: true }.
+  VT().setPreparedOnly(!!(opts && opts.preparedOnly));
   neuralStub.reset();
   try { localStorage.removeItem('or.voiceGuard'); } catch (e) {}
   Store.prefs.set('voice.rate', 1);
@@ -2612,13 +2618,253 @@ const T = {
     return { name: 'close cleans up', pass };
   },
 
+  // Prepared books (docs/PREPARED_BOOKS_PLAN.md): preparing renders every
+  // group once into storage, and playback afterwards never loads the model.
+  async testPreparedBook() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const P = VT().preparer;
+    try {
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      pass = ok(VT().preparedSummary().ready === 0, 'starts unprepared') && pass;
+
+      // 0. Off the charger it asks first; Cancel starts nothing.
+      const oldPlatform = window.Platform;
+      const asked = [];
+      try {
+        window.Platform = { charging: () => Promise.resolve(false),
+                            confirm: o => { asked.push(o.message); return Promise.resolve(false); } };
+        let started = await P.request();
+        pass = ok(asked.length === 1 && /not plugged in/.test(asked[0]), 'unplugged: asks first', asked[0]) && pass;
+        pass = ok(!started && !P.running, 'Cancel leaves it unprepared') && pass;
+        window.Platform.confirm = o => { asked.push(o.message); return Promise.resolve(true); };
+        started = await P.request();
+        pass = ok(started && P.running, 'Prepare anyway starts it') && pass;
+        P.stop(null);
+        asked.length = 0;
+        window.Platform.charging = () => Promise.resolve(true);
+        started = await P.request();
+        pass = ok(started && asked.length === 0, 'plugged in: no question') && pass;
+        P.stop(null);
+      } finally {
+        window.Platform = oldPlatform;
+      }
+      await waitFor(() => !P.running, 3000, 'stopped');
+      neuralStub.spoken = [];
+
+      // 1. Prepare the whole book through the stub engine.
+      P.start();
+      pass = ok(P.running, 'preparing started') && pass;
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      const sum = VT().preparedSummary();
+      pass = ok(sum.ready === CHAPTERS.length && sum.total === CHAPTERS.length,
+                'every chapter prepared', sum.ready + '/' + sum.total) && pass;
+      pass = ok(sum.bytes > 0, 'stored audio has a size', sum.bytes) && pass;
+      const rendered = neuralStub.spoken.length;
+      pass = ok(rendered > CHAPTERS.length, 'one render per group', rendered) && pass;
+      let groups = 0;
+      VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
+      pass = ok(rendered === groups, 'no group rendered twice', rendered + ' renders / ' + groups + ' groups') && pass;
+
+      // 2. Play: stored audio, no engine.
+      ne.dispose();
+      neuralStub.spoken = [];
+      let loads = 0;
+      const realEnsure = ne.ensureReady;
+      ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+      Store.prefs.set('voice.autoNext', true);
+      const ch = VT().channel;
+      const realPrime = ch.prime, realPlay = ch.play;
+      const primed = [], played = [];
+      ch.prime = function (u) { primed.push({ url: u, chapter: V().state().chapterId }); return realPrime.apply(ch, arguments); };
+      ch.play = function (u) { played.push({ url: u, chapter: V().state().chapterId }); return realPlay.apply(ch, arguments); };
+      V().toggle();
+      await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 15000, 'played into chapter 2');
+      await waitFor(() => played.some(p => p.chapter === CHAPTERS[1].id), 5000, 'chapter 2 clip played');
+      ch.prime = realPrime; ch.play = realPlay;
+      const firstOf2 = played.find(p => p.chapter === CHAPTERS[1].id).url;
+      pass = ok(primed.some(p => p.chapter === CHAPTERS[0].id && p.url === firstOf2),
+                'chapter 2\'s first clip was primed during chapter 1') && pass;
+      pass = ok(V().state().playing, 'still playing across the chapter seam') && pass;
+      pass = ok(loads === 0, 'the model was never loaded', loads + ' loads') && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback', neuralStub.spoken.length) && pass;
+      ne.ensureReady = realEnsure;
+
+      // Skips step by stored group, or they would land back where they were.
+      VT().pause();
+      const st = VT().state;
+      const plan = VT().preparedPlan(st.sentences);
+      const multi = plan.find(g => g.to > g.from && plan.indexOf(g) + 1 < plan.length);
+      if (multi) {
+        st.index = multi.from;
+        VT().skip(1);
+        pass = ok(st.index === multi.to + 1, 'skip forward moves to the next stored group',
+                  'from ' + multi.from + ' to ' + st.index + ', next starts ' + (multi.to + 1)) && pass;
+        VT().skip(-1);
+        pass = ok(st.index === multi.from, 'skip back returns to the previous group', st.index) && pass;
+      } else {
+        pass = ok(false, 'fixture has a multi-sentence group to skip over') && pass;
+      }
+
+      // 3. Play stops a preparation; starting again renders nothing new.
+      VT().pause();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      neuralStub.spoken = [];
+      P.start();
+      await waitFor(() => !P.running, 5000, 'second pass finished');
+      pass = ok(neuralStub.spoken.length === 0, 'a prepared book renders nothing again', neuralStub.spoken.length) && pass;
+
+      // 4. Keys follow what the clip says.
+      const g = { blockIdx: 1, start: 0, end: 10, text: 'The lantern guttered.' };
+      const k = VT().preparedClipKey('b', 'c', 'af_heart', g);
+      pass = ok(k !== VT().preparedClipKey('b', 'c', 'am_michael', g), 'voice is part of the key') && pass;
+      pass = ok(k !== VT().preparedClipKey('b', 'c', 'af_heart', Object.assign({}, g, { text: 'The lamp guttered.' })),
+                'text is part of the key') && pass;
+
+      // 5. A partly prepared book plays nothing, not even its prepared
+      //    chapters: listening starts once the whole book is done. No other
+      //    voice stands in, even where an iPhone voice exists and was the
+      //    stored choice.
+      const platformBefore = window.Platform;
+      let systemSpoke = 0;
+      window.Platform = { speech: {
+        available: () => true, voices: () => Promise.resolve([]),
+        speak: () => { systemSpoke++; return Promise.resolve(true); },
+        stop: () => Promise.resolve(), pause: () => Promise.resolve(), resume: () => Promise.resolve(),
+      } };
+      try {
+        Store.prefs.set('voice.narrator', 'iphone');
+        await freshOpen({ preparedOnly: true });
+        await VT().loadPreparedIndex();
+        pass = ok(VT().state.prefs.narrator === 'natural', 'the narrator is always the natural voice') && pass;
+        VT().state.preparedIndex.chapters.delete(CHAPTERS[1].id);   // chapter 2 now unprepared
+        neuralStub.spoken = [];
+        loads = 0;
+        ne.dispose();
+        ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+        const chP = VT().channel, playReal = chP.play;
+        const playedIn = [];
+        chP.play = function () { playedIn.push(V().state().chapterId); return playReal.apply(chP, arguments); };
+        V().toggle();
+        await waitFor(() => !V().isActive(), 15000, 'session ended');
+        await pause(200);
+        chP.play = playReal;
+        pass = ok(playedIn.length === 0, 'a partly prepared book plays nothing, prepared chapters included',
+                  playedIn.length + ' clips') && pass;
+        pass = ok(/whole book/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'the sheet says listening needs the whole book') && pass;
+        V().closeSheet();
+        pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice either',
+                  neuralStub.spoken.length + ' generated, ' + loads + ' loads') && pass;
+        pass = ok(systemSpoke === 0, 'the iPhone voice never speaks', systemSpoke) && pass;
+      } finally {
+        ne.ensureReady = realEnsure;
+        window.Platform = platformBefore;
+        Store.prefs.set('voice.narrator', 'natural');
+      }
+
+      // 6. A book with nothing prepared does not play at all; Play opens the
+      //    sheet on Prepare instead.
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      pass = ok(!VT().chapterPrepared(CHAPTERS[0].id), 'delete forgets the chapters') && pass;
+      neuralStub.spoken = [];
+      V().toggle();
+      await waitFor(() => !V().isActive(), 5000, 'session ended');
+      await pause(200);
+      pass = ok(neuralStub.spoken.length === 0, 'an unprepared book plays nothing', neuralStub.spoken.length) && pass;
+      pass = ok(V().state().sheetOpen, 'Play opens the voice sheet instead') && pass;
+      const prepBtn = document.querySelector('#novel-screen .vc-prepared-action');
+      pass = ok(prepBtn && !prepBtn.closest('[hidden]') && /Prepare/.test(prepBtn.textContent), 'with Prepare on offer',
+                prepBtn && prepBtn.textContent) && pass;
+      V().closeSheet();
+    } finally {
+      if (P.running) P.stop(null);
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared book', pass };
+  },
+
+  // On a build whose plugin can write AAC, clips go to disk through it and
+  // IndexedDB keeps only the path. The plugin is faked here; the Swift side is
+  // exercised on a device.
+  async testPreparedNativeClips() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const P = VT().preparer;
+    const oldPlatform = window.Platform;
+    const disk = new Map();
+    const removed = [];
+    window.Platform = {
+      kokoro: {
+        available: () => false, probe: () => Promise.resolve(null),
+        infer: () => Promise.resolve(null), release: () => Promise.resolve(),
+        clips: {
+          supported: () => Promise.resolve(true),
+          save: (dir, name, b64) => {
+            pass = ok(/^[A-Za-z0-9_-]+$/.test(dir) && /^[A-Za-z0-9_-]+$/.test(name), 'file names are safe', dir + '/' + name) && pass;
+            const path = dir + '/' + name + '.m4a';
+            disk.set(path, atob(b64).length);
+            return Promise.resolve({ path, bytes: 100, seconds: 0.01 });
+          },
+          read: path => disk.has(path)
+            ? Promise.resolve(new Blob([VT().encodeWav(new Float32Array(240), 24000)], { type: 'audio/wav' }))
+            : Promise.reject(new Error('missing')),
+          remove: dir => { removed.push(dir); [...disk.keys()].forEach(k => { if (k.startsWith(dir + '/')) disk.delete(k); }); return Promise.resolve(); },
+        },
+      },
+    };
+    try {
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      P.start();
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      const sum = VT().preparedSummary();
+      pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready) && pass;
+      pass = ok(disk.size === neuralStub.spoken.length && disk.size > 0, 'one file per rendered group', disk.size) && pass;
+      pass = ok(sum.bytes === disk.size * 100, 'sizes come from the files', sum.bytes) && pass;
+      const anyKey = [...disk.keys()][0];
+      pass = ok(disk.get(anyKey) > 44, 'the plugin was handed the WAV', disk.get(anyKey) + ' bytes') && pass;
+
+      ne.dispose();
+      neuralStub.spoken = [];
+      V().toggle();
+      await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 15000, 'played from files into chapter 2');
+      pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback') && pass;
+      VT().pause();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      pass = ok(removed.length >= 1 && disk.size === 0, 'delete removes the files', removed.join(',')) && pass;
+
+      // An encoder that fails on the device must not cost the book.
+      window.Platform.kokoro.clips.save = () => Promise.reject(new Error('encoder said no'));
+      P.start();
+      await waitFor(() => !P.running, 15000, 'fallback preparing finished');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'still prepared when compression fails') && pass;
+      pass = ok(/encoder said no/.test(P.compressionError), 'the failure is recorded', P.compressionError) && pass;
+      pass = ok(VT().voiceDiagnostics().prepared.compressionError === P.compressionError, 'and shown in diagnostics') && pass;
+    } finally {
+      if (P.running) P.stop(null);
+      window.Platform = oldPlatform;
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared native clips', pass };
+  },
+
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedNativeClips, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {
@@ -2644,6 +2890,7 @@ const headlessTest = headlessRun === 'thermal' ? T.testThermalLifecycle
   : headlessRun === 'dedupe' ? T.testNeuralDedupe
   : headlessRun === 'memory' ? T.testMemoryTier
   : headlessRun === 'playback' ? T.testPlayback
+  : headlessRun === 'prepared' ? T.testPreparedBook
   : headlessRun === 'all' ? T.all : null;
 if (headlessTest) {
   headlessTest().then(function (result) {

@@ -32,6 +32,26 @@ var OrKokoro = {
     var p = nativePlugin();
     return p ? p.release() : Promise.resolve(null);
   },
+  // Prepared-book clips as AAC on disk. { dir, name, wav (base64) } →
+  // Promise<{ path, bytes, seconds }>; dir and name are [A-Za-z0-9_-].
+  clipsAvailable: function () {
+    var p = nativePlugin();
+    return p ? p.clipsAvailable() : Promise.resolve(null);
+  },
+  saveClip: function (options) {
+    var p = nativePlugin();
+    return p ? p.saveClip(options || {}) : Promise.resolve(null);
+  },
+  // { path } → Promise<{ data (base64) }>
+  readClip: function (options) {
+    var p = nativePlugin();
+    return p ? p.readClip(options || {}) : Promise.resolve(null);
+  },
+  // { dir } → removes that book's clips
+  deleteClips: function (options) {
+    var p = nativePlugin();
+    return p ? p.deleteClips(options || {}) : Promise.resolve(null);
+  },
 };
 
 if (typeof module !== 'undefined' && module.exports) {

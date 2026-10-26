@@ -1248,7 +1248,7 @@ page turn), and renders the header Listen button only when `window.NovelVoice`
 exists. Everything the voice module does to the reader goes through the
 `bridge` (novel-reader's `voiceBridge()`): `state()`, `blockText` (the shared
 canonical text function — offsets must agree or anchors drift), `entry` /
-`entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`
+`loadEntry` (any chapter's blocks, loaded without navigating) / `entryEls`, `chapters` / `chapterIndex` / `chapterLabel`, `seriesInfo`
 (carrying the book's own `lang`),
 `anchorVisible(anchor)`, `reveal(anchor)` (→ `settleLayout`, so listening
 persists progress through the exact path a page turn uses), `goChapter(delta)`,
@@ -1272,6 +1272,24 @@ User chapter navigation mid-narration re-seeds and keeps reading from the new
 position; opening a different book stops the session; closing the reader stops
 it and terminates the worker (the model's working set is not a thing to hold
 while someone browses their shelf — the weights stay cached on disk).
+
+**Prepared books** (`docs/PREPARED_BOOKS_PLAN.md`). Running the model is what
+heats the phone, so a book can be prepared once and then played from storage.
+"Prepare this book" in the voice sheet renders every group of every chapter,
+from the reader's chapter on, into IndexedDB (`or-voice-prepared`: `clips`
+keyed by version, book, chapter, voice, group range and a hash of the spoken
+text; `chapters` recording each finished chapter). Groups are always cut at the
+widest caps from the start of the chapter (`preparedPlan`), never the adaptive
+or fast-start caps, so a clip made earlier is found again. A Play on a prepared
+chapter never loads the model: `speakPrepared` snaps the cursor to the start of
+the stored group holding it and plays the clip through the same channel, gaps
+and highlight. In a book with any prepared chapter, an unprepared one reads
+with the iPhone voice where it exists, live otherwise. Preparing never runs
+under a listening session (Play stops it), pauses at serious heat, and loops a
+silent clip so the background audio mode keeps it running with the screen
+locked. It stops when the book closes; tapping Prepare again resumes at the
+first missing group. `PREPARED_VERSION` invalidates every stored clip when
+segmentation, normalisation or grouping changes what a group says.
 
 ---
 

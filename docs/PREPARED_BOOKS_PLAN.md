@@ -1,8 +1,23 @@
 # Prepared books: plan
 
-Status: draft, nothing built yet. Written from the repo docs and code, not from
-profiling. Every number marked "estimate" is a guess to be replaced by a
-measurement.
+Status: first slice built (see "Built so far"). Numbers marked "estimate" are
+guesses to be replaced by a measurement.
+
+## Built so far
+
+The JavaScript slice, which runs in both builds and needs no new native code:
+
+- "Prepare this book" in the voice sheet renders every group into IndexedDB
+  (16-bit WAV, about 170 MB per hour of audio). Progress, a stop button,
+  resume from the first missing group, and "Delete prepared audio".
+- Playback of a prepared chapter plays stored clips and never loads the model.
+- Unprepared chapters of a prepared book use the iPhone voice where it exists.
+- Preparing pauses at serious heat, stops when listening starts or the book
+  closes, and keeps running with the screen locked through a silent audio loop.
+
+Still to do from the phases below: AAC encoding in the native plugin (smaller
+files), the overnight `BGProcessingTask`, a charging check before starting,
+and the side-by-side battery measurement.
 
 ## Requirements, in priority order
 

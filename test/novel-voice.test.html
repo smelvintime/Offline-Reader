@@ -53,6 +53,7 @@
   <button onclick="T.testNeuralPipeline().then(T.report)">neural pipeline</button>
   <button onclick="T.testNeuralDedupe().then(T.report)">neural dedupe</button>
   <button onclick="T.testThermalLifecycle().then(T.report)">thermal lifecycle</button>
+  <button onclick="T.testPreparedBook().then(T.report)">prepared book</button>
   <button onclick="T.testClose().then(T.report)">close cleans up</button>
   <button onclick="T.all().then(T.report)">RUN ALL</button>
 </div>
@@ -2612,13 +2613,100 @@ const T = {
     return { name: 'close cleans up', pass };
   },
 
+  // Prepared books (docs/PREPARED_BOOKS_PLAN.md): preparing renders every
+  // group once into storage, and playback afterwards never loads the model.
+  async testPreparedBook() {
+    let pass = true;
+    const ne = VT().neuralEngine;
+    const P = VT().preparer;
+    try {
+      await freshOpen();
+      await VT().deletePrepared();
+      pass = ok(VT().preparedSummary().ready === 0, 'starts unprepared') && pass;
+
+      // 1. Prepare the whole book through the stub engine.
+      P.start();
+      pass = ok(P.running, 'preparing started') && pass;
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      const sum = VT().preparedSummary();
+      pass = ok(sum.ready === CHAPTERS.length && sum.total === CHAPTERS.length,
+                'every chapter prepared', sum.ready + '/' + sum.total) && pass;
+      pass = ok(sum.bytes > 0, 'stored audio has a size', sum.bytes) && pass;
+      const rendered = neuralStub.spoken.length;
+      pass = ok(rendered > CHAPTERS.length, 'one render per group', rendered) && pass;
+      let groups = 0;
+      VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
+      pass = ok(rendered === groups, 'no group rendered twice', rendered + ' renders / ' + groups + ' groups') && pass;
+
+      // 2. Play: stored audio, no engine.
+      ne.dispose();
+      neuralStub.spoken = [];
+      let loads = 0;
+      const realEnsure = ne.ensureReady;
+      ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+      Store.prefs.set('voice.autoNext', true);
+      V().toggle();
+      await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 15000, 'played into chapter 2');
+      pass = ok(V().state().playing, 'still playing across the chapter seam') && pass;
+      pass = ok(loads === 0, 'the model was never loaded', loads + ' loads') && pass;
+      pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback', neuralStub.spoken.length) && pass;
+      ne.ensureReady = realEnsure;
+
+      // Skips step by stored group, or they would land back where they were.
+      VT().pause();
+      const st = VT().state;
+      const plan = VT().preparedPlan(st.sentences);
+      const multi = plan.find(g => g.to > g.from && plan.indexOf(g) + 1 < plan.length);
+      if (multi) {
+        st.index = multi.from;
+        VT().skip(1);
+        pass = ok(st.index === multi.to + 1, 'skip forward moves to the next stored group',
+                  'from ' + multi.from + ' to ' + st.index + ', next starts ' + (multi.to + 1)) && pass;
+        VT().skip(-1);
+        pass = ok(st.index === multi.from, 'skip back returns to the previous group', st.index) && pass;
+      } else {
+        pass = ok(false, 'fixture has a multi-sentence group to skip over') && pass;
+      }
+
+      // 3. Play stops a preparation; starting again renders nothing new.
+      VT().pause();
+      endSession();
+      await freshOpen();
+      await VT().loadPreparedIndex();
+      neuralStub.spoken = [];
+      P.start();
+      await waitFor(() => !P.running, 5000, 'second pass finished');
+      pass = ok(neuralStub.spoken.length === 0, 'a prepared book renders nothing again', neuralStub.spoken.length) && pass;
+
+      // 4. Keys follow what the clip says.
+      const g = { blockIdx: 1, start: 0, end: 10, text: 'The lantern guttered.' };
+      const k = VT().preparedClipKey('b', 'c', 'af_heart', g);
+      pass = ok(k !== VT().preparedClipKey('b', 'c', 'am_michael', g), 'voice is part of the key') && pass;
+      pass = ok(k !== VT().preparedClipKey('b', 'c', 'af_heart', Object.assign({}, g, { text: 'The lamp guttered.' })),
+                'text is part of the key') && pass;
+
+      // 5. Deleted audio: back to the live voice, not silence.
+      await VT().deletePrepared();
+      pass = ok(!VT().chapterPrepared(CHAPTERS[0].id), 'delete forgets the chapters') && pass;
+      neuralStub.spoken = [];
+      V().toggle();
+      await waitFor(() => neuralStub.spoken.length > 0, 5000, 'live generation after delete');
+      pass = ok(true, 'unprepared book still narrates live') && pass;
+    } finally {
+      if (P.running) P.stop(null);
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared book', pass };
+  },
+
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {
@@ -2644,6 +2732,7 @@ const headlessTest = headlessRun === 'thermal' ? T.testThermalLifecycle
   : headlessRun === 'dedupe' ? T.testNeuralDedupe
   : headlessRun === 'memory' ? T.testMemoryTier
   : headlessRun === 'playback' ? T.testPlayback
+  : headlessRun === 'prepared' ? T.testPreparedBook
   : headlessRun === 'all' ? T.all : null;
 if (headlessTest) {
   headlessTest().then(function (result) {

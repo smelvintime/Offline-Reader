@@ -1325,6 +1325,26 @@ WebView's file scheme. Older builds, the web, and a run whose encoder fails
 store WAV in IndexedDB instead; the failure is toasted once and kept in the
 voice diagnostics (`prepared.compressionError`).
 
+**Preparing on a computer** (`docs/MAC_PREPARE_PLAN.md`, `voice-server/`).
+"Prepare on my computer" hands the render step to `voice-server`, a small Node
+server on the reader's own computer that runs the same Kokoro model and voices
+through kokoro-js and answers `POST /render` with the WAV the phone would have
+made (same trim and encoder). Only `renderPart` changes: keys, storage, AAC,
+resume and playback are the phone path's, so a book can mix parts from both.
+The phone calls through `Platform.localHttp` (`CapacitorHttp` natively, since
+a fetch from `capacitor://localhost` to `http://` on the LAN is mixed content;
+plain `fetch` on a web page served over http), with a six-digit code the
+server prints in `x-voice-code`. The form shows only where that can work: the
+native app or an http page. One part is asked for ahead so the computer never
+waits on the round trip (at most two requests in flight, never across
+chapters). No charging question and no heat pauses, since the phone only
+stores files; the silent loop still runs so the app stays alive to receive
+them. A computer still loading its model is polled every 3 s; an unreachable
+one, a wrong code or a failed load stops with a sentence to act on, and never
+falls back to the phone. Diagnostics say `source: 'computer'` and the address,
+not the code. iOS needs `NSLocalNetworkUsageDescription` and
+`NSAllowsLocalNetworking`, which `npm run sync` applies.
+
 ---
 
 ## 3. `window.Store` — persistence API

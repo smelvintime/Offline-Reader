@@ -27,6 +27,12 @@ The JavaScript slice, which runs in both builds and needs no new native code:
 - Settings → **Prepared audio** lists every book with stored audio, its size
   and status, with Delete; removing a book from the library deletes its audio.
 
+- Prepare on my computer (`docs/MAC_PREPARE_PLAN.md`): `voice-server/` runs
+  the same model on the reader's Mac and the phone stores what it sends back.
+  Same keys, same storage and playback; one part asked for ahead; clear
+  messages for an unreachable computer or a wrong code, and no fall back to
+  the phone.
+
 Still to do from the phases below: the overnight `BGProcessingTask`, a native
 player, and the side-by-side battery measurement.
 

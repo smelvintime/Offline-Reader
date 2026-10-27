@@ -220,6 +220,21 @@ body #novel-screen:not([data-sheet-owner='voice']) > .vc-sheet {
 }
 
 #novel-screen .vc-nat-status .vc-action { margin-top: 0.6rem; }
+
+/* Prepare on my computer: address and code. */
+#novel-screen .vc-remote-action { margin-left: 0.5rem; }
+#novel-screen .vc-remote {
+  display: grid; grid-template-columns: 1fr 7rem; gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+#novel-screen .vc-remote[hidden] { display: none; }
+#novel-screen .vc-remote-field { display: grid; gap: 0.2rem; font-size: 0.72rem; color: var(--nv-muted); }
+#novel-screen .vc-remote-field input {
+  min-height: 40px; padding: 0.4rem 0.6rem;
+  background: var(--nv-surf); color: var(--nv-fg);
+  border: 1px solid var(--nv-border); border-radius: 8px;
+  font: inherit; font-size: 0.9rem;
+}
 #novel-screen .vc-nat-status .vc-hint { margin-top: 0; }
 
 #novel-screen .vc-progress {

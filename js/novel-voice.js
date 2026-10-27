@@ -436,6 +436,8 @@
     autoNext:     'voice.autoNext',
     highlight:    'voice.highlight',
     gpu:          'voice.gpu',
+    remoteUrl:    'voice.remoteUrl',
+    remoteCode:   'voice.remoteCode',
   };
 
   // 'natural' is Kokoro in a worker; 'iphone' is the OS through Platform.speech.
@@ -1288,8 +1290,11 @@
       return {
         storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'wav in IndexedDB' : 'not probed yet'),
         chapters: sum.ready + '/' + sum.total, bytes: sum.bytes, seconds: Math.round(sum.seconds),
-        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt : null,
+        running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt + '/' + preparer.groupTotal : null,
+        partsRendered: preparer.rendered,
+        msPerPart: preparer.rendered ? Math.round(preparer.renderMs / preparer.rendered) : null,
         hot: preparer.hot, message: preparer.message || null, compressionError: preparer.compressionError || null,
+        source: preparer.remote ? 'computer' : 'phone', remote: preparer.remote ? preparer.remote.base : null,
       };
     } catch (e) { return { error: String(e && e.message) }; }
   }
@@ -2878,6 +2883,74 @@
     }).catch(function () { /* priming is an optimisation */ });
   }
 
+  // ── Preparing on a computer ─────────────────────────────────────────────
+  //
+  // voice-server/ runs the same Kokoro model on the reader's own computer and
+  // answers with the WAV the phone would have made, so only the render step
+  // moves; storing, playback and resume are unchanged.
+  const REMOTE_PORT = 8787;
+  const REMOTE_STATUS_TIMEOUT_MS = 8000;
+  const REMOTE_RENDER_TIMEOUT_MS = 120000;
+  const REMOTE_POLL_MS = 3000;
+
+  /** "192.168.1.20" → "http://192.168.1.20:8787". '' when there is nothing typed. */
+  function remoteBase(input) {
+    let s = String(input || '').trim();
+    if (!s) return '';
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'http://' + s;
+    s = s.replace(/\/+$/, '');
+    const m = /^([a-z][a-z0-9+.-]*:\/\/)([^/]*)(.*)$/i.exec(s);
+    if (m && !/:\d+$/.test(m[2])) s = m[1] + m[2] + ':' + REMOTE_PORT + m[3];
+    return s;
+  }
+
+  /** The computer as typed in the sheet: { base, code }, base '' if unset. */
+  function remoteFromPrefs() {
+    return { base: remoteBase(prefGet(PREF.remoteUrl, '')), code: String(prefGet(PREF.remoteCode, '') || '').trim() };
+  }
+
+  // Thrown errors carry the sentence the sheet shows as is.
+  function remoteFailure(message) { return Object.assign(new Error(message), { remote: true }); }
+
+  function remoteErrorText(data) {
+    if (data instanceof ArrayBuffer) {
+      try { data = JSON.parse(new TextDecoder().decode(data)); } catch (e) { return ''; }
+    }
+    return data && typeof data.error === 'string' ? data.error : '';
+  }
+
+  async function remoteCall(remote, path, opts) {
+    const P = window.Platform;
+    let res = null;
+    try {
+      if (P && typeof P.localHttp === 'function') {
+        res = await P.localHttp(remote.base + path, Object.assign({}, opts, { headers: { 'x-voice-code': remote.code } }));
+      }
+    } catch (e) { res = null; }
+    if (res && res.status === 200) return res;
+    if (!res) {
+      throw remoteFailure('Could not reach your computer at ' + remote.base
+        + '. Check that voice-server is running and both are on the same Wi-Fi.');
+    }
+    if (res.status === 401) throw remoteFailure('The code does not match. Use the one voice-server printed.');
+    const why = remoteErrorText(res.data);
+    if (res.status === 503) throw remoteFailure(why || 'Your computer is not ready yet.');
+    throw remoteFailure('Your computer answered ' + res.status + (why ? ': ' + why : '.'));
+  }
+
+  function remoteStatus(remote) {
+    return remoteCall(remote, '/status', { timeoutMs: REMOTE_STATUS_TIMEOUT_MS })
+      .then(function (r) { return r.data || {}; });
+  }
+
+  /** → { blob: WAV, seconds }, the same thing a local render gives. */
+  async function remoteRender(remote, text, voice) {
+    const r = await remoteCall(remote, '/render', {
+      method: 'POST', json: { text: text, voice: voice }, binary: true, timeoutMs: REMOTE_RENDER_TIMEOUT_MS,
+    });
+    return { blob: new Blob([r.data], { type: 'audio/wav' }), seconds: Number(r.headers['x-seconds']) || 0 };
+  }
+
   /**
    * Renders a book's clips, chapter by chapter, from the reader's chapter on.
    *
@@ -2898,18 +2971,33 @@
     groupTotal: 0,
     hot: false,
     asking: false,
+    rendered: 0,
+    renderMs: 0,
     compressionError: '',
     message: '',
     wakeLock: null,
     runId: 0,
+    remote: null,        // { base, code } while rendering on a computer; null = on the phone
+    remoteLoading: false,
 
     /**
      * From the Prepare tap. Off the charger it asks first: preparing works the
      * phone hard, and that is the reader's call, not a reason to refuse.
+     * With { remote } the computer renders, the phone barely works, and
+     * there is nothing to ask.
      * → Promise<boolean> started.
      */
-    request: function () {
+    request: function (opts) {
       if (this.running || this.asking || !state.bridge || !preparedBook()) return Promise.resolve(false);
+      const remote = opts && opts.remote;
+      if (remote) {
+        if (!remote.base) { this.message = 'Type your computer’s address first.'; syncSheet(); return Promise.resolve(false); }
+        if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
+        // Inside the tap: the silent loop keeps the app alive to receive files.
+        channel.bless(silentWavUrl());
+        this.start({ remote: remote });
+        return Promise.resolve(this.running);
+      }
       const cap = neuralCapability();
       if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return Promise.resolve(false); }
       if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
@@ -2939,17 +3027,20 @@
         }, function () { self.asking = false; return false; });
     },
 
-    start: function () {
+    start: function (opts) {
       if (this.running || !state.bridge) return;
       const book = preparedBook();
       if (!book) return;
-      const cap = neuralCapability();
+      const remote = (opts && opts.remote) || null;
+      const cap = remote ? { ok: true } : neuralCapability();
       if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return; }
       if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return; }
       if (state.playing) pause();
       this.running = true;
       this.stopping = false;
       this.book = book;
+      this.remote = remote;
+      this.remoteLoading = false;
       this.message = '';
       this.hot = false;
       const id = ++this.runId;
@@ -2957,11 +3048,11 @@
       // A website's storage can be cleared after a week unused unless the
       // browser is asked to keep it. The answer does not change what we do.
       try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
-      voiceEvent('prepare-start', { book: book });
+      voiceEvent('prepare-start', { book: book, remote: remote ? remote.base : null });
       const self = this;
       this.run(id).catch(function (e) {
         if (id !== self.runId) return;
-        if (!self.stopping) self.message = 'Preparing stopped: ' + shortErr(e);
+        if (!self.stopping) self.message = e && e.remote ? e.message : 'Preparing stopped: ' + shortErr(e);
       }).then(function () {
         if (id !== self.runId) return;
         self.finish();
@@ -2982,6 +3073,7 @@
     finish: function () {
       this.running = false;
       this.hot = false;
+      this.remoteLoading = false;
       this.keepAwake(false);
       neuralEngine.release();
       voiceEvent('prepare-end', { chapters: this.doneChapters, total: this.total });
@@ -3020,6 +3112,38 @@
         .then(function () { return self.alive(id) ? self.waitCool(id) : null; });
     },
 
+    // The computer answers before its model is loaded; wait for it, saying so.
+    waitRemote: async function (id) {
+      for (;;) {
+        const s = await remoteStatus(this.remote);
+        if (!this.alive(id)) return;
+        if (s.ready) { this.remoteLoading = false; syncSheet(); return; }
+        if (s.error) throw remoteFailure('Your computer could not load the voice: ' + s.error);
+        if (!this.remoteLoading) { this.remoteLoading = true; syncSheet(); }
+        await new Promise(function (r) { setTimeout(r, REMOTE_POLL_MS); });
+        if (!this.alive(id)) return;
+      }
+    },
+
+    /** One part's audio → { blob: WAV, seconds }, from the computer or this phone. */
+    renderPart: async function (key, text, voice) {
+      if (this.remote) return remoteRender(this.remote, text, voice);
+      // ensureReady again: the engine may have idled out between chapters.
+      await neuralEngine.ensureReady();
+      const live = 'prepare:' + key;
+      const url = await neuralEngine.generate(live, text, voice);
+      try {
+        const blob = await fetch(url).then(function (r) { return r.blob(); });
+        return { blob: blob, seconds: neuralEngine.clipSeconds.get(live) || 0 };
+      } finally {
+        // Out of the live cache at once: a whole book must not pile up in memory.
+        neuralEngine.wavCache.delete(live);
+        neuralEngine.clipSeconds.delete(live);
+        neuralEngine.clipBytes.delete(live);
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      }
+    },
+
     run: async function (id) {
       const b = state.bridge;
       const book = this.book;
@@ -3037,10 +3161,19 @@
       const order = chapters.slice(here).concat(chapters.slice(0, here));
       this.total = chapters.length;
       this.doneChapters = chapters.filter(function (c) { return idx && idx.chapters.has(c.id); }).length;
+      // Measured, for the time-left estimate: parts rendered this run and the
+      // compute they took. Stored parts skipped on a resume are not counted.
+      this.rendered = 0;
+      this.renderMs = 0;
       syncSheet();
       if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
 
-      await neuralEngine.ensureReady();
+      if (this.remote) {
+        await this.waitRemote(id);
+        if (!this.alive(id)) return;
+      } else {
+        await neuralEngine.ensureReady();
+      }
       // AAC files through the native plugin where it can, WAV in IndexedDB
       // where it cannot. Either plays the same way.
       let clips = await nativeClips();
@@ -3057,20 +3190,36 @@
         this.chapterAt = chapters.indexOf(ch) + 1;
         this.groupTotal = plan.length;
         let seconds = 0, bytes = 0;
+        // On a computer, the next part is asked for while this one renders,
+        // so the computer never idles on the round trip. Never two ahead,
+        // never across chapters.
+        let ahead = null;   // { gi, promise → part | null when already stored }
         for (let gi = 0; gi < plan.length; gi++) {
           this.groupAt = gi;
           syncSheetSoon();
-          await this.waitCool(id);
+          if (!this.remote) await this.waitCool(id);
           if (!this.alive(id)) return;
           const key = preparedClipKey(book, ch.id, voice, plan[gi]);
           let rec = await preparedStore.getClip(key);
           if (!rec) {
-            // ensureReady again: the engine may have idled out between chapters.
-            await neuralEngine.ensureReady();
-            const live = 'prepare:' + key;
-            const url = await neuralEngine.generate(live, preparedText(plan[gi]), voice);
-            const blob = await fetch(url).then(function (r) { return r.blob(); });
-            const secs = neuralEngine.clipSeconds.get(live) || 0;
+            const partStarted = Date.now();
+            const mine = ahead && ahead.gi === gi ? ahead.promise : null;
+            ahead = null;
+            const current = mine
+              ? mine.then((p) => p || this.renderPart(key, preparedText(plan[gi]), voice))
+              : this.renderPart(key, preparedText(plan[gi]), voice);
+            if (this.remote && gi + 1 < plan.length) {
+              const nextKey = preparedClipKey(book, ch.id, voice, plan[gi + 1]);
+              const next = plan[gi + 1];
+              ahead = { gi: gi + 1, promise: preparedStore.getClip(nextKey).then((r) => r ? null
+                : this.renderPart(nextKey, preparedText(next), voice)) };
+              // The real await surfaces a failure; this only keeps it from
+              // being reported as unhandled when the run stops first.
+              ahead.promise.catch(function () {});
+            }
+            const part = await current;
+            const blob = part.blob;
+            const secs = part.seconds;
             let saved = null;
             if (clips) {
               try {
@@ -3089,13 +3238,11 @@
             } else {
               rec = { book: book, blob: blob, seconds: secs, bytes: blob.size };
             }
-            // Out of the live cache at once: a whole book must not pile up in memory.
-            neuralEngine.wavCache.delete(live);
-            neuralEngine.clipSeconds.delete(live);
-            neuralEngine.clipBytes.delete(live);
-            try { URL.revokeObjectURL(url); } catch (e) {}
             if (!this.alive(id)) return;
             await preparedStore.putClip(key, rec);
+            this.rendered++;
+            this.renderMs += Date.now() - partStarted;
+            syncSheetSoon();
           }
           seconds += rec.seconds || 0;
           bytes += rec.bytes || 0;
@@ -3112,6 +3259,46 @@
       toast('Book prepared. Listening now plays stored audio.');
     },
   };
+
+  // How much of the book is done, counting the parts of the chapter in hand.
+  function preparerFraction() {
+    const p = preparer;
+    if (!p.total) return 0;
+    return (p.doneChapters + (p.groupTotal ? p.groupAt / p.groupTotal : 0)) / p.total;
+  }
+
+  function formatDuration(ms) {
+    const min = Math.round(ms / 60000);
+    if (min < 1) return 'under a minute';
+    if (min < 60) return min + ' min';
+    const h = Math.floor(min / 60), m = min % 60;
+    return h + ' h' + (m ? ' ' + m + ' min' : '');
+  }
+
+  /**
+   * The progress line while preparing. A chapter is a hundred or more parts
+   * and each takes seconds, so the line counts parts and percent: a chapter
+   * count alone sat still for minutes and read as stuck. The time left is a
+   * guess from the parts rendered so far, assuming later chapters are about
+   * as long as this one, and only shown once a few parts have been timed.
+   */
+  function preparerLine() {
+    const p = preparer;
+    const where = p.remote ? 'On your computer: ' : '';
+    if (p.remoteLoading) return where + 'Your computer is loading the voice (the first time downloads about 330 MB)… ';
+    if (!p.total || !p.chapterAt) return where + 'Getting the voice ready. ';
+    let s = where + 'Preparing chapter ' + p.chapterAt + ' of ' + p.total;
+    if (p.groupTotal) s += ', part ' + Math.min(p.groupAt + 1, p.groupTotal) + ' of ' + p.groupTotal;
+    const pct = preparerFraction() * 100;
+    s += ' (' + (pct < 10 ? pct.toFixed(1) : Math.floor(pct)) + '% of the book';
+    if (p.rendered >= 3 && p.groupTotal) {
+      const perPart = p.renderMs / p.rendered;
+      const chaptersAfter = Math.max(0, p.total - p.doneChapters - 1);
+      const partsLeft = (p.groupTotal - p.groupAt) + p.groupTotal * chaptersAfter;
+      s += ', about ' + formatDuration(perPart * partsLeft) + ' left';
+    }
+    return s + '). ';
+  }
 
   function preparedSummary() {
     const idx = preparedIndexCurrent();
@@ -3825,8 +4012,37 @@
     const prepDelete = el('button', 'vc-action vc-action-quiet vc-prepared-delete');
     prepDelete.type = 'button';
     prepDelete.textContent = 'Delete prepared audio';
-    prepRow.append(prepText, prepBar, prepAction, prepDelete);
+    // Preparing on a computer (voice-server/). Only where the page may call
+    // plain http on the home network: the app, or a page served over http.
+    // The https web build would be blocked as mixed content.
+    const remoteCan = isNativeApp() || location.protocol === 'http:';
+    const remoteAction = el('button', 'vc-action vc-action-quiet vc-remote-action', 'Prepare on my computer');
+    remoteAction.type = 'button';
+    const remoteForm = el('div', 'vc-remote');
+    function remoteField(label, pref, attrs) {
+      const wrap = el('label', 'vc-remote-field');
+      wrap.appendChild(el('span', null, label));
+      const input = el('input');
+      Object.keys(attrs).forEach(function (k) { input.setAttribute(k, attrs[k]); });
+      input.value = String(prefGet(pref, '') || '');
+      input.addEventListener('change', function () { prefSet(pref, input.value.trim()); });
+      wrap.appendChild(input);
+      remoteForm.appendChild(wrap);
+      return input;
+    }
+    const remoteUrlInput = remoteField('Computer address', PREF.remoteUrl,
+      { type: 'text', inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', placeholder: '192.168.1.20' });
+    const remoteCodeInput = remoteField('Code', PREF.remoteCode,
+      { type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '6', placeholder: '123456' });
+    prepRow.append(prepText, prepBar, prepAction, remoteAction, remoteForm, prepDelete);
     body.appendChild(prepRow);
+
+    remoteAction.addEventListener('click', function () {
+      // Typed values count even if the field never lost focus.
+      prefSet(PREF.remoteUrl, remoteUrlInput.value.trim());
+      prefSet(PREF.remoteCode, remoteCodeInput.value.trim());
+      preparer.request({ remote: remoteFromPrefs() });
+    });
 
     prepAction.addEventListener('click', function () {
       if (preparer.running) preparer.stop('Preparing paused. Finished chapters are kept.');
@@ -3845,19 +4061,14 @@
       prepAction.textContent = preparer.running ? 'Stop preparing'
         : sum.ready ? (all ? 'Check for new chapters' : 'Prepare the rest of the book') : 'Prepare this book';
       prepDelete.hidden = preparer.running || !sum.ready;
+      remoteAction.hidden = remoteForm.hidden = !remoteCan || preparer.running;
       let line;
       if (preparer.running) {
         line = preparer.hot
           ? 'Paused while the phone cools down. It carries on by itself.'
-          : (preparer.total
-            ? 'Preparing chapter ' + preparer.chapterAt + ' (' + preparer.doneChapters + ' of ' + preparer.total + ' ready). '
-            : 'Getting the voice ready. ')
-            + 'Keep the app open. You can lock the screen.';
-        const frac = preparer.total
-          ? (preparer.doneChapters + (preparer.groupTotal ? preparer.groupAt / preparer.groupTotal : 0)) / preparer.total
-          : 0;
+          : preparerLine() + 'Keep the app open. You can lock the screen.';
         prepBar.hidden = false;
-        prepBar.firstChild.style.width = Math.round(Math.min(1, frac) * 100) + '%';
+        prepBar.firstChild.style.width = (Math.min(1, preparerFraction()) * 100).toFixed(1) + '%';
       } else {
         prepBar.hidden = true;
         if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
@@ -4568,6 +4779,8 @@
       chapterPrepared: chapterPrepared,
       deletePrepared: deletePrepared,
       preparedSummary: preparedSummary,
+      preparerLine: preparerLine,
+      remoteBase: remoteBase,
       setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
       preparedOnly: function () { return preparedOnly; },
     },

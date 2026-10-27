@@ -329,6 +329,58 @@
   }
 
   /**
+   * One HTTP request to a machine on the local network (voice-server/, for
+   * preparing books on a computer). → Promise<{ status, headers, data }>,
+   * `data` an ArrayBuffer when `binary`, else parsed JSON (or null).
+   *
+   * Native goes through Capacitor's own HTTP plugin rather than fetch: the
+   * page is served from capacitor://localhost, which WebKit treats as secure,
+   * so a fetch to http://192.168.x.x can be refused as mixed content. The
+   * native request is subject only to App Transport Security, which
+   * apply-native-config.mjs opens for local addresses. Header names come back
+   * lower-cased either way.
+   */
+  async function localHttp(url, opts) {
+    const o = opts || {};
+    const timeout = o.timeoutMs || 120000;
+    const H = plugin('CapacitorHttp');
+    if (H && H.request) {
+      const r = await H.request({
+        url: url, method: o.method || 'GET', headers: o.headers || {},
+        data: o.json, responseType: o.binary ? 'arraybuffer' : 'json',
+        connectTimeout: 8000, readTimeout: timeout,
+      });
+      const headers = {};
+      Object.keys(r.headers || {}).forEach(function (k) { headers[k.toLowerCase()] = r.headers[k]; });
+      let data = r.data;
+      if (o.binary && typeof data === 'string') {
+        const bin = atob(data);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        data = bytes.buffer;
+      }
+      if (!o.binary && typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { data = null; } }
+      return { status: r.status, headers: headers, data: data };
+    }
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(function () { ctl.abort(); }, timeout) : 0;
+    try {
+      const res = await fetch(url, {
+        method: o.method || 'GET',
+        headers: Object.assign(o.json !== undefined ? { 'content-type': 'application/json' } : {}, o.headers || {}),
+        body: o.json !== undefined ? JSON.stringify(o.json) : undefined,
+        signal: ctl ? ctl.signal : undefined,
+      });
+      const headers = {};
+      res.headers.forEach(function (v, k) { headers[k.toLowerCase()] = v; });
+      const data = o.binary && res.ok ? await res.arrayBuffer() : await res.json().catch(function () { return null; });
+      return { status: res.status, headers: headers, data: data };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Is the device on a charger? → Promise<true | false | null>, null when it
    * cannot tell (Safari has no battery API). Callers treat null as "ask".
    */
@@ -1287,6 +1339,7 @@
     },
     confirm: confirm,
     charging: charging,
+    localHttp: localHttp,
     haptic: haptic,
     memoryClass: memoryClass,
     tuning: tuning,

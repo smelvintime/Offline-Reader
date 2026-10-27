@@ -1,0 +1,78 @@
+name: Voice server, real model
+
+# ci.yml tests voice-server against a fake engine. This meets the real one:
+# kokoro-js, the Kokoro weights from Hugging Face and ONNX Runtime in Node,
+# which is what runs on the owner's Mac. q8 keeps the download small; the
+# code path is the same as fp32.
+
+on:
+  pull_request:
+    paths: ['voice-server/**', '.github/workflows/voice-server.yml']
+  push:
+    branches: [main]
+    paths: ['voice-server/**', '.github/workflows/voice-server.yml']
+
+jobs:
+  real-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: voice-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # transformers.js keeps downloaded weights inside its own package
+      # folder, so this comes after npm ci, which would empty it.
+      - name: Model cache
+        uses: actions/cache@v4
+        with:
+          path: voice-server/node_modules/@huggingface/transformers/.cache
+          key: kokoro-q8-${{ hashFiles('voice-server/package-lock.json') }}
+
+      - name: Start the server
+        run: |
+          nohup node server.mjs --port 8787 --code 123456 --dtype q8 > server.log 2>&1 &
+
+      - name: Wait for the voice
+        run: |
+          for i in $(seq 1 120); do
+            s=$(curl -s -H 'x-voice-code: 123456' http://127.0.0.1:8787/status || true)
+            echo "$s"
+            echo "$s" | grep -q '"ready":true' && exit 0
+            echo "$s" | grep -q '"error":"' && { cat server.log; exit 1; }
+            sleep 5
+          done
+          cat server.log
+          exit 1
+
+      - name: Render one sentence
+        run: |
+          curl -s -f -D headers.txt -o out.wav \
+            -H 'x-voice-code: 123456' -H 'content-type: application/json' \
+            -d '{"text":"The lantern guttered as the wind came through the broken shutter.","voice":"af_heart"}' \
+            http://127.0.0.1:8787/render
+          cat headers.txt
+          node -e "
+            const b = require('fs').readFileSync('out.wav');
+            const ok = (c, m) => { if (!c) { console.error('FAIL ' + m); process.exit(1); } console.log('ok ' + m); };
+            ok(b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WAVE', 'a WAV');
+            ok(b.readUInt16LE(22) === 1 && b.readUInt32LE(24) === 24000 && b.readUInt16LE(34) === 16, 'mono 24 kHz 16-bit');
+            const secs = (b.length - 44) / 2 / 24000;
+            ok(secs >= 0.5 && secs <= 10, 'between 0.5 and 10 seconds: ' + secs.toFixed(2));
+          "
+
+      - name: Wrong code is refused
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-voice-code: 000000' http://127.0.0.1:8787/status)" = 401
+
+      - name: Server log
+        if: always()
+        run: cat server.log || true

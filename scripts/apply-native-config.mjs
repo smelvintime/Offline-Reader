@@ -247,6 +247,53 @@ function applyIos() {
     }
   }
 
+  // ── Preparing on a computer (docs/PREPARED_BOOKS_PLAN.md) ─────────────────
+  // voice-server/ answers on plain http at a LAN address. iOS refuses that
+  // without NSAllowsLocalNetworking, and since iOS 14 it asks before an app
+  // talks to the local network, which needs the sentence below. Without
+  // either, "Prepare on my Mac" just fails to connect, with no hint why.
+  keys = rootDictKeys(text);
+  if (!keys) fail(IOS_PLIST + ' stopped parsing after an earlier edit. Not continuing.');
+  if (!keys.get('NSLocalNetworkUsageDescription')) {
+    text = insertIntoRootDict(text, [
+      ind + '<key>NSLocalNetworkUsageDescription</key>',
+      ind + '<string>Offline Reader connects to your computer on this network to prepare audiobooks there.</string>',
+    ].join('\n'));
+    changes.push('iOS: added NSLocalNetworkUsageDescription (preparing on a computer)');
+  } else if (verbose) notes.push('iOS: NSLocalNetworkUsageDescription already set');
+
+  keys = rootDictKeys(text);
+  if (!keys) fail(IOS_PLIST + ' stopped parsing after an earlier edit. Not continuing.');
+  const ats = keys.get('NSAppTransportSecurity');
+  if (!ats) {
+    text = insertIntoRootDict(text, [
+      ind + '<key>NSAppTransportSecurity</key>',
+      ind + '<dict>',
+      ind + '\t<key>NSAllowsLocalNetworking</key>',
+      ind + '\t<true/>',
+      ind + '</dict>',
+    ].join('\n'));
+    changes.push('iOS: allowed local-network http (NSAllowsLocalNetworking)');
+  } else {
+    const value = text.slice(ats.valueStart, ats.valueEnd);
+    if (!value.startsWith('<dict')) {
+      fail('NSAppTransportSecurity exists but is not a dict. Add NSAllowsLocalNetworking by hand.');
+    }
+    if (/<key>\s*NSAllowsLocalNetworking\s*<\/key>/.test(value)) {
+      if (verbose) notes.push('iOS: NSAllowsLocalNetworking already set');
+    } else if (/^<dict\s*\/>/.test(value)) {
+      text = text.slice(0, ats.valueStart) + [
+        '<dict>', ind + '\t<key>NSAllowsLocalNetworking</key>', ind + '\t<true/>', ind + '</dict>',
+      ].join('\n') + text.slice(ats.valueEnd);
+      changes.push('iOS: added NSAllowsLocalNetworking to the empty NSAppTransportSecurity');
+    } else {
+      // Someone else's ATS settings: add ours beside them, change none.
+      const at = ats.valueStart + '<dict>'.length;
+      text = text.slice(0, at) + '\n' + ind + '\t<key>NSAllowsLocalNetworking</key>\n' + ind + '\t<true/>' + text.slice(at);
+      changes.push('iOS: added NSAllowsLocalNetworking to the existing NSAppTransportSecurity');
+    }
+  }
+
   writeIfChanged(IOS_PLIST, text);
 }
 

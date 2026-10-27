@@ -70,7 +70,8 @@ jobs:
           "
 
       - name: Wrong code is refused
-        run: test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-voice-code: 000000' http://127.0.0.1:8787/status)" = 401
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-voice-code: 000000' http://127.0.0.1:8787/status)" = 401
 
       - name: Server log
         if: always()

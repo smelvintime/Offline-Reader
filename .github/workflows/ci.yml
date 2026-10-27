@@ -43,6 +43,12 @@ jobs:
         working-directory: worker
         run: npm test
 
+      # The voice server's tests use a fake engine and never import kokoro-js,
+      # so, like the worker, they run with no install.
+      - name: Voice server tests
+        working-directory: voice-server
+        run: npm test
+
       # The scraper does need its one: the boilerplate tests import
       # sources/gutenberg.js, which reaches lib/http.js and axios.
       - name: Install scraper dependencies

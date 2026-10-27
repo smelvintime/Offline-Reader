@@ -282,6 +282,35 @@ window.__done = (async function main() {
   try { await P.kokoro.release(); } catch (e) { kokoroThrew = true; }
   assert(!kokoroThrew, 'kokoro.release() resolves without throwing on web');
 
+  // ── localHttp falls back to fetch on the web (MAC_PREPARE_PLAN.md) ───────
+  const origFetch = window.fetch;
+  const sent = [];
+  try {
+    window.fetch = function (url, init) {
+      sent.push({ url: url, init: init });
+      return Promise.resolve(new Response(new Uint8Array([82, 73, 70, 70]),
+        { status: 200, headers: { 'X-Seconds': '1.5', 'content-type': 'audio/wav' } }));
+    };
+    const r = await P.localHttp('http://192.168.1.20:8787/render',
+      { method: 'POST', headers: { 'x-voice-code': '123456' }, json: { text: 'Hi.', voice: 'af_heart' }, binary: true });
+    assertEq(r.status, 200, 'localHttp resolves the status');
+    assertEq(r.headers['x-seconds'], '1.5', 'localHttp lower-cases response headers');
+    assert(r.data instanceof ArrayBuffer && r.data.byteLength === 4, 'binary data is an ArrayBuffer');
+    assertEq(sent[0].init.method, 'POST', 'localHttp sends the method');
+    assertEq(sent[0].init.body, '{"text":"Hi.","voice":"af_heart"}', 'json becomes the body');
+    assertEq(sent[0].init.headers['x-voice-code'], '123456', 'custom headers are sent');
+    assertEq(sent[0].init.headers['content-type'], 'application/json', 'json sets the content type');
+
+    window.fetch = function () {
+      return Promise.resolve(new Response('{"error":"wrong code"}', { status: 401 }));
+    };
+    const denied = await P.localHttp('http://192.168.1.20:8787/render', { method: 'POST', json: {}, binary: true });
+    assert(denied.status === 401 && denied.data && denied.data.error === 'wrong code',
+      'an error answer keeps its JSON even when binary was asked for', JSON.stringify(denied.data));
+  } finally {
+    window.fetch = origFetch;
+  }
+
   // ── Behavioral guarantees ─────────────────────────────────────────────────
   // The bridge never registers a service worker; on this harness page nothing
   // else does either, so any registration would be the bridge's doing.

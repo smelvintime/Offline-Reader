@@ -1,0 +1,18 @@
+{
+  "name": "offline-reader-voice-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Renders prepared-book audio for Offline Reader on a computer on the same network.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "kokoro-js": "1.2.1"
+  }
+}

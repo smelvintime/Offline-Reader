@@ -1295,6 +1295,12 @@
         msPerPart: preparer.rendered ? Math.round(preparer.renderMs / preparer.rendered) : null,
         hot: preparer.hot, message: preparer.message || null, compressionError: preparer.compressionError || null,
         source: preparer.remote ? 'computer' : 'phone', remote: preparer.remote ? preparer.remote.base : null,
+        remoteParts: preparer.remote ? preparer.remoteDone + '/' + preparer.remoteTotal : null,
+        remoteMsPerPart: preparer.remote ? preparer.remoteMsPerPart || null : null,
+        remoteCollected: preparer.remote ? preparer.remoteNext : null,
+        remoteStage: !preparer.remote || !preparer.running ? null
+          : preparer.sending ? 'sending' : preparer.collecting ? 'collecting'
+          : preparer.remoteLoading ? 'waiting for the voice' : 'rendering',
       };
     } catch (e) { return { error: String(e && e.message) }; }
   }
@@ -2850,9 +2856,11 @@
   // moves; storing, playback and resume are unchanged.
   const REMOTE_PORT = 8787;
   const REMOTE_STATUS_TIMEOUT_MS = 8000;
-  const REMOTE_RENDER_TIMEOUT_MS = 120000;
   const REMOTE_POLL_MS = 3000;
   const REMOTE_MAX_COMPUTERS = 8;
+  const REMOTE_JOB_TIMEOUT_MS = 60000;      // a whole book's text in one body
+  const REMOTE_BUNDLE_TIMEOUT_MS = 300000;  // one pass of audio over Wi-Fi
+  const REMOTE_COLLECT_PARTS = 200;         // parts per pass, roughly 15 MB
 
   /** "192.168.1.20" → "http://192.168.1.20:8787". '' when there is nothing typed. */
   function remoteBase(input) {
@@ -2882,13 +2890,14 @@
 
   async function remoteCall(remote, path, opts) {
     const P = window.Platform;
+    const o = opts || {};
     let res = null;
     try {
       if (P && typeof P.localHttp === 'function') {
-        res = await P.localHttp(remote.base + path, Object.assign({}, opts, { headers: { 'x-voice-code': remote.code } }));
+        res = await P.localHttp(remote.base + path, Object.assign({}, o, { headers: { 'x-voice-code': remote.code } }));
       }
     } catch (e) { res = null; }
-    if (res && res.status === 200) return res;
+    if (res && (res.status === 200 || (o.alsoOk && res.status === o.alsoOk))) return res;
     if (!res) {
       throw remoteFailure('Could not reach your computer at ' + remote.base
         + '. Check that voice-server is running and both are on the same Wi-Fi.');
@@ -2904,12 +2913,42 @@
       .then(function (r) { return r.data || {}; });
   }
 
-  /** → { blob: WAV, seconds }, the same thing a local render gives. */
-  async function remoteRender(remote, text, voice) {
-    const r = await remoteCall(remote, '/render', {
-      method: 'POST', json: { text: text, voice: voice }, binary: true, timeoutMs: REMOTE_RENDER_TIMEOUT_MS,
+  /**
+   * Hand the whole book over at once. The computer answers before it has
+   * rendered any of it, so this returns in a moment and the phone is free:
+   * no part-by-part round trip, nothing to keep awake, and closing the app
+   * does not stop the book. → the job's state.
+   */
+  async function remoteJob(remote, job) {
+    const r = await remoteCall(remote, '/job', {
+      method: 'POST', json: job, alsoOk: 202, timeoutMs: REMOTE_JOB_TIMEOUT_MS,
     });
-    return { blob: new Blob([r.data], { type: 'audio/wav' }), seconds: Number(r.headers['x-seconds']) || 0 };
+    return r.data || {};
+  }
+
+  /** How far the computer has got: { done, total, ready, running, msPerPart, … }. */
+  async function remoteJobState(remote, book) {
+    const r = await remoteCall(remote, '/job?book=' + encodeURIComponent(book), { timeoutMs: REMOTE_STATUS_TIMEOUT_MS });
+    return r.data || {};
+  }
+
+  /** Which key the computer holds under which number, with no audio. */
+  async function remoteManifest(remote, book) {
+    const r = await remoteCall(remote, '/manifest?book=' + encodeURIComponent(book), { timeoutMs: REMOTE_STATUS_TIMEOUT_MS });
+    return r.data || {};
+  }
+
+  /**
+   * One pass of finished audio as a zip, everything after `from`, at most
+   * `limit` parts so a long book never has to fit in memory in one piece.
+   * → ArrayBuffer, or null when there is nothing new.
+   */
+  async function remoteBundle(remote, book, from, limit) {
+    const r = await remoteCall(remote, '/bundle?book=' + encodeURIComponent(book)
+      + '&from=' + (from || 0) + '&limit=' + limit, {
+      binary: true, alsoOk: 404, timeoutMs: REMOTE_BUNDLE_TIMEOUT_MS,
+    });
+    return r.status === 404 ? null : r.data;
   }
 
   /**
@@ -2941,6 +2980,12 @@
     remote: null,        // { base, code } while rendering on a computer; null = on the phone
     remoteLoading: false,
     remoteComputers: 1,  // how many share the work, from voice-server's /status
+    remoteDone: 0,       // parts the computer has rendered, from its /job
+    remoteTotal: 0,
+    remoteMsPerPart: 0,  // measured there, not here, so the estimate is the computer's
+    remoteNext: 0,       // the last part number collected, for the next pass
+    sending: false,
+    collecting: false,
 
     /**
      * From the Prepare tap. Off the charger it asks first: preparing works the
@@ -2955,8 +3000,8 @@
       if (remote) {
         if (!remote.base) { this.message = 'Type your computer’s address first.'; syncSheet(); return Promise.resolve(false); }
         if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
-        // Inside the tap: the silent loop keeps the app alive to receive files.
-        channel.bless(silentWavUrl());
+        // Nothing to bless and nothing to keep awake: the computer holds the
+        // book and the queue, so this app only sends, asks and collects.
         this.start({ remote: remote });
         return Promise.resolve(this.running);
       }
@@ -3004,10 +3049,17 @@
       this.remote = remote;
       this.remoteLoading = false;
       this.remoteComputers = 1;
+      this.remoteDone = 0;
+      this.remoteTotal = 0;
+      this.remoteMsPerPart = 0;
+      this.remoteNext = 0;
+      this.sending = false;
+      this.collecting = false;
       this.message = '';
       this.hot = false;
       const id = ++this.runId;
-      this.keepAwake(true);
+      // Only the phone's own rendering needs the screen and the silent loop.
+      if (!remote) this.keepAwake(true);
       // A website's storage can be cleared after a week unused unless the
       // browser is asked to keep it. The answer does not change what we do.
       try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
@@ -3027,6 +3079,12 @@
       if (!this.running) return;
       this.stopping = true;
       this.message = message || '';
+      // Stop means stop, including on the computer. What it has already
+      // rendered it keeps, so tapping Prepare again carries on from there.
+      if (this.remote) {
+        remoteCall(this.remote, '/job/stop?book=' + encodeURIComponent(this.book), { method: 'POST' })
+          .catch(function () {});
+      }
       neuralEngine.cancelPending();
       this.runId++;          // the loop notices at its next await
       this.finish();
@@ -3037,6 +3095,8 @@
       this.running = false;
       this.hot = false;
       this.remoteLoading = false;
+      this.sending = false;
+      this.collecting = false;
       this.keepAwake(false);
       neuralEngine.release();
       voiceEvent('prepare-end', { chapters: this.doneChapters, total: this.total });
@@ -3093,9 +3153,8 @@
       }
     },
 
-    /** One part's audio → { blob: WAV, seconds }, from the computer or this phone. */
+    /** One part's audio on this phone → { blob: WAV, seconds }. */
     renderPart: async function (key, text, voice) {
-      if (this.remote) return remoteRender(this.remote, text, voice);
       // ensureReady again: the engine may have idled out between chapters.
       await neuralEngine.ensureReady();
       const live = 'prepare:' + key;
@@ -3112,7 +3171,167 @@
       }
     },
 
+    /**
+     * Preparing on a computer. The phone plans the book, hands the whole
+     * thing over in one request and then only watches: the queue, the
+     * rendering, the retries and the files are the computer's, and it keeps
+     * them whether this app is open or not. Audio comes back in passes as it
+     * is finished, so a dropped Wi-Fi costs one pass and not the book.
+     */
+    runRemote: async function (id) {
+      const b = state.bridge;
+      const book = this.book;
+      const voice = state.prefs.neuralVoice;
+      const lang = docLang();
+      await preparedIndexReady();
+      const idx = preparedIndexCurrent();
+      const chapters = b.chapters();
+      this.total = chapters.length;
+      this.doneChapters = chapters.filter(function (c) { return idx && idx.chapters.has(c.id); }).length;
+      syncSheet();
+      if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
+
+      await this.waitRemote(id);
+      if (!this.alive(id)) return;
+
+      // Plan every unprepared chapter before saying anything, so the computer
+      // gets the whole book at once instead of a chapter at a time.
+      this.sending = true;
+      syncSheet();
+      const plans = [];
+      const parts = [];
+      for (const ch of chapters) {
+        if (!this.alive(id)) return;
+        if (idx && idx.chapters.has(ch.id)) continue;
+        const entry = await b.loadEntry(ch.id);
+        if (!this.alive(id)) return;
+        const sentences = entry ? segmentBlocks(entry.blocks, b.blockText, lang, entry.hiddenBlock) : [];
+        const plan = preparedPlan(sentences);
+        const keys = plan.map(function (g) { return preparedClipKey(book, ch.id, voice, g); });
+        plans.push({ id: ch.id, groups: plan.length, keys: keys });
+        for (let i = 0; i < plan.length; i++) parts.push({ key: keys[i], text: preparedText(plan[i]) });
+      }
+      if (!this.alive(id)) return;
+
+      const info = b.seriesInfo ? b.seriesInfo() : null;
+      const sent = await remoteJob(this.remote, {
+        book: book, title: (info && info.title) || '', voice: voice, parts: parts,
+      });
+      this.sending = false;
+      this.remoteTotal = Number(sent.total) || parts.length;
+      this.remoteDone = Number(sent.done) || 0;
+      syncSheet();
+
+      // From here the computer is working whether or not this app is. Watch,
+      // collect what has landed, and stop when there is nothing left to come.
+      for (;;) {
+        if (!this.alive(id)) return;
+        const s = await remoteJobState(this.remote, book);
+        if (!this.alive(id)) return;
+        this.remoteDone = Number(s.done) || 0;
+        this.remoteTotal = Number(s.total) || this.remoteTotal;
+        this.remoteMsPerPart = Number(s.msPerPart) || this.remoteMsPerPart;
+        syncSheetSoon();
+
+        if (this.remoteDone > 0) {
+          await this.collectRemote(id, book, voice, plans);
+          if (!this.alive(id)) return;
+        }
+        if (this.doneChapters >= this.total) break;
+        if (!s.running) {
+          // It stopped with work outstanding: say why, and keep what arrived.
+          // Tapping Prepare again asks the computer for the rest.
+          const why = s.failed
+            ? s.failed + (s.failed === 1 ? ' part' : ' parts') + ' could not be rendered'
+              + (s.lastError ? ' (' + s.lastError + ')' : '')
+            : 'your computer stopped before the book was finished';
+          throw remoteFailure('Preparing stopped: ' + why + '. Tap again to carry on.');
+        }
+        await new Promise(function (r) { setTimeout(r, REMOTE_POLL_MS); });
+      }
+      this.message = 'This book is ready to listen to.';
+      toast('Book prepared. Listening now plays stored audio.');
+    },
+
+    /**
+     * Brings over everything finished since the last pass. The first pass
+     * asks which part is which, so a book half collected before the app was
+     * closed carries on instead of downloading itself again.
+     */
+    collectRemote: async function (id, book, voice, plans) {
+      if (!this.remoteNext) {
+        const man = await remoteManifest(this.remote, book);
+        if (!this.alive(id)) return;
+        let lowest = 0;
+        for (const p of (man.parts || [])) {
+          if (!p.seq) continue;                     // not rendered yet
+          if (lowest && p.seq >= lowest) continue;
+          if (await preparedStore.getClip(p.key)) continue;
+          lowest = p.seq;
+        }
+        if (!this.alive(id)) return;
+        // Everything below the first part we lack is already here.
+        this.remoteNext = lowest ? lowest - 1 : 0;
+      }
+
+      this.collecting = true;
+      try {
+        for (;;) {
+          if (!this.alive(id)) return;
+          const data = await remoteBundle(this.remote, book, this.remoteNext, REMOTE_COLLECT_PARTS);
+          if (!this.alive(id) || !data) return;
+          const zip = await window.JSZip.loadAsync(data);
+          const entry = zip.file('book.json');
+          if (!entry) throw remoteFailure('Your computer sent a bundle this app cannot read.');
+          const manifest = JSON.parse(await entry.async('string'));
+          for (const p of (manifest.parts || [])) {
+            if (!this.alive(id)) return;
+            if (!(await preparedStore.getClip(p.key))) {
+              const file = zip.file('parts/' + p.file);
+              if (!file) continue;
+              // Already compressed on the computer, so it is stored as it
+              // arrived. Playback reads any blob, so the format is its business.
+              const blob = await file.async('blob');
+              await preparedStore.putClip(p.key, { book: book, blob: blob, seconds: p.seconds || 0, bytes: blob.size });
+            }
+            this.remoteNext = Math.max(this.remoteNext, p.seq || 0);
+          }
+          this.remoteNext = Math.max(this.remoteNext, Number(manifest.next) || 0);
+          await this.closeChapters(id, book, voice, plans);
+          if (!this.alive(id)) return;
+          if ((manifest.parts || []).length < REMOTE_COLLECT_PARTS) return;
+        }
+      } finally {
+        this.collecting = false;
+        syncSheetSoon();
+      }
+    },
+
+    /** Writes the chapter record for every chapter whose parts are all here. */
+    closeChapters: async function (id, book, voice, plans) {
+      const idx = preparedIndexCurrent();
+      for (const c of plans) {
+        if (!this.alive(id)) return;
+        if (idx && idx.chapters.has(c.id)) continue;
+        let seconds = 0, bytes = 0, all = true;
+        for (const k of c.keys) {
+          const rec = await preparedStore.getClip(k);
+          if (!rec) { all = false; break; }
+          seconds += rec.seconds || 0;
+          bytes += rec.bytes || 0;
+        }
+        if (!all) continue;
+        const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: c.id,
+                       groups: c.groups, seconds: seconds, bytes: bytes, at: Date.now() };
+        await preparedStore.putChapter(done);
+        if (idx) idx.chapters.set(c.id, done);
+        this.doneChapters++;
+        syncSheetSoon();
+      }
+    },
+
     run: async function (id) {
+      if (this.remote) return this.runRemote(id);
       const b = state.bridge;
       const book = this.book;
       const voice = state.prefs.neuralVoice;
@@ -3132,12 +3351,7 @@
       syncSheet();
       if (this.doneChapters >= this.total) { this.message = 'This book is ready to listen to.'; return; }
 
-      if (this.remote) {
-        await this.waitRemote(id);
-        if (!this.alive(id)) return;
-      } else {
-        await neuralEngine.ensureReady();
-      }
+      await neuralEngine.ensureReady();
       // AAC files through the native plugin where it can, WAV in IndexedDB
       // where it cannot. Either plays the same way.
       let clips = await nativeClips();
@@ -3154,38 +3368,16 @@
         this.chapterAt = chapters.indexOf(ch) + 1;
         this.groupTotal = plan.length;
         let seconds = 0, bytes = 0;
-        // On a computer, later parts are asked for while this one renders,
-        // one more than there are computers, so none of them idles on the
-        // round trip. Never across chapters.
-        const ahead = new Map();   // gi → promise of part | null when already stored
-        const ask = (j) => {
-          if (ahead.has(j)) return;
-          const k = preparedClipKey(book, ch.id, voice, plan[j]);
-          const pr = preparedStore.getClip(k).then((r) => r ? null : this.renderPart(k, preparedText(plan[j]), voice));
-          // The real await surfaces a failure; this only keeps it from
-          // being reported as unhandled when the run stops first.
-          pr.catch(function () {});
-          ahead.set(j, pr);
-        };
         for (let gi = 0; gi < plan.length; gi++) {
           this.groupAt = gi;
           syncSheetSoon();
-          if (!this.remote) await this.waitCool(id);
+          await this.waitCool(id);
           if (!this.alive(id)) return;
           const key = preparedClipKey(book, ch.id, voice, plan[gi]);
           let rec = await preparedStore.getClip(key);
-          const mine = ahead.get(gi);
-          ahead.delete(gi);
           if (!rec) {
             const partStarted = Date.now();
-            const current = mine
-              ? mine.then((p) => p || this.renderPart(key, preparedText(plan[gi]), voice))
-              : this.renderPart(key, preparedText(plan[gi]), voice);
-            if (this.remote) {
-              const end = Math.min(plan.length, gi + 1 + this.remoteComputers);
-              for (let j = gi + 1; j < end; j++) ask(j);
-            }
-            const part = await current;
+            const part = await this.renderPart(key, preparedText(plan[gi]), voice);
             const blob = part.blob;
             const secs = part.seconds;
             let saved = null;
@@ -3231,6 +3423,9 @@
   // How much of the book is done, counting the parts of the chapter in hand.
   function preparerFraction() {
     const p = preparer;
+    // On a computer the honest unit is parts of the whole book: chapters
+    // finish out of order there, because parts go to whichever computer is free.
+    if (p.remote) return p.remoteTotal ? Math.min(1, p.remoteDone / p.remoteTotal) : 0;
     if (!p.total) return 0;
     return (p.doneChapters + (p.groupTotal ? p.groupAt / p.groupTotal : 0)) / p.total;
   }
@@ -3254,6 +3449,21 @@
     const p = preparer;
     const where = !p.remote ? '' : p.remoteComputers > 1 ? 'On ' + p.remoteComputers + ' computers: ' : 'On your computer: ';
     if (p.remoteLoading) return where + 'Your computer is loading the voice (the first time downloads about 330 MB)… ';
+    if (p.remote) {
+      if (p.sending) return where + 'Sending the book over. ';
+      if (!p.remoteTotal) return where + 'Getting ready. ';
+      const pct = preparerFraction() * 100;
+      let s = where + p.remoteDone + ' of ' + p.remoteTotal + ' parts'
+        + ' (' + (pct < 10 ? pct.toFixed(1) : Math.floor(pct)) + '%';
+      if (p.remoteMsPerPart && p.remoteDone < p.remoteTotal) {
+        s += ', about ' + formatDuration(p.remoteMsPerPart * (p.remoteTotal - p.remoteDone)) + ' left';
+      }
+      s += '). ';
+      if (p.collecting) s += 'Collecting the audio. ';
+      // The point of the whole arrangement, said once where it is noticed.
+      else if (p.remoteDone < p.remoteTotal) s += 'You can close the app; it keeps going. ';
+      return s;
+    }
     if (!p.total || !p.chapterAt) return where + 'Getting the voice ready. ';
     let s = where + 'Preparing chapter ' + p.chapterAt + ' of ' + p.total;
     if (p.groupTotal) s += ', part ' + Math.min(p.groupAt + 1, p.groupTotal) + ' of ' + p.groupTotal;

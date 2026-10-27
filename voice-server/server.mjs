@@ -17,6 +17,11 @@
 //
 // The model, voices, trimming and WAV format match js/novel-voice-worker.js
 // so a group sounds the same whichever machine rendered it.
+//
+// More than one computer: start the others as usual with the same --code,
+// and this one with --peer for each of them. The phone talks to this one
+// only; each part goes to whichever computer is free, so a faster machine
+// simply takes more of the book.
 
 import { createServer } from 'node:http';
 import { networkInterfaces, cpus } from 'node:os';
@@ -28,6 +33,8 @@ export const DEFAULT_PORT = 8787;
 const MAX_BODY = 64 * 1024;       // one group is a few hundred characters
 const MAX_TEXT = 4000;
 const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
+const PEER_TIMEOUT_MS = 120000;
+const PEER_REST_MS = 30000;      // a computer that failed is left alone this long
 
 // ── Same as js/novel-voice-worker.js ────────────────────────────────────────
 
@@ -119,6 +126,84 @@ function readBody(req) {
   });
 }
 
+// ── Sharing the work ────────────────────────────────────────────────────────
+
+/** "192.168.1.21" → "http://192.168.1.21:8787", as the app reads an address. */
+export function peerBase(input) {
+  let s = String(input || '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'http://' + s;
+  s = s.replace(/\/+$/, '');
+  if (!/:\d+$/.test(new URL(s).host)) s += ':' + DEFAULT_PORT;
+  return s;
+}
+
+/** Another voice-server, asked over HTTP with the same code. */
+export function peerWorker(base, code) {
+  return {
+    name: base,
+    peer: true,
+    render: async function (text, voice) {
+      const res = await fetch(base + '/render', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-voice-code': code },
+        body: JSON.stringify({ text: text, voice: voice }),
+        signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error('answered ' + res.status + ' ' + (await res.text()).slice(0, 200));
+      return {
+        wav: Buffer.from(await res.arrayBuffer()),
+        seconds: Number(res.headers.get('x-seconds')) || 0,
+        ms: Number(res.headers.get('x-render-ms')) || 0,
+      };
+    },
+  };
+}
+
+/**
+ * Each computer renders one part at a time (ONNX Runtime already spreads one
+ * forward pass over every core; two at once would only fight over them), and
+ * a waiting part goes to whichever computer frees up first. A peer that fails
+ * rests for a while and its part goes to another, in the end to this one, so
+ * a peer that is asleep, still loading or gone never stops the book.
+ */
+export function createPool(workers, log) {
+  const queue = [];   // { text, voice, resolve, reject, tried: Set }
+  workers.forEach(function (w) { w.busy = false; w.restUntil = 0; w.rendered = 0; });
+
+  function pump() {
+    workers.forEach(function (w) {
+      if (w.busy || Date.now() < w.restUntil) return;
+      const i = queue.findIndex(function (j) { return !j.tried.has(w); });
+      if (i < 0) return;
+      const job = queue.splice(i, 1)[0];
+      w.busy = true;
+      w.render(job.text, job.voice).then(function (r) {
+        w.rendered++;
+        job.resolve(r);
+      }, function (e) {
+        if (!w.peer) { job.reject(e); return; }
+        log(w.name + ' failed, leaving it for ' + PEER_REST_MS / 1000 + ' s: ' + (e && e.message));
+        w.restUntil = Date.now() + PEER_REST_MS;
+        setTimeout(pump, PEER_REST_MS).unref();
+        job.tried.add(w);
+        queue.unshift(job);
+      }).finally(function () { w.busy = false; pump(); });
+    });
+  }
+
+  return {
+    render: function (text, voice) {
+      return new Promise(function (resolve, reject) {
+        queue.push({ text: text, voice: voice, resolve: resolve, reject: reject, tried: new Set() });
+        pump();
+      });
+    },
+    shares: function () {
+      return workers.map(function (w) { return { name: w.name, rendered: w.rendered, resting: Date.now() < w.restUntil }; });
+    },
+  };
+}
+
 /**
  * The server, with its engine passed in so tests can use a fake one.
  * `engine` may be a promise: /status answers "loading" until it resolves.
@@ -132,10 +217,19 @@ export function createVoiceServer(options) {
     function (e) { engine = e; log('voice ready'); },
     function (e) { loadError = e; log('voice failed to load: ' + (e && e.message)); });
 
-  // One render at a time: ONNX Runtime already spreads one forward pass over
-  // every core, and two at once would only fight over them. The phone keeps
-  // one request waiting behind the current one so this never sits idle.
-  let chain = Promise.resolve();
+  // This computer plus any peers. The phone keeps one request more in flight
+  // than there are computers, so none of them sits idle on a round trip.
+  const local = {
+    name: 'this computer',
+    render: async function (text, voice) {
+      const t0 = Date.now();
+      const out = await engine.generate(text, voice);
+      const pcm = trimSilence(out.pcm, out.rate);
+      return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
+    },
+  };
+  const peers = (options.peers || []).map(function (p) { return peerWorker(peerBase(p), code); });
+  const pool = createPool([local].concat(peers), log);
   let rendered = 0;
 
   function authorised(req) { return String(req.headers['x-voice-code'] || '') === code; }
@@ -150,6 +244,7 @@ export function createVoiceServer(options) {
         ok: true, version: 1,
         ready: !!engine, error: loadError ? String(loadError.message || loadError) : null,
         info: engine ? engine.info : null, rendered: rendered,
+        workers: 1 + peers.length, shares: pool.shares(),
       });
       return;
     }
@@ -165,15 +260,8 @@ export function createVoiceServer(options) {
       if (loadError) { sendJson(res, 503, { error: 'the voice failed to load: ' + loadError.message }); return; }
       if (!engine) { sendJson(res, 503, { error: 'the voice is still loading' }); return; }
 
-      const work = chain.then(async function () {
-        const t0 = Date.now();
-        const out = await engine.generate(text, voice);
-        const pcm = trimSilence(out.pcm, out.rate);
-        return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
-      });
-      chain = work.catch(function () {});
       try {
-        const r = await work;
+        const r = await pool.render(text, voice);
         rendered++;
         cors(res);
         res.writeHead(200, {
@@ -212,12 +300,39 @@ function arg(name, fallback) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
+/** Every value of a flag that may repeat: --peer a --peer b, or --peer a,b. */
+function args(name) {
+  const out = [];
+  process.argv.forEach(function (a, i) {
+    if (a === '--' + name && process.argv[i + 1]) out.push.apply(out, process.argv[i + 1].split(','));
+  });
+  return out.map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+/** Says at start whether each peer answers, so a typo shows up at once. */
+async function checkPeers(peers, code) {
+  for (const p of peers) {
+    const base = peerBase(p);
+    let line;
+    try {
+      const r = await fetch(base + '/status', { headers: { 'x-voice-code': code }, signal: AbortSignal.timeout(5000) });
+      if (r.status === 401) line = 'answers, but its code differs; start it with --code ' + code;
+      else line = (await r.json()).ready ? 'ready' : 'answers, still loading its voice';
+    } catch (e) {
+      line = 'not reachable yet; this computer covers its share until it is';
+    }
+    console.log('    Sharing with ' + base + ': ' + line);
+  }
+}
+
 async function main() {
   const port = Number(arg('port', DEFAULT_PORT));
   const code = arg('code', String(randomInt(0, 1000000)).padStart(6, '0'));
   const dtype = arg('dtype', 'fp32');
+  const peers = args('peer');
   const server = createVoiceServer({
     code: code,
+    peers: peers,
     engine: loadKokoro({ dtype: dtype }),
     log: function (m) { console.log('voice-server: ' + m); },
   });
@@ -231,6 +346,7 @@ async function main() {
     if (!addrs.length) console.log('    Address:  (no network found; connect this computer to Wi-Fi)');
     console.log('    Code:     ' + code);
     console.log('');
+    checkPeers(peers, code);
     console.log('  Loading the voice (the first run downloads about 330 MB)…');
     console.log('  Leave this window open while the book prepares. Ctrl+C stops it.');
   });

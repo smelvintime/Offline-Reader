@@ -118,3 +118,55 @@ test('wav helpers match the app', () => {
   assert.equal(wav.readInt16LE(44), 0x7fff);
   assert.equal(wav.readInt16LE(46), -0x8000);
 });
+
+function timedEngine(ms, calls) {
+  return {
+    info: {},
+    generate: async function (text) {
+      calls.push(text);
+      await new Promise(r => setTimeout(r, ms));
+      return { pcm: new Float32Array(240).fill(0.5), rate: 24000 };
+    },
+  };
+}
+
+async function startWithPeers(engine, peers) {
+  const server = createVoiceServer({ code: '123456', engine, peers });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  return { server, base: 'http://127.0.0.1:' + server.address().port };
+}
+
+const render = (base, t) => fetch(base + '/render', {
+  method: 'POST', headers: { 'x-voice-code': '123456' }, body: JSON.stringify({ text: t, voice: 'af_heart' }),
+});
+
+test('parts go to whichever computer is free, the faster one taking more', async () => {
+  const mine = [], theirs = [];
+  const peer = await start(timedEngine(60, theirs));
+  const { server, base } = await startWithPeers(timedEngine(20, mine), [peer.base.replace('http://', '')]);
+  try {
+    const texts = Array.from({ length: 12 }, (_, i) => 'part ' + i);
+    const rs = await Promise.all(texts.map(t => render(base, t)));
+    assert.deepEqual(rs.map(r => r.status), texts.map(() => 200));
+    assert.equal(mine.length + theirs.length, 12, 'each part rendered once');
+    assert.ok(theirs.length >= 1, 'the peer did some: ' + theirs.length);
+    assert.ok(mine.length > theirs.length, 'the faster one did more: ' + mine.length + ' vs ' + theirs.length);
+    const s = await (await fetch(base + '/status', { headers: { 'x-voice-code': '123456' } })).json();
+    assert.equal(s.workers, 2);
+    assert.deepEqual(s.shares.map(x => x.rendered), [mine.length, theirs.length]);
+  } finally { server.close(); peer.server.close(); }
+});
+
+test('a peer that is gone or has another code never stops the book', async () => {
+  const mine = [], theirs = [];
+  const wrongCode = await start(timedEngine(5, theirs), '999999');
+  const { server, base } = await startWithPeers(timedEngine(5, mine), ['127.0.0.1:1', wrongCode.base]);
+  try {
+    const rs = await Promise.all(['a', 'b', 'c', 'd'].map(t => render(base, t)));
+    assert.deepEqual(rs.map(r => r.status), [200, 200, 200, 200]);
+    assert.equal(mine.length, 4, 'this computer covered every part');
+    assert.equal(theirs.length, 0);
+    const s = await (await fetch(base + '/status', { headers: { 'x-voice-code': '123456' } })).json();
+    assert.deepEqual(s.shares.map(x => x.resting), [false, true, true]);
+  } finally { server.close(); wrongCode.server.close(); }
+});

@@ -45,6 +45,35 @@ The first start downloads the voice (about 330 MB) into a cache inside
 `node_modules`, so later starts are quick. The phone shows "Your computer is
 loading the voice" while that happens.
 
+## More than one computer
+
+Every computer renders its share at the same time, and each part goes to
+whichever one is free, so two similar Macs take about half the time and a
+faster one simply does more.
+
+1. On each extra computer, do **Once** above, then start it with a fixed
+   code:
+
+   ```bash
+   caffeinate -i npm start -- --code 123456
+   ```
+
+2. On the main computer, use the same code and name each extra one by its
+   address:
+
+   ```bash
+   caffeinate -i npm start -- --code 123456 --peer 192.168.1.21
+   ```
+
+   It says straight away whether each one answers. Repeat `--peer` for a
+   third.
+
+3. On the phone, type only the main computer's address. The progress line
+   reads "On 2 computers".
+
+If an extra computer sleeps, stops or has a different code, the main one
+carries on without it and tries it again 30 seconds later.
+
 ## Options
 
 `npm start -- --port 8787 --code 123456 --dtype fp32`
@@ -53,7 +82,10 @@ loading the voice" while that happens.
   address without one.
 - `--code`: fix the code instead of a new random one each start.
 - `--dtype`: `fp32` (default, matches the iPhone's own build) or `q8`
-  (smaller download, slightly different sound).
+  (smaller download, slightly different sound). Use the same on every
+  computer sharing a book.
+- `--peer`: another computer running voice-server with the same code, to
+  share the work with. Repeat it, or separate addresses with commas.
 
 Anyone on your network who has the code can ask for audio, and nothing else:
 there is no file access and no other endpoint.

@@ -3019,7 +3019,22 @@ const T = {
       await pause(50);
       pass = ok(server.stopped === 1, 'stopping tells the computer to stop', server.stopped) && pass;
 
-      // 9. Two computers are named as two.
+      // 9. A book too big for one request goes over in chunks and still
+      //    arrives whole. A real serial is hundreds of thousands of parts.
+      await reset();
+      VT().setRemoteChunkParts(4);
+      P.start({ remote });
+      await waitFor(() => !P.running, 25000, 'chunked book finished');
+      pass = ok(server.posts.length > 1, 'the book went over in several requests', server.posts.length) && pass;
+      pass = ok(server.posts.every(p => p.parts.length <= 4), 'none bigger than the chunk size',
+                server.posts.map(p => p.parts.length).join(',')) && pass;
+      const sentKeys = server.posts.flatMap(p => p.parts.map(q => q.key));
+      pass = ok(new Set(sentKeys).size === sentKeys.length, 'no part sent twice', sentKeys.length) && pass;
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the whole book still arrived',
+                VT().preparedSummary().ready + ' ' + P.message) && pass;
+      VT().setRemoteChunkParts(2000);
+
+      // 10. Two computers are named as two.
       await reset();
       server.perPoll = Infinity;
       server.workers = 2;

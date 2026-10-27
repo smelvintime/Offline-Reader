@@ -487,6 +487,28 @@ test('a book is collected in passes, and the manifest says what is missing', asy
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('a serial far past what one zip holds is taken, and arrives in chunks', async () => {
+  const root = await tempRoot();
+  // An engine that never answers: this is about taking the book, not rendering it.
+  const { server, base } = await serve(root, { info: {}, generate: () => new Promise(() => {}) });
+  try {
+    // More parts than a zip can hold entries. This used to come back 400.
+    const huge = parts(70000);
+    const first = await post(base, '/job', job({ parts: huge.slice(0, 35000) }));
+    assert.equal(first.status, 202, 'the first chunk is taken');
+    const second = await post(base, '/job', job({ parts: huge.slice(35000) }));
+    assert.equal(second.status, 202);
+    assert.equal((await second.json()).total, 70000, 'both chunks are the same book');
+
+    const again = await post(base, '/job', job({ parts: huge.slice(0, 1000) }));
+    assert.equal((await again.json()).total, 70000, 'a chunk sent twice is not counted twice');
+
+    const man = await (await ask(base, '/manifest?book=test-book')).json();
+    assert.equal(man.parts.length, 70000);
+    assert.equal(new Set(man.parts.map(p => p.key)).size, 70000, 'every key distinct');
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('the book routes say no to a wrong code, a bad book and an unknown one', async () => {
   const root = await tempRoot();
   const { server, base } = await serve(root);

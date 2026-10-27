@@ -1,9 +1,13 @@
 # voice-server
 
-Prepares Offline Reader audiobooks on your Mac instead of your iPhone. The
-phone sends the text over home Wi-Fi, the Mac renders it with the same voice,
-and the phone stores the result exactly as if it had made it. Listening
-afterwards is the same either way.
+Prepares Offline Reader audiobooks on your computer instead of your iPhone,
+and keeps them. The phone sends a book's text over home Wi-Fi, this computer
+renders it with the same voice and stores it, and the phone collects the
+finished audio whenever it likes. Listening afterwards is the same either way.
+
+The computer owns the work. Once a book has been sent, the phone can be shut,
+run flat or leave the house, and the rendering carries on here. Stopping the
+server and starting it again picks every unfinished book up where it stopped.
 
 ## Once
 
@@ -13,7 +17,14 @@ afterwards is the same either way.
    brew install node
    ```
 
-2. Install the server's one dependency:
+2. Install ffmpeg, so books are stored compressed. Without it everything
+   still works, at about 170 MB an hour instead of 22 MB:
+
+   ```bash
+   brew install ffmpeg
+   ```
+
+3. Install the server's one dependency:
 
    ```bash
    cd voice-server && npm install
@@ -38,8 +49,13 @@ afterwards is the same either way.
    asks to find devices on your local network: **Allow**. (If it was refused:
    Settings → Privacy & Security → Local Network → Offline Reader.)
 
-4. Leave the window open until the book is ready. Ctrl+C stops the server;
-   tapping Prepare again later carries on where it stopped.
+   The phone sends the whole book in one go and then only watches. Once it
+   says so you can close the app and put the phone down: this computer keeps
+   rendering. Open the book again later and tap **Prepare on my computer** to
+   collect what is waiting.
+
+4. Leave this window open while it works. Ctrl+C stops the server, and
+   starting it again carries on by itself.
 
 The first start downloads the voice (about 330 MB) into a cache inside
 `node_modules`, so later starts are quick. The phone shows "Your computer is
@@ -74,6 +90,32 @@ faster one simply does more.
 If an extra computer sleeps, stops or has a different code, the main one
 carries on without it and tries it again 30 seconds later.
 
+## Books this computer keeps
+
+Every book sent here is written to `~/OfflineReaderBooks`, one folder per
+book, named so you can find it:
+
+    the-blade-itself-9f2a1c0d/
+      book.json          the book, its voice, and every part with its file
+      parts/4f3ad91c….m4a   one part of the narration
+
+Nothing is deleted on its own. `Books:` at startup says where the folder is,
+and `--library` moves it, onto an external drive for instance.
+
+The app talks to it over these, all needing the same `x-voice-code` header:
+
+| | |
+|---|---|
+| `POST /job` | takes a whole book: `{ book, title, voice, parts: [{ key, text }] }`. Answers 202 as soon as it is written down, and renders afterwards. Sending the same book again adds new parts and retries failed ones, leaving finished ones alone. |
+| `GET /job?book=…` | how far along: `done`, `total`, `bytes`, `running`, `msPerPart`. |
+| `POST /job/stop?book=…` | stops rendering. Parts already finished are kept. |
+| `GET /bundle?book=…` | every finished part as one zip, holding `book.json` and `parts/`. To collect a book in several passes, send `&from=N` with the `next` from the last zip you took (also the `x-next` header), and you get only what has landed since. |
+| `GET /books` | everything this computer holds. |
+| `DELETE /book?book=…` | removes a book and its audio. |
+
+The zip is an ordinary zip: double-click it in Finder, or put it on a USB
+stick, if you would rather move a book by hand than over Wi-Fi.
+
 ## Options
 
 `npm start -- --port 8787 --code 123456 --dtype fp32`
@@ -81,11 +123,14 @@ carries on without it and tries it again 30 seconds later.
 - `--port`: default 8787, which is what the app assumes when you type an
   address without one.
 - `--code`: fix the code instead of a new random one each start.
+- `--library`: where books are kept. Default `~/OfflineReaderBooks`, or the
+  `OFFLINE_READER_LIBRARY` environment variable.
 - `--dtype`: `fp32` (default, matches the iPhone's own build) or `q8`
   (smaller download, slightly different sound). Use the same on every
   computer sharing a book.
 - `--peer`: another computer running voice-server with the same code, to
   share the work with. Repeat it, or separate addresses with commas.
 
-Anyone on your network who has the code can ask for audio, and nothing else:
-there is no file access and no other endpoint.
+Anyone on your network who has the code can ask for audio and read back the
+books this server itself prepared, and nothing else: there is no access to
+any other file on the computer.

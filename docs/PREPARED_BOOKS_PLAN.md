@@ -30,6 +30,28 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   messages for an unreachable computer or a wrong code, and no fall back to
   the phone.
 
+- The computer keeps the book, not just the renderer (server side only so
+  far). `POST /job` takes a whole book at once and answers before any of it
+  is rendered, so the phone is free the moment it has uploaded; the queue,
+  the retries and the files live in `voice-server/library.mjs` and
+  `voice-server/jobs.mjs`, under `~/OfflineReaderBooks`. Parts are AAC where
+  ffmpeg is installed and WAV where it is not. `GET /bundle` hands the
+  finished audio back as one ordinary zip, `&from=N` collecting only what is
+  new, and an unfinished book resumes by itself when the server starts
+  again.
+
+- The app sends, watches and collects (`preparer.runRemote`). "Prepare on my
+  computer" now plans every unprepared chapter, posts the whole book in one
+  request, polls `/job` for progress, and brings the audio back in passes of
+  200 parts as it is finished, writing each clip under the key it would have
+  had if the phone had made it. Gone with it: the per-part round trip, the
+  two-in-flight look-ahead, and the silent keep-alive loop, because nothing
+  on the phone has to stay awake any more. The progress line says so. The
+  first pass of a run asks `/manifest` which parts it lacks, so a book half
+  collected before the app was closed is not downloaded twice, and Stop now
+  stops the computer too. Clips collected this way are stored as they
+  arrived, already compressed, rather than through the native encoder.
+
 Still to do from the phases below: the overnight `BGProcessingTask`, a native
 player, and the side-by-side battery measurement.
 

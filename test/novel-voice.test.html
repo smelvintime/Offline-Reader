@@ -135,6 +135,7 @@ window.SpeechSynthesisUtterance = function (text) {
 </script>
 
 <!-- Same relative order as index.html: voice before reader. -->
+<script src="../jszip.min.js"></script>
 <script src="../js/novel-voice.js"></script>
 <script src="../js/novel-reader.js"></script>
 
@@ -2808,31 +2809,98 @@ const T = {
     const P = VT().preparer;
     const oldPlatform = window.Platform;
     const realEnsure = ne.ensureReady;
+    const realKeepAwake = P.keepAwake;
     const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 100 ms
-    const server = {
-      ready: true, status: 200, fail: false, renders: [], inFlight: 0, maxInFlight: 0, statusCalls: 0, workers: undefined,
-    };
     const remote = { base: 'http://192.168.1.20:8787', code: '424242' };
-    let asked = 0;
+
+    // A voice-server in a variable: it takes a whole book, renders it in its
+    // own time, and hands back finished parts as zips.
+    const server = {
+      ready: true, status: 200, fail: false, workers: undefined,
+      posts: [], calls: [], statusCalls: 0, bundles: [], stopped: 0,
+      pending: [], done: new Map(), seq: 0, voice: '',
+      perPoll: Infinity,      // parts rendered per progress check
+      failTail: 0,            // this many parts at the end never render
+      take(job) {
+        this.posts.push(job);
+        this.voice = job.voice;
+        (job.parts || []).forEach(p => {
+          if (this.done.has(p.key) || this.pending.some(q => q.key === p.key)) return;
+          this.pending.push(p);
+        });
+      },
+      render(n) {
+        const stop = Math.max(0, this.pending.length - this.failTail);
+        for (let i = 0; i < n && i < stop; i++) {
+          const p = this.pending.shift();
+          this.done.set(p.key, { key: p.key, seq: ++this.seq, file: 'p' + this.seq + '.m4a', seconds: 0.1 });
+        }
+      },
+      get total() { return this.pending.length + this.done.size; },
+      state() {
+        return {
+          book: 'b', total: this.total, done: this.done.size, bytes: this.done.size * wav.byteLength,
+          ready: this.total > 0 && this.pending.length === 0,
+          running: this.pending.length > this.failTail,
+          failed: this.pending.length && this.pending.length <= this.failTail ? this.pending.length : 0,
+          lastError: this.failTail ? 'the voice gave up' : '', msPerPart: 12,
+        };
+      },
+      manifest() {
+        const parts = [...this.pending.map(p => ({ key: p.key, seq: 0 })),
+                       ...[...this.done.values()].map(p => ({ key: p.key, seq: p.seq }))];
+        return { v: 1, book: 'b', voice: this.voice, total: parts.length, parts };
+      },
+      async bundle(from, limit) {
+        const take = [...this.done.values()].filter(p => p.seq > from)
+          .sort((a, b) => a.seq - b.seq).slice(0, limit);
+        if (!take.length) return null;
+        const zip = new JSZip();
+        zip.file('book.json', JSON.stringify({
+          v: 1, book: 'b', title: 't', voice: this.voice, created: 1,
+          from, next: take[take.length - 1].seq, ready: this.done.size, total: this.total,
+          parts: take.map(p => ({ key: p.key, file: p.file, seconds: p.seconds, bytes: wav.byteLength, seq: p.seq })),
+        }));
+        take.forEach(p => zip.file('parts/' + p.file, wav.slice(0)));
+        this.bundles.push({ from, limit, parts: take.length });
+        return zip.generateAsync({ type: 'arraybuffer' });
+      },
+    };
+
+    let asked = 0, awake = 0;
     window.Platform = {
       charging: () => Promise.resolve(false),
       confirm: () => { asked++; return Promise.resolve(true); },
       localHttp: async (url, o) => {
+        const path = url.slice(remote.base.length);
+        server.calls.push({ path, code: o.headers['x-voice-code'] });
         if (server.fail) throw new Error('network down');
         if (server.status !== 200) return { status: server.status, headers: {}, data: { error: 'nope' } };
-        if (url.endsWith('/status')) {
+        if (path === '/status') {
           server.statusCalls++;
           return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null, workers: server.workers } };
         }
-        server.renders.push({ url, code: o.headers['x-voice-code'], voice: o.json.voice, binary: o.binary });
-        server.inFlight++;
-        server.maxInFlight = Math.max(server.maxInFlight, server.inFlight);
-        await pause(15);
-        server.inFlight--;
-        return { status: 200, headers: { 'x-seconds': '0.1' }, data: wav.slice(0) };
+        if (path === '/job' && o.method === 'POST') {
+          server.take(o.json);
+          return { status: 202, headers: {}, data: server.state() };
+        }
+        if (path.startsWith('/job?')) { server.render(server.perPoll); return { status: 200, headers: {}, data: server.state() }; }
+        if (path.startsWith('/job/stop')) { server.stopped++; return { status: 200, headers: {}, data: { stopped: true } }; }
+        if (path.startsWith('/manifest')) return { status: 200, headers: {}, data: server.manifest() };
+        if (path.startsWith('/bundle')) {
+          const q = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+          const data = await server.bundle(Number(q.get('from')) || 0, Number(q.get('limit')) || Infinity);
+          return data ? { status: 200, headers: {}, data } : { status: 404, headers: {}, data: { error: 'nothing new' } };
+        }
+        return { status: 404, headers: {}, data: { error: 'not found' } };
       },
     };
     let loads = 0;
+    const reset = async () => {
+      await VT().deletePrepared();
+      server.pending = []; server.done = new Map(); server.seq = 0;
+      server.posts = []; server.calls = []; server.bundles = []; server.perPoll = Infinity; server.failTail = 0;
+    };
     try {
       pass = ok(VT().remoteBase(' 192.168.1.20 ') === 'http://192.168.1.20:8787', 'address gets scheme and port') && pass;
       pass = ok(VT().remoteBase('http://mac.local:9000/') === 'http://mac.local:9000', 'given port kept, slash dropped') && pass;
@@ -2841,85 +2909,129 @@ const T = {
       await VT().deletePrepared();
       ne.dispose();
       ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+      P.keepAwake = function (on) { if (on) awake++; return realKeepAwake.apply(P, arguments); };
       neuralStub.spoken = [];
 
-      // 1. The whole book, on the computer.
+      // 1. The whole book goes over in one request, and comes back as zips.
       const started = await P.request({ remote });
       pass = ok(started && P.running, 'preparing started') && pass;
       pass = ok(asked === 0, 'no charging question for the computer', asked) && pass;
-      await waitFor(() => P.chapterAt > 0, 5000, 'first chapter');
-      pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
-      await waitFor(() => !P.running, 15000, 'preparing finished');
+      await waitFor(() => !P.running, 20000, 'preparing finished');
+
       const sum = VT().preparedSummary();
       pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready + '/' + sum.total + ' ' + P.message) && pass;
       let groups = 0;
       VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
-      pass = ok(server.renders.length === groups, 'one render per group', server.renders.length + '/' + groups) && pass;
-      pass = ok(server.renders.every(r => r.code === '424242' && r.voice === VT().state.prefs.neuralVoice && r.binary
-                && r.url === remote.base + '/render'), 'each render carries the code and voice') && pass;
-      pass = ok(server.maxInFlight === 2, 'the next part is asked for early, never more than one', server.maxInFlight) && pass;
+      pass = ok(server.posts.length === 1, 'the book went over in one request, not one per part', server.posts.length) && pass;
+      pass = ok(server.posts[0].parts.length === groups, 'every part of the book was sent at once',
+                server.posts[0].parts.length + '/' + groups) && pass;
+      pass = ok(server.posts[0].voice === VT().state.prefs.neuralVoice && server.posts[0].book && server.posts[0].title !== undefined,
+                'the job names the book and the voice') && pass;
+      pass = ok(server.calls.every(c => c.code === '424242'), 'every call carries the code') && pass;
+      pass = ok(!server.calls.some(c => c.path === '/render'), 'nothing is rendered a part at a time any more') && pass;
+      pass = ok(awake === 0, 'the phone is not kept awake for the computer’s work', awake) && pass;
       pass = ok(loads === 0, 'the phone model was never loaded', loads) && pass;
       pass = ok(neuralStub.spoken.length === 0, 'the phone engine generated nothing', neuralStub.spoken.length) && pass;
+
       const diag = VT().voiceDiagnostics().prepared;
       pass = ok(diag.source === 'computer' && diag.remote === remote.base && !/424242/.test(JSON.stringify(diag)),
                 'diagnostics name the computer, not the code', JSON.stringify(diag)) && pass;
 
-      // 2. Again: everything is stored, nothing is rendered.
-      server.renders = [];
+      // 2. Again: everything is stored, so nothing new is sent or fetched.
+      const bundlesBefore = server.bundles.length;
+      server.posts = [];
       P.start({ remote });
-      await waitFor(() => !P.running, 5000, 'second pass finished');
-      pass = ok(server.renders.length === 0, 'a prepared book renders nothing again', server.renders.length) && pass;
+      await waitFor(() => !P.running, 8000, 'second pass finished');
+      pass = ok(server.posts.length === 0, 'a prepared book is not sent again', server.posts.length) && pass;
+      pass = ok(server.bundles.length === bundlesBefore, 'and nothing is downloaded again',
+                server.bundles.length - bundlesBefore) && pass;
 
-      // 3. Failures stop with a sentence to act on; nothing falls back to the phone.
-      await VT().deletePrepared();
+      // 3. A long book arrives in passes, each part stored exactly once.
+      await reset();
+      server.perPoll = 2;
+      P.start({ remote });
+      await waitFor(() => !P.running, 30000, 'collected in passes');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'the whole book arrived in passes',
+                VT().preparedSummary().ready + ' ' + P.message) && pass;
+      pass = ok(server.bundles.length > 1, 'it took more than one pass', server.bundles.length) && pass;
+      const seen = server.bundles.reduce((n, b) => n + b.parts, 0);
+      pass = ok(seen === server.done.size, 'each part came down once, never twice', seen + '/' + server.done.size) && pass;
+
+      // 4. Half collected, then the app restarts: it asks what it is missing
+      //    instead of downloading the book again.
+      server.bundles = [];
+      P.remoteNext = 0;                      // a fresh run knows nothing
+      P.start({ remote });
+      await waitFor(() => !P.running, 10000, 'restarted collect');
+      pass = ok(server.calls.some(c => c.path.startsWith('/manifest')), 'it asks which parts it lacks') && pass;
+      pass = ok(server.bundles.length === 0, 'and downloads none of what it already has', server.bundles.length) && pass;
+
+      // 5. A computer that gives up part way: what arrived is kept, and the
+      //    message says to tap again.
+      await reset();
+      server.failTail = 2;
+      P.start({ remote });
+      await waitFor(() => !P.running, 20000, 'stopped part way');
+      pass = ok(/could not be rendered/.test(P.message) && /carry on/.test(P.message),
+                'it says what went wrong and what to do', P.message) && pass;
+      pass = ok(VT().preparedSummary().ready < CHAPTERS.length, 'the book is not called ready') && pass;
+      server.failTail = 0;
+      P.start({ remote });
+      await waitFor(() => !P.running, 20000, 'finished on the second try');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'tapping again finished it', P.message) && pass;
+
+      // 6. Failures name themselves, and nothing falls back to the phone.
+      await reset();
       server.status = 401;
       P.start({ remote });
-      await waitFor(() => !P.running, 5000, '401 stops');
+      await waitFor(() => !P.running, 8000, '401 stops');
       pass = ok(/code does not match/.test(P.message), 'wrong code is named', P.message) && pass;
       server.status = 200;
       server.fail = true;
       P.start({ remote });
-      await waitFor(() => !P.running, 5000, 'network error stops');
+      await waitFor(() => !P.running, 8000, 'network error stops');
       pass = ok(/Could not reach your computer at http:\/\/192\.168\.1\.20:8787/.test(P.message), 'unreachable is named', P.message) && pass;
       server.fail = false;
       pass = ok(loads === 0 && neuralStub.spoken.length === 0, 'no fall back to the phone', loads) && pass;
 
-      // 4. A computer still loading the model: wait, then prepare.
+      // 7. A computer still loading the model: wait, say so, then send.
+      await reset();
       server.ready = false;
       server.statusCalls = 0;
-      server.renders = [];
       P.start({ remote });
-      await waitFor(() => P.remoteLoading, 3000, 'waiting for the computer');
+      await waitFor(() => P.remoteLoading, 5000, 'waiting for the computer');
       pass = ok(/loading the voice/.test(VT().preparerLine()), 'the line says it is loading', VT().preparerLine()) && pass;
-      pass = ok(server.renders.length === 0, 'nothing sent while it loads') && pass;
+      pass = ok(server.posts.length === 0, 'nothing sent while it loads') && pass;
       server.ready = true;
-      await waitFor(() => !P.running, 20000, 'prepared after loading');
+      await waitFor(() => !P.running, 25000, 'prepared after loading');
       pass = ok(server.statusCalls >= 2 && VT().preparedSummary().ready === CHAPTERS.length,
                 'waited, then prepared', server.statusCalls + ' polls') && pass;
 
-      // 5. A computer sharing with another: one more part in flight per computer.
-      await VT().deletePrepared();
+      // 8. Stop means stop on the computer too.
+      await reset();
+      server.perPoll = 1;
+      server.stopped = 0;
+      P.start({ remote });
+      await waitFor(() => P.remoteTotal > 0, 8000, 'the job was taken');
+      pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
+      pass = ok(/close the app/.test(VT().preparerLine()), 'and that the phone is free to go', VT().preparerLine()) && pass;
+      P.stop('Paused.');
+      await pause(50);
+      pass = ok(server.stopped === 1, 'stopping tells the computer to stop', server.stopped) && pass;
+
+      // 9. Two computers are named as two.
+      await reset();
+      server.perPoll = Infinity;
       server.workers = 2;
-      server.renders = [];
-      server.maxInFlight = 0;
       P.start({ remote });
-      await waitFor(() => server.renders.length > 0, 5000, 'two computers started');
+      await waitFor(() => P.remoteTotal > 0, 8000, 'two computers started');
       pass = ok(/^On 2 computers: /.test(VT().preparerLine()), 'the line counts the computers', VT().preparerLine()) && pass;
-      await waitFor(() => !P.running, 15000, 'prepared on two computers');
-      let groups2 = 0;
-      VT().state.preparedIndex.chapters.forEach(r => { groups2 += r.groups; });
-      pass = ok(VT().preparedSummary().ready === CHAPTERS.length && server.renders.length === groups2,
-                'every part once, across two', server.renders.length + '/' + groups2) && pass;
-      pass = ok(server.maxInFlight === 3, 'three in flight for two computers', server.maxInFlight) && pass;
-      server.workers = 99;
-      server.maxInFlight = 0;
-      await VT().deletePrepared();
-      P.start({ remote });
-      await waitFor(() => !P.running, 15000, 'prepared with an absurd count');
-      pass = ok(server.maxInFlight <= 9, 'a silly count is capped', server.maxInFlight) && pass;
+      await waitFor(() => !P.running, 20000, 'prepared on two computers');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'prepared across two') && pass;
     } finally {
       if (P.running) P.stop(null);
       ne.ensureReady = realEnsure;
+      P.keepAwake = realKeepAwake;
       window.Platform = oldPlatform;
       await VT().deletePrepared();
       endSession();

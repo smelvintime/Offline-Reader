@@ -2624,6 +2624,46 @@
       const self = this;
       return this.tx('chapters', 'readwrite', drop).then(function () { return self.tx('clips', 'readwrite', drop); });
     },
+
+    /**
+     * Every book with anything stored, all voices and versions: what the
+     * Settings screen lists. Sizes come from the clips, so a half-prepared
+     * book and one from an older PREPARED_VERSION count too, since both are
+     * taking space. Clip values are walked with a cursor; their blobs are
+     * file-backed and are not read.
+     * → Promise<Map<book, { chapters, bytes, seconds, title }>>
+     */
+    summary: function () {
+      const out = new Map();
+      const entry = function (book) {
+        if (!out.has(book)) out.set(book, { chapters: 0, bytes: 0, seconds: 0, title: '' });
+        return out.get(book);
+      };
+      const self = this;
+      return this.tx('clips', 'readonly', function (s) {
+        s.openCursor().onsuccess = function (e) {
+          const c = e.target.result;
+          if (!c) return;
+          const r = c.value || {};
+          if (r.book) { const b = entry(r.book); b.bytes += r.bytes || 0; b.seconds += r.seconds || 0; }
+          c.continue();
+        };
+      }).then(function () {
+        return self.tx('chapters', 'readonly', function (s) {
+          s.openCursor().onsuccess = function (e) {
+            const c = e.target.result;
+            if (!c) return;
+            const r = c.value || {};
+            if (r.book && r.v === PREPARED_VERSION) {
+              const b = entry(r.book);
+              b.chapters++;
+              if (r.title && !b.title) b.title = r.title;
+            }
+            c.continue();
+          };
+        });
+      }).then(function () { return out; });
+    },
   };
 
   // FNV-1a, 32-bit. Only has to notice that a group's text changed.
@@ -3109,6 +3149,10 @@
       const book = this.book;
       const voice = state.prefs.neuralVoice;
       const lang = docLang();
+      // Kept on each chapter record so Settings can name the book even after
+      // it leaves the library.
+      const info = b.seriesInfo ? b.seriesInfo() : null;
+      const title = (info && info.title) || '';
       await preparedIndexReady();
       const idx = preparedIndexCurrent();
       const chapters = b.chapters();
@@ -3204,7 +3248,7 @@
           bytes += rec.bytes || 0;
         }
         if (!this.alive(id)) return;
-        const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: ch.id,
+        const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: ch.id, title: title,
                        groups: plan.length, seconds: seconds, bytes: bytes, at: Date.now() };
         await preparedStore.putChapter(done);
         if (idx) idx.chapters.set(ch.id, done);
@@ -3272,17 +3316,44 @@
 
   function deletePrepared() {
     const book = preparedBook();
-    if (!book) return Promise.resolve();
-    if (preparer.running) preparer.stop(null);
-    preparedUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
-    preparedUrls.clear();
+    return book ? removePreparedBook(book) : Promise.resolve();
+  }
+
+  /**
+   * Every stored clip and record of one book, from IndexedDB and the native
+   * AAC folder. Any book, open or not: Settings and removing a book from the
+   * library both come through here. If it is the open book, the voice sheet
+   * and the cursor forget it too.
+   */
+  function removePreparedBook(book) {
+    book = String(book);
+    const open = preparedBook() === book;
+    if (preparer.running && preparer.book === book) preparer.stop(null);
+    if (open) {
+      if (state.active) stopSession();
+      preparedUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+      preparedUrls.clear();
+    }
     return preparedStore.deleteBook(book).catch(function () {})
       .then(function () { return nativeClips(); })
       .then(function (clips) { return clips ? clips.remove(preparedDir(book)).catch(function () {}) : null; })
       .then(function () {
-      preparer.message = '';
-      return loadPreparedIndex();
-    });
+        if (!open) return null;
+        preparer.message = '';
+        return loadPreparedIndex();
+      });
+  }
+
+  /** For Settings: every book with stored audio, largest first. */
+  function listPreparedBooks() {
+    return preparedStore.summary().then(function (m) {
+      const list = [];
+      m.forEach(function (v, book) {
+        list.push({ book: book, title: v.title, chapters: v.chapters, bytes: v.bytes, seconds: v.seconds });
+      });
+      list.sort(function (a, b) { return b.bytes - a.bytes; });
+      return list;
+    }).catch(function () { return []; });
   }
 
   // ── Play / pause / stop ───────────────────────────────────────────────────
@@ -4611,6 +4682,14 @@
     /** novel-reader closes our sheet when its own settings sheet opens —
         the mirror of the closeSettingsSheet call we make through the bridge. */
     closeSheet: function () { closeSheet(); },
+
+    /** Stored audio across the whole library, for Settings and the catalogue.
+        list() → Promise<[{ book, title, chapters, bytes, seconds }]>;
+        remove(seriesId) → Promise. Safe to call with no book open. */
+    preparedLibrary: {
+      list: function () { return listPreparedBooks(); },
+      remove: function (seriesId) { return removePreparedBook(seriesId); },
+    },
 
     /** Read-only diagnostics. Used by test/novel-voice.test.html. */
     state: function () {

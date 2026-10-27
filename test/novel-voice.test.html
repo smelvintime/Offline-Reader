@@ -2974,13 +2974,46 @@ const T = {
     return { name: 'prepared native clips', pass };
   },
 
+  // The library-wide surface Settings and the catalogue use: list every book
+  // with stored audio, and remove one whether or not it is open.
+  async testPreparedLibrary() {
+    let pass = true;
+    const P = VT().preparer;
+    const L = V().preparedLibrary;
+    try {
+      await freshOpen({ preparedOnly: true });
+      await VT().deletePrepared();
+      P.start();
+      await waitFor(() => !P.running, 15000, 'preparing finished');
+      let list = await L.list();
+      const mine = list.find(b => b.book === SERIES.id);
+      pass = ok(mine && mine.chapters === CHAPTERS.length && mine.bytes > 0, 'the prepared book is listed with its size',
+                mine && (mine.chapters + ' chapters, ' + mine.bytes + ' bytes')) && pass;
+      pass = ok(mine && mine.title === SERIES.title, 'and its title, for books that leave the library', mine && mine.title) && pass;
+
+      // Removed with the reader closed: the catalogue's path.
+      endSession();
+      await L.remove(SERIES.id);
+      list = await L.list();
+      pass = ok(!list.some(b => b.book === SERIES.id), 'remove() clears it with no book open') && pass;
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      pass = ok(VT().preparedSummary().ready === 0, 'reopening the book finds nothing stored') && pass;
+    } finally {
+      if (P.running) P.stop(null);
+      await VT().deletePrepared();
+      endSession();
+    }
+    return { name: 'prepared library', pass };
+  },
+
   async all() {
     const tests = [
       T.testSegmentation, T.testNormalize, T.testWav, T.testPrefs,
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testClose,
+      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testPreparedLibrary, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

@@ -1672,7 +1672,7 @@
   }
 
   async function confirmDelete(s) {
-    const msg = 'Remove “' + s.title + '” from your library?\n\nCached chapters and reading progress for it will also be deleted.';
+    const msg = 'Remove “' + s.title + '” from your library?\n\nCached chapters, reading progress and prepared audio for it will also be deleted.';
     // Platform.confirm is a native dialog under Capacitor (window.confirm in a
     // WebView paints a browser-styled box with the origin string in it) and
     // falls back to window.confirm itself on the web, so one call serves both.
@@ -1682,6 +1682,11 @@
       : window.confirm(msg);
     if (!ok) return;
     await safeCall('deleteUserSeries', [s.id], null);
+    // Its prepared narration is the largest thing a book leaves on disk.
+    const V = window.NovelVoice;
+    if (V && V.preparedLibrary) {
+      try { await V.preparedLibrary.remove(s.id); } catch (e) { /* the book is gone either way */ }
+    }
     toast('Removed “' + s.title + '”.');
     await refresh();
   }

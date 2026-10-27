@@ -34,8 +34,13 @@ import { writeZip, ZIP_MAX_ENTRIES } from './zip.mjs';
 export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 export const DEFAULT_PORT = 8787;
 const MAX_BODY = 64 * 1024;       // one group is a few hundred characters
-const MAX_JOB_BODY = 32 * 1024 * 1024;   // a whole book's text, a few MB at most
-const MAX_PARTS = ZIP_MAX_ENTRIES;
+const MAX_JOB_BODY = 32 * 1024 * 1024;   // one chunk of a book's text
+// A book's size and a bundle's size are different limits, and tying them
+// together was wrong. A zip without zip64 holds 65535 entries, but a long
+// serial runs to thousands of chapters and hundreds of thousands of parts,
+// which is fine because it is collected a bundle at a time. This is only a
+// sanity bound: about 2700 hours of narration.
+const MAX_PARTS = 1000000;
 const MAX_KEY = 512;
 const MAX_TEXT = 4000;
 const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
@@ -398,8 +403,11 @@ export function createVoiceServer(options) {
       // one that landed late.
       const from = Math.max(0, Number(url.searchParams.get('from')) || 0);
       // A whole book is more than a phone wants to hold in memory while it
-      // unpacks, so it collects in passes; `limit` is how big a pass it asks for.
-      const limit = Math.max(1, Math.min(MAX_PARTS, Number(url.searchParams.get('limit')) || MAX_PARTS));
+      // unpacks, so it collects in passes; `limit` is how big a pass it asks
+      // for. Clamped to what one zip can hold, which is where that ceiling
+      // actually belongs.
+      const limit = Math.max(1, Math.min(ZIP_MAX_ENTRIES,
+        Number(url.searchParams.get('limit')) || ZIP_MAX_ENTRIES));
       const take = done.filter(function (p) { return (p.seq || 0) > from; })
                        .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); })
                        .slice(0, limit);

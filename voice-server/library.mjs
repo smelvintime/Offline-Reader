@@ -20,6 +20,23 @@ import { join } from 'node:path';
 
 export const LIBRARY_VERSION = 1;
 const SAVE_DEBOUNCE_MS = 2000;
+const SAVE_DEBOUNCE_MAX_MS = 30000;
+
+/**
+ * How often book.json may be rewritten. A short book's manifest is a few
+ * kilobytes and can be written every couple of seconds; a thousand-chapter
+ * serial runs to tens of megabytes, and rewriting that every two seconds
+ * would be most of what the disk does all night. Waiting longer costs
+ * nothing, because reconcile() claims any audio the manifest has not caught
+ * up with rather than rendering it again.
+ */
+function saveEvery(parts) {
+  return Math.min(SAVE_DEBOUNCE_MAX_MS, SAVE_DEBOUNCE_MS + parts * 0.1);
+}
+
+// manifest → Map(key → part). Outside the manifest so it is never serialized,
+// and so merging chunk 150 of a book costs no more than merging chunk 1.
+const indexes = new WeakMap();
 
 export function defaultLibraryRoot() {
   return process.env.OFFLINE_READER_LIBRARY || join(homedir(), 'OfflineReaderBooks');
@@ -133,8 +150,17 @@ export function createLibrary(options) {
     m.saveTimer = setTimeout(function () {
       m.saveTimer = null;
       save(m).catch(function (e) { log('could not write book.json: ' + e.message); });
-    }, SAVE_DEBOUNCE_MS);
+    }, saveEvery(m.parts.length));
     m.saveTimer.unref();
+  }
+
+  function indexOf(m) {
+    let i = indexes.get(m);
+    if (!i) {
+      i = new Map(m.parts.map(function (p) { return [p.key, p]; }));
+      indexes.set(m, i);
+    }
+    return i;
   }
 
   async function flush(m) {
@@ -222,6 +248,12 @@ export function createLibrary(options) {
      * → { manifest, pending }
      */
     accept: async function (job) {
+      // A book arrives in chunks, so this runs many times for one book.
+      // `find` reconciles against the parts folder only when it has to read
+      // the manifest from disk; while the book is held open here, this
+      // process is the only writer and that scan would be wasted work on a
+      // folder holding hundreds of thousands of files.
+      const held = open.has(job.book);
       let m = await lib.find(job.book);
       if (!m) {
         m = {
@@ -244,24 +276,35 @@ export function createLibrary(options) {
       if (job.voice && m.voice !== job.voice) {
         m.voice = job.voice;
         m.parts = [];
+        indexes.delete(m);
         await rm(join(dirOf(m), 'parts'), { recursive: true, force: true });
       }
       if (job.title && !m.title) m.title = job.title;
 
-      const known = new Map(m.parts.map(function (p) { return [p.key, p]; }));
+      const known = indexOf(m);
+      const added = [];
       for (const p of (job.parts || [])) {
         const had = known.get(p.key);
         if (had) { if (!had.text) had.text = p.text; continue; }
         const rec = { key: p.key, text: p.text, file: null, seconds: 0, bytes: 0, seq: 0 };
         known.set(p.key, rec);
         m.parts.push(rec);
+        added.push(rec);
       }
 
       await mkdir(join(dirOf(m), 'parts'), { recursive: true });
-      await reconcile(m);
       open.set(m.book, m);
-      await save(m);
-      return { manifest: m, pending: m.parts.filter(function (p) { return !p.file && p.text; }) };
+      // The first sight of a book writes its manifest at once so it exists on
+      // disk; later chunks ride the debounce, because rewriting the whole
+      // thing per chunk is what makes a long serial crawl.
+      if (held) saveSoon(m); else await save(m);
+      // A chunk of a book already in hand reports only what it brought, so
+      // taking a book does not cost a scan of every part per chunk; the run
+      // sweeps for anything left over when it finishes a pass. The first
+      // sight of a book reports everything outstanding, which is what makes
+      // resuming one off the disk work.
+      const outstanding = held ? added : m.parts;
+      return { manifest: m, pending: outstanding.filter(function (p) { return !p.file && p.text; }) };
     },
 
     /** One rendered part: compressed where it can be, written, counted. */

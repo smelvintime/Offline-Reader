@@ -2600,6 +2600,17 @@
       });
     },
 
+    /**
+     * Every clip key this book already holds, in one read. A thousand-chapter
+     * serial runs to hundreds of thousands of parts, and asking per part
+     * turns "what am I still missing" into that many reads.
+     */
+    clipKeys: function (book) {
+      return this.tx('clips', 'readonly', function (s, set) {
+        s.index('book').getAllKeys(book).onsuccess = function (e) { set(e.target.result || []); };
+      });
+    },
+
     putClip: function (key, rec) {
       return this.tx('clips', 'readwrite', function (s) { s.put(rec, key); });
     },
@@ -2863,6 +2874,11 @@
   const REMOTE_JOB_TIMEOUT_MS = 60000;      // a whole book's text in one body
   const REMOTE_BUNDLE_TIMEOUT_MS = 300000;  // one pass of audio over Wi-Fi
   const REMOTE_COLLECT_PARTS = 200;         // parts per pass, roughly 15 MB
+  // Parts per upload request. A long serial's text runs to tens of megabytes,
+  // which is more than one body should carry, and chunking also lets the
+  // computer start on chapter one while the phone is still reading chapter
+  // five hundred. A variable so a test can make a small book a long one.
+  let REMOTE_CHUNK_PARTS = 2000;
 
   /** "192.168.1.20" → "http://192.168.1.20:8787". '' when there is nothing typed. */
   function remoteBase(input) {
@@ -2986,6 +3002,8 @@
     remoteTotal: 0,
     remoteMsPerPart: 0,  // measured there, not here, so the estimate is the computer's
     remoteNext: 0,       // the last part number collected, for the next pass
+    have: null,          // clip keys this book already holds, read once per run
+    waiting: null,       // key → the chapter whose record it is the last part of
     sending: false,
     collecting: false,
 
@@ -3055,6 +3073,8 @@
       this.remoteTotal = 0;
       this.remoteMsPerPart = 0;
       this.remoteNext = 0;
+      this.have = null;
+      this.waiting = null;
       this.sending = false;
       this.collecting = false;
       this.message = '';
@@ -3196,12 +3216,31 @@
       await this.waitRemote(id);
       if (!this.alive(id)) return;
 
-      // Plan every unprepared chapter before saying anything, so the computer
-      // gets the whole book at once instead of a chapter at a time.
+      // Plan and send chapter by chapter, in chunks. A thousand-chapter
+      // serial is hundreds of thousands of parts and tens of megabytes of
+      // text: too much for one request body, and too long to leave the
+      // computer idle while the phone reads every chapter first. The server
+      // merges chunks into the same book and starts on the first one.
       this.sending = true;
       syncSheet();
+      const info = b.seriesInfo ? b.seriesInfo() : null;
+      const title = (info && info.title) || '';
+      const have = new Set(await preparedStore.clipKeys(book));
+      this.have = have;
       const plans = [];
-      const parts = [];
+      const byKey = new Map();   // key → the chapter waiting on it
+      let chunk = [];
+
+      const send = async () => {
+        if (!chunk.length) return;
+        const batch = chunk;
+        chunk = [];
+        const sent = await remoteJob(this.remote, { book: book, title: title, voice: voice, parts: batch });
+        this.remoteTotal = Number(sent.total) || this.remoteTotal + batch.length;
+        this.remoteDone = Number(sent.done) || this.remoteDone;
+        syncSheetSoon();
+      };
+
       for (const ch of chapters) {
         if (!this.alive(id)) return;
         if (idx && idx.chapters.has(ch.id)) continue;
@@ -3209,19 +3248,30 @@
         if (!this.alive(id)) return;
         const sentences = entry ? segmentBlocks(entry.blocks, b.blockText, lang, entry.hiddenBlock) : [];
         const plan = preparedPlan(sentences);
-        const keys = plan.map(function (g) { return preparedClipKey(book, ch.id, voice, g); });
-        plans.push({ id: ch.id, groups: plan.length, keys: keys });
-        for (let i = 0; i < plan.length; i++) parts.push({ key: keys[i], text: preparedText(plan[i]) });
+        const rec = { id: ch.id, groups: plan.length, keys: [], missing: 0 };
+        for (const g of plan) {
+          const key = preparedClipKey(book, ch.id, voice, g);
+          rec.keys.push(key);
+          if (have.has(key)) continue;
+          rec.missing++;
+          byKey.set(key, rec);
+          chunk.push({ key: key, text: preparedText(g) });
+          // Inside the chapter, not after it: a chapter need not travel in
+          // one piece, and the point of the limit is that no single body
+          // grows past it.
+          if (chunk.length >= REMOTE_CHUNK_PARTS) {
+            await send();
+            if (!this.alive(id)) return;
+          }
+        }
+        plans.push(rec);
+        // A chapter whose parts are all here already needs nothing sent.
+        if (!rec.missing) await this.closeChapter(id, book, voice, rec);
       }
+      await send();
       if (!this.alive(id)) return;
-
-      const info = b.seriesInfo ? b.seriesInfo() : null;
-      const sent = await remoteJob(this.remote, {
-        book: book, title: (info && info.title) || '', voice: voice, parts: parts,
-      });
+      this.waiting = byKey;
       this.sending = false;
-      this.remoteTotal = Number(sent.total) || parts.length;
-      this.remoteDone = Number(sent.done) || 0;
       syncSheet();
 
       // From here the computer is working whether or not this app is. Watch,
@@ -3261,6 +3311,7 @@
      * closed carries on instead of downloading itself again.
      */
     collectRemote: async function (id, book, voice, plans) {
+      const have = this.have || new Set();
       if (!this.remoteNext) {
         const man = await remoteManifest(this.remote, book);
         if (!this.alive(id)) return;
@@ -3268,7 +3319,7 @@
         for (const p of (man.parts || [])) {
           if (!p.seq) continue;                     // not rendered yet
           if (lowest && p.seq >= lowest) continue;
-          if (await preparedStore.getClip(p.key)) continue;
+          if (have.has(p.key)) continue;
           lowest = p.seq;
         }
         if (!this.alive(id)) return;
@@ -3286,9 +3337,10 @@
           const entry = zip.file('book.json');
           if (!entry) throw remoteFailure('Your computer sent a bundle this app cannot read.');
           const manifest = JSON.parse(await entry.async('string'));
+          const landed = [];
           for (const p of (manifest.parts || [])) {
             if (!this.alive(id)) return;
-            if (!(await preparedStore.getClip(p.key))) {
+            if (!have.has(p.key)) {
               const file = zip.file('parts/' + p.file);
               if (!file) continue;
               // Already compressed on the computer, so it is stored as it
@@ -3300,11 +3352,13 @@
               const type = /\.wav$/i.test(p.file) ? 'audio/wav' : 'audio/mp4';
               const blob = raw.type ? raw : new Blob([raw], { type: type });
               await preparedStore.putClip(p.key, { book: book, blob: blob, seconds: p.seconds || 0, bytes: blob.size });
+              have.add(p.key);
+              landed.push(p.key);
             }
             this.remoteNext = Math.max(this.remoteNext, p.seq || 0);
           }
           this.remoteNext = Math.max(this.remoteNext, Number(manifest.next) || 0);
-          await this.closeChapters(id, book, voice, plans);
+          await this.closeLanded(id, book, voice, landed);
           if (!this.alive(id)) return;
           if ((manifest.parts || []).length < REMOTE_COLLECT_PARTS) return;
         }
@@ -3314,27 +3368,46 @@
       }
     },
 
-    /** Writes the chapter record for every chapter whose parts are all here. */
-    closeChapters: async function (id, book, voice, plans) {
-      const idx = preparedIndexCurrent();
-      for (const c of plans) {
-        if (!this.alive(id)) return;
-        if (idx && idx.chapters.has(c.id)) continue;
-        let seconds = 0, bytes = 0, all = true;
-        for (const k of c.keys) {
-          const rec = await preparedStore.getClip(k);
-          if (!rec) { all = false; break; }
-          seconds += rec.seconds || 0;
-          bytes += rec.bytes || 0;
-        }
-        if (!all) continue;
-        const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: c.id,
-                       groups: c.groups, seconds: seconds, bytes: bytes, at: Date.now() };
-        await preparedStore.putChapter(done);
-        if (idx) idx.chapters.set(c.id, done);
-        this.doneChapters++;
-        syncSheetSoon();
+    /**
+     * Closes any chapter whose last missing part just arrived. Each part
+     * knows which chapter is waiting on it, so a pass costs the parts that
+     * landed rather than a walk of the whole book: on a thousand-chapter
+     * serial the walk was the slowest thing in the run.
+     */
+    closeLanded: async function (id, book, voice, landed) {
+      const waiting = this.waiting;
+      if (!waiting) return;
+      const ready = new Set();
+      for (const key of landed) {
+        const c = waiting.get(key);
+        if (!c) continue;
+        waiting.delete(key);
+        if (--c.missing <= 0) ready.add(c);
       }
+      for (const c of ready) {
+        if (!this.alive(id)) return;
+        await this.closeChapter(id, book, voice, c);
+      }
+    },
+
+    /** One chapter's record, once every part of it is stored. */
+    closeChapter: async function (id, book, voice, c) {
+      const idx = preparedIndexCurrent();
+      if (idx && idx.chapters.has(c.id)) return;
+      let seconds = 0, bytes = 0;
+      for (const k of c.keys) {
+        const rec = await preparedStore.getClip(k);
+        if (!rec) return;          // not all here after all; a later pass will
+        seconds += rec.seconds || 0;
+        bytes += rec.bytes || 0;
+      }
+      if (!this.alive(id)) return;
+      const done = { v: PREPARED_VERSION, book: book, voice: voice, chapter: c.id,
+                     groups: c.groups, seconds: seconds, bytes: bytes, at: Date.now() };
+      await preparedStore.putChapter(done);
+      if (idx) idx.chapters.set(c.id, done);
+      this.doneChapters++;
+      syncSheetSoon();
     },
 
     run: async function (id) {
@@ -4931,6 +5004,7 @@
       preparedSummary: preparedSummary,
       preparerLine: preparerLine,
       remoteBase: remoteBase,
+      setRemoteChunkParts: function (n) { REMOTE_CHUNK_PARTS = n; },
       setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
       preparedOnly: function () { return preparedOnly; },
     },

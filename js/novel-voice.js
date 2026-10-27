@@ -1288,7 +1288,9 @@
     try {
       const sum = preparedSummary();
       return {
-        storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'wav in IndexedDB' : 'not probed yet'),
+        // Not "wav in IndexedDB": clips collected from a computer are stored
+        // as they arrived, already AAC. `source` below says which it was.
+        storage: state.nativeClips === true ? 'aac files' : (state.nativeClips === false ? 'in IndexedDB' : 'not probed yet'),
         chapters: sum.ready + '/' + sum.total, bytes: sum.bytes, seconds: Math.round(sum.seconds),
         running: preparer.running, at: preparer.running ? preparer.chapterAt + ':' + preparer.groupAt + '/' + preparer.groupTotal : null,
         partsRendered: preparer.rendered,
@@ -3290,8 +3292,13 @@
               const file = zip.file('parts/' + p.file);
               if (!file) continue;
               // Already compressed on the computer, so it is stored as it
-              // arrived. Playback reads any blob, so the format is its business.
-              const blob = await file.async('blob');
+              // arrived rather than encoded again. A zip entry comes out
+              // typeless, and an <audio> element should be told what it is
+              // holding rather than left to sniff it, which Safari is the
+              // least forgiving about.
+              const raw = await file.async('blob');
+              const type = /\.wav$/i.test(p.file) ? 'audio/wav' : 'audio/mp4';
+              const blob = raw.type ? raw : new Blob([raw], { type: type });
               await preparedStore.putClip(p.key, { book: book, blob: blob, seconds: p.seconds || 0, bytes: blob.size });
             }
             this.remoteNext = Math.max(this.remoteNext, p.seq || 0);

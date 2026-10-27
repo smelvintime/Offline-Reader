@@ -2852,6 +2852,7 @@
   const REMOTE_STATUS_TIMEOUT_MS = 8000;
   const REMOTE_RENDER_TIMEOUT_MS = 120000;
   const REMOTE_POLL_MS = 3000;
+  const REMOTE_MAX_COMPUTERS = 8;
 
   /** "192.168.1.20" → "http://192.168.1.20:8787". '' when there is nothing typed. */
   function remoteBase(input) {
@@ -2939,6 +2940,7 @@
     runId: 0,
     remote: null,        // { base, code } while rendering on a computer; null = on the phone
     remoteLoading: false,
+    remoteComputers: 1,  // how many share the work, from voice-server's /status
 
     /**
      * From the Prepare tap. Off the charger it asks first: preparing works the
@@ -3001,6 +3003,7 @@
       this.book = book;
       this.remote = remote;
       this.remoteLoading = false;
+      this.remoteComputers = 1;
       this.message = '';
       this.hot = false;
       const id = ++this.runId;
@@ -3077,7 +3080,12 @@
       for (;;) {
         const s = await remoteStatus(this.remote);
         if (!this.alive(id)) return;
-        if (s.ready) { this.remoteLoading = false; syncSheet(); return; }
+        if (s.ready) {
+          this.remoteComputers = Math.min(REMOTE_MAX_COMPUTERS, Math.max(1, Math.floor(Number(s.workers)) || 1));
+          this.remoteLoading = false;
+          syncSheet();
+          return;
+        }
         if (s.error) throw remoteFailure('Your computer could not load the voice: ' + s.error);
         if (!this.remoteLoading) { this.remoteLoading = true; syncSheet(); }
         await new Promise(function (r) { setTimeout(r, REMOTE_POLL_MS); });
@@ -3146,10 +3154,19 @@
         this.chapterAt = chapters.indexOf(ch) + 1;
         this.groupTotal = plan.length;
         let seconds = 0, bytes = 0;
-        // On a computer, the next part is asked for while this one renders,
-        // so the computer never idles on the round trip. Never two ahead,
-        // never across chapters.
-        let ahead = null;   // { gi, promise → part | null when already stored }
+        // On a computer, later parts are asked for while this one renders,
+        // one more than there are computers, so none of them idles on the
+        // round trip. Never across chapters.
+        const ahead = new Map();   // gi → promise of part | null when already stored
+        const ask = (j) => {
+          if (ahead.has(j)) return;
+          const k = preparedClipKey(book, ch.id, voice, plan[j]);
+          const pr = preparedStore.getClip(k).then((r) => r ? null : this.renderPart(k, preparedText(plan[j]), voice));
+          // The real await surfaces a failure; this only keeps it from
+          // being reported as unhandled when the run stops first.
+          pr.catch(function () {});
+          ahead.set(j, pr);
+        };
         for (let gi = 0; gi < plan.length; gi++) {
           this.groupAt = gi;
           syncSheetSoon();
@@ -3157,21 +3174,16 @@
           if (!this.alive(id)) return;
           const key = preparedClipKey(book, ch.id, voice, plan[gi]);
           let rec = await preparedStore.getClip(key);
+          const mine = ahead.get(gi);
+          ahead.delete(gi);
           if (!rec) {
             const partStarted = Date.now();
-            const mine = ahead && ahead.gi === gi ? ahead.promise : null;
-            ahead = null;
             const current = mine
               ? mine.then((p) => p || this.renderPart(key, preparedText(plan[gi]), voice))
               : this.renderPart(key, preparedText(plan[gi]), voice);
-            if (this.remote && gi + 1 < plan.length) {
-              const nextKey = preparedClipKey(book, ch.id, voice, plan[gi + 1]);
-              const next = plan[gi + 1];
-              ahead = { gi: gi + 1, promise: preparedStore.getClip(nextKey).then((r) => r ? null
-                : this.renderPart(nextKey, preparedText(next), voice)) };
-              // The real await surfaces a failure; this only keeps it from
-              // being reported as unhandled when the run stops first.
-              ahead.promise.catch(function () {});
+            if (this.remote) {
+              const end = Math.min(plan.length, gi + 1 + this.remoteComputers);
+              for (let j = gi + 1; j < end; j++) ask(j);
             }
             const part = await current;
             const blob = part.blob;
@@ -3240,7 +3252,7 @@
    */
   function preparerLine() {
     const p = preparer;
-    const where = p.remote ? 'On your computer: ' : '';
+    const where = !p.remote ? '' : p.remoteComputers > 1 ? 'On ' + p.remoteComputers + ' computers: ' : 'On your computer: ';
     if (p.remoteLoading) return where + 'Your computer is loading the voice (the first time downloads about 330 MB)… ';
     if (!p.total || !p.chapterAt) return where + 'Getting the voice ready. ';
     let s = where + 'Preparing chapter ' + p.chapterAt + ' of ' + p.total;

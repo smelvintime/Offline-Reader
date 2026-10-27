@@ -2810,7 +2810,7 @@ const T = {
     const realEnsure = ne.ensureReady;
     const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 100 ms
     const server = {
-      ready: true, status: 200, fail: false, renders: [], inFlight: 0, maxInFlight: 0, statusCalls: 0,
+      ready: true, status: 200, fail: false, renders: [], inFlight: 0, maxInFlight: 0, statusCalls: 0, workers: undefined,
     };
     const remote = { base: 'http://192.168.1.20:8787', code: '424242' };
     let asked = 0;
@@ -2822,7 +2822,7 @@ const T = {
         if (server.status !== 200) return { status: server.status, headers: {}, data: { error: 'nope' } };
         if (url.endsWith('/status')) {
           server.statusCalls++;
-          return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null } };
+          return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null, workers: server.workers } };
         }
         server.renders.push({ url, code: o.headers['x-voice-code'], voice: o.json.voice, binary: o.binary });
         server.inFlight++;
@@ -2896,6 +2896,27 @@ const T = {
       await waitFor(() => !P.running, 20000, 'prepared after loading');
       pass = ok(server.statusCalls >= 2 && VT().preparedSummary().ready === CHAPTERS.length,
                 'waited, then prepared', server.statusCalls + ' polls') && pass;
+
+      // 5. A computer sharing with another: one more part in flight per computer.
+      await VT().deletePrepared();
+      server.workers = 2;
+      server.renders = [];
+      server.maxInFlight = 0;
+      P.start({ remote });
+      await waitFor(() => server.renders.length > 0, 5000, 'two computers started');
+      pass = ok(/^On 2 computers: /.test(VT().preparerLine()), 'the line counts the computers', VT().preparerLine()) && pass;
+      await waitFor(() => !P.running, 15000, 'prepared on two computers');
+      let groups2 = 0;
+      VT().state.preparedIndex.chapters.forEach(r => { groups2 += r.groups; });
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length && server.renders.length === groups2,
+                'every part once, across two', server.renders.length + '/' + groups2) && pass;
+      pass = ok(server.maxInFlight === 3, 'three in flight for two computers', server.maxInFlight) && pass;
+      server.workers = 99;
+      server.maxInFlight = 0;
+      await VT().deletePrepared();
+      P.start({ remote });
+      await waitFor(() => !P.running, 15000, 'prepared with an absurd count');
+      pass = ok(server.maxInFlight <= 9, 'a silly count is capped', server.maxInFlight) && pass;
     } finally {
       if (P.running) P.stop(null);
       ne.ensureReady = realEnsure;

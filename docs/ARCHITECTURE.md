@@ -1326,9 +1326,15 @@ The phone calls through `Platform.localHttp` (`CapacitorHttp` natively, since
 a fetch from `capacitor://localhost` to `http://` on the LAN is mixed content;
 plain `fetch` on a web page served over http), with a six-digit code the
 server prints in `x-voice-code`. The form shows only where that can work: the
-native app or an http page. One part is asked for ahead so the computer never
-waits on the round trip (at most two requests in flight, never across
-chapters). No charging question and no heat pauses, since the phone only
+native app or an http page. Parts are asked for ahead so no computer ever
+waits on the round trip: one more request in flight than the computers
+`/status` reports in `workers` (two for one computer, capped at eight
+computers), never across chapters. Started with `--peer` for each other
+computer (same `--code`), a voice-server is the only one the phone talks to
+and hands each part to whichever computer is free, itself included, so a
+faster machine takes more of the book; a peer that fails rests 30 s and its
+part goes elsewhere, in the end to the coordinator, so a sleeping peer never
+stops the book. The line reads "On 2 computers" when it is shared. No charging question and no heat pauses, since the phone only
 stores files; the silent loop still runs so the app stays alive to receive
 them. A computer still loading its model is polled every 3 s; an unreachable
 one, a wrong code or a failed load stops with a sentence to act on, and never

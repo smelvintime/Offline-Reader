@@ -311,6 +311,46 @@ window.__done = (async function main() {
     window.fetch = origFetch;
   }
 
+  // ── localHttp on native: the body only travels with a content type ────────
+  // iOS CapacitorUrlRequest.setRequestBody() attaches httpBody ONLY when a
+  // Content-Type header is present, so a POST without one reaches voice-server
+  // empty and it answers 400 "body must be JSON". fetch sets the header by
+  // itself, which is why the web assertions above never caught it. The bridge
+  // reads window.Capacitor once at load, so faking native needs its own
+  // document; srcdoc inherits this page's base URL, so the path still resolves.
+  await new Promise(function (resolve, reject) {
+    const frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    frame.srcdoc = '<script>'
+      + 'window.__req = null;'
+      + 'window.Capacitor = { isNativePlatform: function () { return true; },'
+      + '  getPlatform: function () { return "ios"; },'
+      + '  convertFileSrc: function (u) { return u; }, Plugins: {'
+      + '  CapacitorHttp: { request: function (o) { window.__req = o;'
+      + '    return Promise.resolve({ status: 200, headers: {}, data: "{}" }); } } } };'
+      + '<\/script><script src="../js/platform.js"><\/script>';
+    frame.addEventListener('load', function () {
+      const w = frame.contentWindow;
+      Promise.resolve()
+        .then(function () {
+          assert(!!(w.Platform && w.Platform.localHttp), 'the faked native page exposes the bridge');
+          return w.Platform.localHttp('http://192.168.1.20:8787/render',
+            { method: 'POST', headers: { 'x-voice-code': '123456' }, json: { text: 'Hi.', voice: 'af_heart' } });
+        })
+        .then(function () {
+          const req = w.__req;
+          assert(!!req, 'native localHttp goes through the CapacitorHttp plugin, not fetch');
+          assertEq(req && req.headers['content-type'], 'application/json',
+            'native localHttp sets the content type, or iOS sends no body at all');
+          assertEq(req && req.headers['x-voice-code'], '123456',
+            'native localHttp keeps the headers its caller passed');
+          assertEq(req && req.method, 'POST', 'native localHttp sends the method');
+        })
+        .then(function () { frame.remove(); resolve(); }, function (e) { frame.remove(); reject(e); });
+    });
+    document.body.appendChild(frame);
+  });
+
   // ── Behavioral guarantees ─────────────────────────────────────────────────
   // The bridge never registers a service worker; on this harness page nothing
   // else does either, so any registration would be the bridge's doing.

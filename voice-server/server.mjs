@@ -165,6 +165,32 @@ export function peerBase(input) {
   return s;
 }
 
+/**
+ * Kokoro on a GPU, in the small Python service next door, behind the same
+ * contract as loadKokoro. Why it exists: the engine above is pinned to the
+ * CPU to match the phone, which is right on a phone and costs roughly thirty
+ * times the wall clock on a desktop with a graphics card sitting idle in it.
+ *
+ * Raw float32 samples come back, not WAV, so the hop encodes nothing. Unlike
+ * the CPU engine this one is worth asking several things at once: see slots.
+ */
+export function gpuEngine(base) {
+  const url = String(base).replace(/\/+$/, '') + '/render';
+  return {
+    info: { model: MODEL_ID, dtype: 'gpu', at: base },
+    generate: async function (text, voice) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text, voice: voice }),
+        signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error('the GPU voice answered ' + res.status + ' ' + (await res.text()).slice(0, 200));
+      return { pcm: new Float32Array(await res.arrayBuffer()), rate: Number(res.headers.get('x-rate')) || 24000 };
+    },
+  };
+}
+
 /** Another voice-server, asked over HTTP with the same code. */
 export function peerWorker(base, code) {
   return {
@@ -188,34 +214,39 @@ export function peerWorker(base, code) {
 }
 
 /**
- * Each computer renders one part at a time (ONNX Runtime already spreads one
- * forward pass over every core; two at once would only fight over them), and
- * a waiting part goes to whichever computer frees up first. A peer that fails
+ * A computer renders `slots` parts at a time, one by default (ONNX Runtime
+ * already spreads one forward pass over every core; two at once would only
+ * fight over them). A GPU is the exception and says so by asking for more:
+ * one paragraph leaves it about a third busy, and the rest of the card is
+ * only reachable by giving it several at once.
+ *
+ * A waiting part goes to whichever computer frees up first. A peer that fails
  * rests for a while and its part goes to another, in the end to this one, so
  * a peer that is asleep, still loading or gone never stops the book.
  */
 export function createPool(workers, log) {
   const queue = [];   // { text, voice, resolve, reject, tried: Set }
-  workers.forEach(function (w) { w.busy = false; w.restUntil = 0; w.rendered = 0; });
+  workers.forEach(function (w) { w.slots = Number(w.slots) || 1; w.busy = 0; w.restUntil = 0; w.rendered = 0; });
 
   function pump() {
     workers.forEach(function (w) {
-      if (w.busy || Date.now() < w.restUntil) return;
-      const i = queue.findIndex(function (j) { return !j.tried.has(w); });
-      if (i < 0) return;
-      const job = queue.splice(i, 1)[0];
-      w.busy = true;
-      w.render(job.text, job.voice).then(function (r) {
-        w.rendered++;
-        job.resolve(r);
-      }, function (e) {
-        if (!w.peer) { job.reject(e); return; }
-        log(w.name + ' failed, leaving it for ' + PEER_REST_MS / 1000 + ' s: ' + (e && e.message));
-        w.restUntil = Date.now() + PEER_REST_MS;
-        setTimeout(pump, PEER_REST_MS).unref();
-        job.tried.add(w);
-        queue.unshift(job);
-      }).finally(function () { w.busy = false; pump(); });
+      while (w.busy < w.slots && Date.now() >= w.restUntil) {
+        const i = queue.findIndex(function (j) { return !j.tried.has(w); });
+        if (i < 0) return;
+        const job = queue.splice(i, 1)[0];
+        w.busy++;
+        w.render(job.text, job.voice).then(function (r) {
+          w.rendered++;
+          job.resolve(r);
+        }, function (e) {
+          if (!w.peer) { job.reject(e); return; }
+          log(w.name + ' failed, leaving it for ' + PEER_REST_MS / 1000 + ' s: ' + (e && e.message));
+          w.restUntil = Date.now() + PEER_REST_MS;
+          setTimeout(pump, PEER_REST_MS).unref();
+          job.tried.add(w);
+          queue.unshift(job);
+        }).finally(function () { w.busy--; pump(); });
+      }
     });
   }
 
@@ -251,6 +282,7 @@ export function createVoiceServer(options) {
   // begins when the voice has loaded.
   const local = {
     name: 'this computer',
+    slots: Number(options.slots) || 1,
     render: async function (text, voice) {
       const eng = engine || await loaded;
       const t0 = Date.now();
@@ -273,7 +305,7 @@ export function createVoiceServer(options) {
     log: log,
     // One part in hand per computer and one waiting, so no computer idles on
     // a round trip. This used to be the phone's job; it belongs here.
-    width: function () { return 2 + peers.length; },
+    width: function () { return 1 + local.slots + peers.length; },
   }) : null;
 
   function authorised(req) { return String(req.headers['x-voice-code'] || '') === code; }
@@ -504,6 +536,10 @@ async function main() {
   const port = Number(arg('port', DEFAULT_PORT));
   const code = arg('code', String(randomInt(0, 1000000)).padStart(6, '0'));
   const dtype = arg('dtype', 'fp32');
+  // --gpu http://127.0.0.1:8899 renders on a graphics card instead of here.
+  // Several at once, because that is the only way a card is kept busy.
+  const gpu = arg('gpu', '');
+  const slots = Number(arg('slots', gpu ? 8 : 1)) || 1;
   const peers = args('peer');
   const log = function (m) { console.log('voice-server: ' + m); };
   const root = arg('library', defaultLibraryRoot());
@@ -513,7 +549,8 @@ async function main() {
     code: code,
     peers: peers,
     library: library,
-    engine: loadKokoro({ dtype: dtype }),
+    engine: gpu ? gpuEngine(gpu) : loadKokoro({ dtype: dtype }),
+    slots: slots,
     log: log,
   });
   server.listen(port, '0.0.0.0', function () {
@@ -532,6 +569,10 @@ async function main() {
     }
     console.log('');
     checkPeers(peers, code);
+    if (gpu) {
+      console.log('  Voice on the GPU at ' + gpu + ', ' + slots + ' at a time.');
+      console.log('  That service must be running; nothing renders here without it.');
+    }
     console.log('  Loading the voice (the first run downloads about 330 MB)…');
     console.log('  Leave this window open while the book prepares. Ctrl+C stops it.');
     // Turning this computer on is enough: a book left half done carries on

@@ -130,6 +130,46 @@ stick, if you would rather move a book by hand than over Wi-Fi.
   computer sharing a book.
 - `--peer`: another computer running voice-server with the same code, to
   share the work with. Repeat it, or separate addresses with commas.
+- `--gpu`: render on a graphics card instead of this computer's CPU, through
+  the small Python service described below. About sixteen times faster.
+- `--slots`: how many parts to render at once. 1 on the CPU, where one
+  forward pass already uses every core, and 8 with `--gpu`, because one
+  paragraph leaves a card about a third busy.
+
+## Rendering on a graphics card
+
+The engine above runs on the CPU on purpose, so a desktop sounds exactly like
+the phone. On a machine with a real graphics card that costs most of the
+speed. Measured here on an RTX 4080 Super, same parts, same voice, through
+this same server and library:
+
+| Engine | Audio | Took | Rate |
+|---|---|---|---|
+| CPU, fp32, 16 cores | 7.4 min | 74.7s | 6x realtime |
+| GPU | 7.4 min | 8.3s | 54x realtime |
+| GPU, longer run | 30.8 min | 18.6s | 100x realtime |
+
+Sixteen times, once the run is long enough to settle. A book that took 70
+hours should take about 4.
+
+Nothing in this server knows about CUDA. Its engine is one function, text in
+and samples out, so the card lives behind that function in a separate Python
+service, started first:
+
+```
+cd ..\..\book2audio
+.venv\Scripts\python gpu_voice.py
+```
+
+then here:
+
+```
+npm start -- --gpu http://127.0.0.1:8899 --code 123456
+```
+
+The phone sees no difference: same model, same voices, same clip keys, same
+manifest. If the Python service is not running then nothing renders and the
+server says so, because `--gpu` does not load the CPU voice as well.
 
 Anyone on your network who has the code can ask for audio and read back the
 books this server itself prepared, and nothing else: there is no access to

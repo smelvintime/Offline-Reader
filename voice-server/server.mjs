@@ -4,9 +4,11 @@
 // docs/PREPARED_BOOKS_PLAN.md: a book is prepared once and then plays from
 // stored audio. Preparing on the phone is the hot, slow part, and a desktop
 // chip renders the same model many times faster. So the app can hand the work
-// here: it sends one group of text at a time, this renders it with the same
-// Kokoro model and voices, and the phone stores the WAV exactly as if it had
-// made it itself. Playback on the phone does not change at all.
+// here: it sends the book's text, this renders it with the same Kokoro model
+// and voices and keeps it (library.mjs, jobs.mjs), and the phone collects the
+// audio and stores it exactly as if it had made it itself. A part that says
+// where its sentences begin is rendered a sentence at a time (join.mjs), so
+// the app can light the sentence being spoken.
 //
 //   cd voice-server && npm install     # once
 //   npm start                          # prints the address and code to type in
@@ -43,6 +45,7 @@ const MAX_JOB_BODY = 32 * 1024 * 1024;   // one chunk of a book's text
 const MAX_PARTS = 1000000;
 const MAX_KEY = 512;
 const MAX_TEXT = 4000;
+const MAX_CUTS = 200;            // sentences in one part; a real one has a handful
 const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
 const PEER_TIMEOUT_MS = 120000;
 const PEER_REST_MS = 30000;      // a computer that failed is left alone this long
@@ -138,6 +141,16 @@ function readBody(req, limit) {
   });
 }
 
+/** Where a part's sentences begin: whole numbers, rising, from 0, inside the text. */
+function cutsOk(cuts, length) {
+  if (!Array.isArray(cuts) || !cuts.length || cuts.length > MAX_CUTS || cuts[0] !== 0) return false;
+  for (let i = 0; i < cuts.length; i++) {
+    if (!Number.isInteger(cuts[i]) || cuts[i] >= length) return false;
+    if (i && cuts[i] <= cuts[i - 1]) return false;
+  }
+  return true;
+}
+
 /** Why a posted book cannot be taken, as a sentence, or null if it can. */
 function jobProblem(job) {
   if (!job || typeof job !== 'object' || Array.isArray(job)) return 'body must be a JSON object';
@@ -150,6 +163,7 @@ function jobProblem(job) {
   for (const p of parts) {
     if (!p || typeof p.key !== 'string' || !p.key || p.key.length > MAX_KEY) return 'every part needs a key of 1 to ' + MAX_KEY + ' characters';
     if (typeof p.text !== 'string' || !p.text.trim() || p.text.length > MAX_TEXT) return 'every part needs 1 to ' + MAX_TEXT + ' characters of text';
+    if (p.cuts !== undefined && !cutsOk(p.cuts, p.text.length)) return 'cuts must be rising positions inside the text, starting at 0';
   }
   return null;
 }
@@ -317,7 +331,9 @@ export function createVoiceServer(options) {
 
     if (req.method === 'GET' && url.pathname === '/status') {
       sendJson(res, 200, {
-        ok: true, version: 1,
+        // 2: parts may carry `cuts` and come back with `marks`, and a job
+        // may say `first`.
+        ok: true, version: 2,
         ready: !!engine, error: loadError ? String(loadError.message || loadError) : null,
         info: engine ? engine.info : null, rendered: rendered,
         workers: 1 + peers.length, shares: pool.shares(),
@@ -453,7 +469,11 @@ export function createVoiceServer(options) {
         v: m.v, book: m.book, title: m.title, voice: m.voice, created: m.created,
         from: from, next: next, ready: done.length, total: m.parts.length,
         parts: take.map(function (p) {
-          return { key: p.key, file: p.file, seconds: p.seconds, bytes: p.bytes, seq: p.seq };
+          const out = { key: p.key, file: p.file, seconds: p.seconds, bytes: p.bytes, seq: p.seq };
+          // When each sentence starts in the clip, where it was rendered a
+          // sentence at a time. The app lights the sentence from these.
+          if (p.marks) out.marks = p.marks;
+          return out;
         }),
       };
       cors(res);

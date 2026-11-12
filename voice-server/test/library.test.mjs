@@ -13,6 +13,7 @@ import { createLibrary, bookDir, partName, summary, haveFfmpeg, LIBRARY_VERSION 
 import { createJobs } from '../jobs.mjs';
 import { writeZip, crc32 } from '../zip.mjs';
 import { createVoiceServer, encodeWav } from '../server.mjs';
+import { unitsOf, joinWavs, wavPcm, gapAfterMs, SENTENCE_GAP_MS } from '../join.mjs';
 
 // ── Scaffolding ─────────────────────────────────────────────────────────────
 
@@ -589,4 +590,108 @@ test('a book posted while the voice is still loading is taken, not dropped', asy
     }, 'the book once the voice arrived');
     assert.equal(end.done, 2);
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+// ── Sentences timed inside a part, and parts asked for first ────────────────
+
+test('text is cut where its sentences begin, or left whole', () => {
+  assert.deepEqual(unitsOf('One. Two. Three.', [0, 5, 10]), ['One.', 'Two.', 'Three.']);
+  assert.deepEqual(unitsOf('One. Two.', undefined), ['One. Two.'], 'no cuts is one piece');
+  assert.deepEqual(unitsOf('One. Two.', [0]), ['One. Two.'], 'one cut is one piece');
+  assert.deepEqual(unitsOf('One.  ', [0, 5]), ['One.  '], 'a cut that leaves nothing to say is ignored');
+  assert.equal(gapAfterMs('He stopped.'), SENTENCE_GAP_MS);
+  assert.equal(gapAfterMs('“Wait!”'), SENTENCE_GAP_MS, 'a closing quote does not hide the full stop');
+  assert.equal(gapAfterMs('and then'), 0, 'no rest where no sentence ended');
+});
+
+test('clips joined end to end know where each one starts', () => {
+  const tone = (n) => encodeWav(new Float32Array(n).fill(0.25), 24000);
+  const joined = joinWavs([tone(2400), tone(4800), tone(1200)], [220, 0, 220]);
+  assert.deepEqual(joined.marks, [0, 0.32, 0.52], 'a rest after the first, none after the second');
+  assert.equal(joined.seconds, 0.57, 'and no rest after the last');
+  const back = wavPcm(joined.wav);
+  assert.equal(back.rate, 24000);
+  assert.equal(back.pcm.length, 13680 * 2, '0.57 s of samples');
+  assert.equal(back.pcm.readInt16LE(2 * 2400), 0, 'the rest is silence');
+  assert.notEqual(back.pcm.readInt16LE(2 * Math.round(0.32 * 24000)), 0, 'and the next clip starts on its mark');
+  assert.throws(() => joinWavs([Buffer.from('not audio')], []), /not a WAV/);
+});
+
+test('a part that names its sentences says when each one starts', async () => {
+  const root = await tempRoot();
+  const calls = [];
+  const { server, base } = await serve(root, fakeEngine(calls));
+  try {
+    const key = (i) => [1, 'test-book', 'ch1', 'af_heart', 0, i, i, 'h' + i].join('|');
+    const r = await post(base, '/job', job({ parts: [
+      { key: key(0), text: 'One. Two. Three.', cuts: [0, 5, 10] },
+      { key: key(1), text: 'Whole, as before.' },
+      { key: key(2), text: 'Alone.', cuts: [0] },
+    ] }));
+    assert.equal(r.status, 202);
+    await until(async () => (await (await ask(base, '/job?book=test-book')).json()).ready, 'the book to be ready');
+
+    assert.deepEqual(calls.map(c => c.text).sort(),
+      ['Alone.', 'One.', 'Three.', 'Two.', 'Whole, as before.'], 'each sentence rendered by itself');
+
+    const zip = readZip(Buffer.from(await (await ask(base, '/bundle?book=test-book')).arrayBuffer()));
+    const manifest = JSON.parse(zip.get('book.json').toString());
+    const got = (i) => manifest.parts.find(p => p.key === key(i));
+    // The fake voice says every sentence in a tenth of a second.
+    assert.deepEqual(got(0).marks, [0, 0.32, 0.64]);
+    assert.equal(got(0).seconds, 0.74);
+    assert.equal(zip.get('parts/' + got(0).file).length, 44 + 17760 * 2, 'one clip holding all three');
+    assert.ok(!('marks' in got(1)), 'a part that named no sentences has no marks');
+    assert.deepEqual(got(2).marks, [0], 'one sentence starts at the start');
+    assert.ok(!('cuts' in got(0)), 'the cuts stay on the computer with the text');
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('cuts that do not fit the text are refused', async () => {
+  const root = await tempRoot();
+  const { server, base } = await serve(root);
+  try {
+    for (const cuts of [[1, 5], [0, 5, 5], [0, 99], [0, 2.5], 'no', []]) {
+      const r = await post(base, '/job', job({ parts: [{ key: 'k', text: 'One. Two.', cuts }] }));
+      assert.equal(r.status, 400, JSON.stringify(cuts));
+    }
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('parts someone is waiting for are rendered first', async () => {
+  const root = await tempRoot();
+  try {
+    const lib = createLibrary({ root, compress: false });
+    const rendered = [];
+    const jobs = createJobs({ library: lib, pool: fakePool(rendered), width: () => 1 });
+    const all = parts(8);
+    await jobs.start(job({ parts: all }));
+    // The reader jumped to the end of the book while the start was rendering.
+    await jobs.start(job({ parts: [all[6], all[7]], first: true }));
+    await until(async () => (await jobs.state('test-book')).ready, 'the book to finish');
+
+    assert.equal(rendered.length, 8, 'and nothing was rendered twice');
+    assert.ok(rendered.indexOf('Part 6.') <= 1 && rendered.indexOf('Part 7.') <= 2,
+      'the two asked for went to the front: ' + rendered.join(' '));
+    assert.equal(rendered.indexOf('Part 5.'), 7, 'the rest kept their order behind them');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('asking first for a book nobody is rendering starts it there', async () => {
+  const root = await tempRoot();
+  try {
+    const lib = createLibrary({ root, compress: false });
+    const rendered = [];
+    const jobs = createJobs({ library: lib, pool: fakePool(rendered), width: () => 1 });
+    const all = parts(5);
+    await jobs.start(job({ parts: all }));
+    jobs.cancel('test-book');
+    await until(async () => !(await jobs.state('test-book')).running, 'the book to stop');
+    const before = rendered.length;
+
+    await jobs.start(job({ parts: [all[4]], first: true }));
+    await until(async () => (await jobs.state('test-book')).ready, 'the book to finish');
+    assert.equal(rendered[before], 'Part 4.', 'the part asked for came first: ' + rendered.join(' '));
+    assert.equal(rendered.length, 5);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

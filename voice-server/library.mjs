@@ -185,7 +185,7 @@ export function createLibrary(options) {
     let top = 0;
     for (const p of m.parts) {
       const name = partName(p.key, ext);
-      if (p.file && !have.has(p.file)) { p.file = null; p.bytes = 0; p.seconds = 0; p.seq = 0; }
+      if (p.file && !have.has(p.file)) { p.file = null; p.bytes = 0; p.seconds = 0; p.seq = 0; delete p.marks; }
       else if (!p.file && have.has(name)) { p.file = name; claimed.push(p); }
       if (p.seq > top) top = p.seq;
     }
@@ -285,8 +285,19 @@ export function createLibrary(options) {
       const added = [];
       for (const p of (job.parts || [])) {
         const had = known.get(p.key);
-        if (had) { if (!had.text) had.text = p.text; continue; }
+        if (had) {
+          if (!had.text) had.text = p.text;
+          // A part taken before sentences were timed learns its cuts now, so
+          // long as it has not been rendered: the cuts index the text they
+          // came with, and a finished clip has no use for them.
+          if (!had.file && !had.cuts && Array.isArray(p.cuts)) { had.text = p.text; had.cuts = p.cuts; }
+          continue;
+        }
         const rec = { key: p.key, text: p.text, file: null, seconds: 0, bytes: 0, seq: 0 };
+        // Where each sentence begins in the text, when the app says: the part
+        // is then rendered a sentence at a time and `marks` records when each
+        // starts in the clip.
+        if (Array.isArray(p.cuts)) rec.cuts = p.cuts;
         known.set(p.key, rec);
         m.parts.push(rec);
         added.push(rec);
@@ -308,7 +319,7 @@ export function createLibrary(options) {
     },
 
     /** One rendered part: compressed where it can be, written, counted. */
-    put: async function (m, part, wav, seconds) {
+    put: async function (m, part, wav, seconds, marks) {
       const name = partName(part.key, ext);
       const path = join(dirOf(m), 'parts', name);
       if (compress) await encodeAac(wav, path);
@@ -317,9 +328,16 @@ export function createLibrary(options) {
       part.file = name;
       part.bytes = s.size;
       part.seconds = seconds || 0;
+      if (marks) part.marks = marks; else delete part.marks;
       part.seq = ++m.seq;
       saveSoon(m);
       return part;
+    },
+
+    /** The parts holding these keys, in the order asked, unknown ones left out. */
+    partsFor: function (m, keys) {
+      const known = indexOf(m);
+      return (keys || []).map(function (k) { return known.get(k); }).filter(Boolean);
     },
 
     /** One part's bytes, for the bundle. */

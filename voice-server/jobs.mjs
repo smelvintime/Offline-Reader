@@ -8,6 +8,7 @@
 // phone can be shut in a drawer; the book is here when it comes back.
 
 import { summary } from './library.mjs';
+import { unitsOf, joinWavs, gapAfterMs } from './join.mjs';
 
 export function createJobs(options) {
   const library = options.library;
@@ -32,23 +33,58 @@ export function createJobs(options) {
   }
 
   /**
+   * One part's audio. A part that says where its sentences begin is rendered
+   * a sentence at a time and joined here, which is the only way to know to
+   * the sample when each one starts: the model reports no timing. The
+   * sentences go to the pool separately, so a graphics card or a second
+   * computer takes them side by side.
+   * → { wav, seconds, marks } with marks null for a part that named no cuts.
+   */
+  async function renderPart(part, voice) {
+    const units = unitsOf(part.text, part.cuts);
+    if (units.length < 2) {
+      const r = await pool.render(part.text, voice);
+      return { wav: r.wav, seconds: r.seconds, marks: Array.isArray(part.cuts) ? [0] : null };
+    }
+    const rendered = await Promise.all(units.map(function (u) { return pool.render(u, voice); }));
+    return joinWavs(rendered.map(function (r) { return r.wav; }), units.map(gapAfterMs));
+  }
+
+  /**
    * Feeds the pool, never more than `width()` parts at once, until the list is
    * done or the run is cancelled. A part that fails is counted and skipped:
    * it has no file, so it is pending again and posting the book again retries
    * it. One bad part must not cost the other nine hundred.
+   *
+   * `run.urgent` jumps the queue: the parts someone is waiting to hear, because
+   * they opened the book at chapter five hundred while this was on chapter
+   * three.
    */
   function drive(run, manifest, pending) {
     return new Promise(function (resolve) {
       let i = 0;
       let active = 0;
+      function take() {
+        while (run.urgent.length) {
+          const p = run.urgent.shift();
+          if (!p.file && p.text && !run.taken.has(p)) return p;
+        }
+        while (i < pending.length) {
+          const p = pending[i++];
+          if (!p.file && !run.taken.has(p)) return p;
+        }
+        return null;
+      }
       function next() {
         if (run.cancelled) { if (!active) resolve(); return; }
-        while (active < width() && i < pending.length) {
-          const part = pending[i++];
+        while (active < width()) {
+          const part = take();
+          if (!part) break;
           const started = Date.now();
           active++;
-          pool.render(part.text, manifest.voice)
-            .then(function (r) { return library.put(manifest, part, r.wav, r.seconds); })
+          run.taken.add(part);
+          renderPart(part, manifest.voice)
+            .then(function (r) { return library.put(manifest, part, r.wav, r.seconds, r.marks); })
             .then(function () {
               run.rendered++;
               run.renderMs += Date.now() - started;
@@ -59,7 +95,7 @@ export function createJobs(options) {
             })
             .then(function () { active--; next(); });
         }
-        if (!active && i >= pending.length) resolve();
+        if (!active && i >= pending.length && !run.urgent.length) resolve();
       }
       next();
     });
@@ -74,11 +110,20 @@ export function createJobs(options) {
     start: async function (job) {
       const accepted = await library.accept(job);
       const manifest = accepted.manifest;
+      // `first` says these parts are the ones being waited for: render them
+      // before anything else in the book, whatever was queued ahead of them.
+      const wanted = job.first
+        ? library.partsFor(manifest, (job.parts || []).map(function (p) { return p.key; }))
+            .filter(function (p) { return !p.file && p.text; })
+        : [];
       const existing = runs.get(manifest.book);
       if (existing && existing.running) {
         // Already working on this book. The parts just posted were merged into
         // the manifest; the running job sweeps for them when this pass ends.
         existing.again = true;
+        // The latest request goes to the very front: it is where the reader
+        // is now, and an earlier one is where they no longer are.
+        if (wanted.length) existing.urgent = wanted.concat(existing.urgent);
         return stateOf(manifest, existing);
       }
 
@@ -86,6 +131,8 @@ export function createJobs(options) {
         running: true, cancelled: false, again: false,
         startedAt: Date.now(), finishedAt: null,
         rendered: 0, renderMs: 0, failed: 0, lastError: '',
+        urgent: wanted,
+        taken: new Set(),   // handed to the pool this pass, so never twice
       };
       runs.set(manifest.book, run);
 
@@ -97,6 +144,9 @@ export function createJobs(options) {
             // A second post while this one ran may have added parts.
             if (!run.again) break;
             run.again = false;
+            // Nothing is in flight between passes, so a part that failed is
+            // free to be tried again.
+            run.taken.clear();
             pending = manifest.parts.filter(function (p) { return !p.file && p.text; });
           }
         } catch (e) {

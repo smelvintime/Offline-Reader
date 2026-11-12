@@ -49,10 +49,15 @@ server and starting it again picks every unfinished book up where it stopped.
    asks to find devices on your local network: **Allow**. (If it was refused:
    Settings → Privacy & Security → Local Network → Offline Reader.)
 
-   The phone sends the whole book in one go and then only watches. Once it
-   says so you can close the app and put the phone down: this computer keeps
-   rendering. Open the book again later and tap **Prepare on my computer** to
-   collect what is waiting.
+   The phone sends the whole book and then only watches. Once it says so you
+   can close the app and put the phone down: this computer keeps rendering.
+
+   You do not have to wait for the book to finish. Tap **Play** as soon as you
+   like: the book is sent starting from the chapter you are on, the audio
+   arrives as it is made, and the book plays while the rest is prepared behind
+   it. If you jump to a chapter that is not ready, playback waits and this
+   computer makes that chapter next. Later, with the app reopened, **Play**
+   goes back to this computer by itself and collects what is waiting.
 
 4. Leave this window open while it works. Ctrl+C stops the server, and
    starting it again carries on by itself.
@@ -106,10 +111,10 @@ The app talks to it over these, all needing the same `x-voice-code` header:
 
 | | |
 |---|---|
-| `POST /job` | takes a whole book: `{ book, title, voice, parts: [{ key, text }] }`. Answers 202 as soon as it is written down, and renders afterwards. Sending the same book again adds new parts and retries failed ones, leaving finished ones alone. |
+| `POST /job` | takes a book, or a chunk of one: `{ book, title, voice, parts: [{ key, text, cuts }] }`. Answers 202 as soon as it is written down, and renders afterwards. Sending the same book again adds new parts and retries failed ones, leaving finished ones alone. `cuts` is optional: where each sentence begins in `text`, starting at 0. A part that has them is rendered a sentence at a time, so its clip knows when each sentence starts. `first: true` puts these parts at the front of the queue: it is what the app sends when someone is waiting to hear them. |
 | `GET /job?book=…` | how far along: `done`, `total`, `bytes`, `running`, `msPerPart`. |
 | `POST /job/stop?book=…` | stops rendering. Parts already finished are kept. |
-| `GET /bundle?book=…` | every finished part as one zip, holding `book.json` and `parts/`. To collect a book in several passes, send `&from=N` with the `next` from the last zip you took (also the `x-next` header), and you get only what has landed since. |
+| `GET /bundle?book=…` | every finished part as one zip, holding `book.json` and `parts/`. To collect a book in several passes, send `&from=N` with the `next` from the last zip you took (also the `x-next` header), and you get only what has landed since. A part rendered a sentence at a time carries `marks` in `book.json`: the second each sentence starts at, which is what the app's highlight follows. |
 | `GET /books` | everything this computer holds. |
 | `DELETE /book?book=…` | removes a book and its audio. |
 

@@ -246,6 +246,79 @@ The phone sees no difference: same model, same voices, same clip keys, same
 manifest. If the Python service is not running then nothing renders and the
 server says so, because `--gpu` does not load the CPU voice as well.
 
+### On a Mac's graphics chip
+
+`gpu/mac_voice.py` is the same kind of service for Apple Silicon, running
+Kokoro on the GPU through MLX (Apple's array library) and the `mlx-audio`
+package. It speaks the same two routes as the CUDA service, so `--gpu` cannot
+tell them apart.
+
+**Status: written from `mlx-audio` 0.6.5's source and tested only with its fake
+voice. It has not been run on a Mac with the real model.** The first thing to
+do is the check below, which measures it. Whether it beats the processor on
+your Mac is the question, and it is yours to answer: the processor path
+already makes about 8x realtime on a 12-core Mac.
+
+Once:
+
+```bash
+brew install python@3.12 espeak-ng
+cd voice-server/gpu
+/opt/homebrew/bin/python3.12 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-mac.txt
+```
+
+Then check it. This renders a few sentences, says how fast, and tests that a
+made-up name is spoken rather than skipped:
+
+```bash
+python mac_voice.py --check
+```
+
+The first run downloads the voices and a small language model, so it takes a
+few minutes. If it says **DROPPED**, install `espeak-ng` as above and run it
+again: without it, every word its dictionary does not know (a novel's invented
+names) is left out of the sentence without a sound.
+
+Then find how many requests to keep waiting, with the service running in one
+window:
+
+```bash
+python mac_voice.py
+```
+
+and in another:
+
+```bash
+cd voice-server
+node bench.mjs --gpu http://127.0.0.1:8899
+```
+
+It prints the speed with 1, 2, 3… requests in flight and the `--slots` to use.
+Then:
+
+```bash
+caffeinate -i npm start -- --gpu http://127.0.0.1:8899 --slots 3 --code 123456
+```
+
+Two things to listen for, since this is a different implementation of the same
+voice and not the same program:
+
+- It speaks the 16-bit-float (`bf16`) weights, where the processor path uses
+  full precision, and it turns text into sounds with a different program
+  (misaki, not the one the phone uses). The same words can be pronounced
+  slightly differently. The clip keys do not include which machine made a
+  clip, so a book can mix them, but it is kinder to the ear to render one
+  book on one engine.
+- Everything else is the same: the same voices, the same clip keys, the same
+  manifest, and the phone cannot tell.
+
+The service listens on `127.0.0.1` only, so nothing else on the network can
+reach it; voice-server, on the same computer, is its only caller. Without a
+Mac, `python gpu/mac_voice.py --fake` serves a tone instead of speech, which
+checks the wiring.
+
 Anyone on your network who has the code can ask for audio and read back the
 books this server itself prepared, and nothing else: there is no access to
 any other file on the computer.

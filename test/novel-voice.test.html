@@ -2789,6 +2789,39 @@ const T = {
                   'and the whole group is never lit at once') && pass;
       }
 
+      // Changing narrator. Stored audio is per voice, and which chapters are
+      // prepared is read per voice too: a switch made while playing used to
+      // restart before that read came back, find nothing, and end the
+      // session, even on a book fully prepared in the voice chosen.
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const chip = id => document.querySelector('#novel-screen .vc-chip[data-voice="' + id + '"]');
+        V().toggle(); VT().pause();                      // a session, so the sheet exists
+        chip('am_michael').click();
+        await waitFor(() => VT().preparedSummary().loaded && VT().state.preparedIndex.voice === 'am_michael', 3000, 'Michael’s index');
+        pass = ok(VT().preparedSummary().ready === 0, 'a book prepared in Heart is not prepared in Michael') && pass;
+        VT().syncSheet();
+        pass = ok(/not prepared in this voice/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'and the sheet says so') && pass;
+        P.start();
+        await waitFor(() => !P.running, 15000, 'prepared in Michael too');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'the book is then prepared in both voices') && pass;
+
+        const chV = VT().channel, playV = chV.play;
+        const heardIn = [];
+        chV.play = function (u, o) { if (!(o && o.loop)) heardIn.push(VT().state.prefs.neuralVoice); return playV.apply(chV, arguments); };
+        VT().resume();
+        await waitFor(() => heardIn.indexOf('am_michael') !== -1, 5000, 'playing in Michael');
+        chip('af_heart').click();
+        await waitFor(() => heardIn.indexOf('af_heart') !== -1, 5000, 'playing in Heart after the switch');
+        chV.play = playV;
+        pass = ok(V().isActive() && V().state().playing, 'changing to a prepared voice while playing keeps playing') && pass;
+        pass = ok(VT().state.preparedIndex.voice === 'af_heart', 'from that voice’s own audio') && pass;
+        VT().pause();
+      }
+
       // 3. Play stops a preparation; starting again renders nothing new.
       VT().pause();
       endSession();
@@ -2867,6 +2900,7 @@ const T = {
       V().closeSheet();
     } finally {
       if (P.running) P.stop(null);
+      Store.prefs.set('voice.neuralVoice', 'af_heart');
       await VT().deletePrepared();
       endSession();
     }
@@ -2891,12 +2925,15 @@ const T = {
     // own time, and hands back finished parts as zips.
     const server = {
       ready: true, status: 200, fail: false, workers: undefined,
-      posts: [], calls: [], statusCalls: 0, bundles: [], stopped: 0,
-      pending: [], done: new Map(), seq: 0, voice: '',
+      posts: [], calls: [], statusCalls: 0, bundles: [], stopped: 0, stops: [],
+      pending: [], done: new Map(), seq: 0, voice: '', book: null,
       perPoll: Infinity,      // parts rendered per progress check
       failTail: 0,            // this many parts at the end never render
       take(job) {
         this.posts.push(job);
+        // A different id is a different book: this fake holds one at a time.
+        if (job.book !== this.book) { this.pending = []; this.done = new Map(); this.seq = 0; }
+        this.book = job.book;
         this.voice = job.voice;
         const fresh = [];
         (job.parts || []).forEach(p => {
@@ -2921,7 +2958,7 @@ const T = {
       get total() { return this.pending.length + this.done.size; },
       state() {
         return {
-          book: 'b', total: this.total, done: this.done.size, bytes: this.done.size * wav.byteLength,
+          book: this.book, voice: this.voice, total: this.total, done: this.done.size, bytes: this.done.size * wav.byteLength,
           ready: this.total > 0 && this.pending.length === 0,
           running: this.pending.length > this.failTail,
           failed: this.pending.length && this.pending.length <= this.failTail ? this.pending.length : 0,
@@ -2967,10 +3004,17 @@ const T = {
           server.take(o.json);
           return { status: 202, headers: {}, data: server.state() };
         }
-        if (path.startsWith('/job?')) { server.render(server.perPoll); return { status: 200, headers: {}, data: server.state() }; }
-        if (path.startsWith('/job/stop')) { server.stopped++; return { status: 200, headers: {}, data: { stopped: true } }; }
-        if (path.startsWith('/manifest')) return { status: 200, headers: {}, data: server.manifest() };
+        const asked = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('book');
+        const unknown = { status: 404, headers: {}, data: { error: 'this computer has no such book' } };
+        if (path.startsWith('/job/stop')) { server.stopped++; server.stops.push(asked); return { status: 200, headers: {}, data: { stopped: true } }; }
+        if (path.startsWith('/job?')) {
+          if (asked !== server.book) return unknown;
+          server.render(server.perPoll);
+          return { status: 200, headers: {}, data: server.state() };
+        }
+        if (path.startsWith('/manifest')) return asked === server.book ? { status: 200, headers: {}, data: server.manifest() } : unknown;
         if (path.startsWith('/bundle')) {
+          if (asked !== server.book) return unknown;
           const q = new URLSearchParams(path.slice(path.indexOf('?') + 1));
           const data = await server.bundle(Number(q.get('from')) || 0, Number(q.get('limit')) || Infinity);
           return data ? { status: 200, headers: {}, data } : { status: 404, headers: {}, data: { error: 'nothing new' } };
@@ -2984,7 +3028,7 @@ const T = {
       await VT().deletePrepared();
       server.pending = []; server.done = new Map(); server.seq = 0;
       server.posts = []; server.calls = []; server.bundles = []; server.perPoll = Infinity; server.failTail = 0;
-      server.stopped = 0; server.workers = undefined;
+      server.stopped = 0; server.stops = []; server.workers = undefined; server.book = null; server.voice = '';
     };
     const chapterOfKey = k => String(k).split('|')[2];
     try {
@@ -3037,6 +3081,13 @@ const T = {
       pass = ok(cutClip && Array.isArray(cutClip.marks) && cutClip.marks.length === cutPart.cuts.length,
                 'and its clip is stored with a mark per sentence', cutClip && JSON.stringify(cutClip.marks)) && pass;
       pass = ok(chapterOfKey(sentParts[0].key) === CHAPTERS[0].id, 'the book is sent from the chapter the reader is on') && pass;
+      // Each voice is its own book on the computer, so trying another
+      // narrator does not wipe this one's audio there.
+      const plainId = VT().state.preparedIndex.book;
+      const voiceNow = VT().state.prefs.neuralVoice;
+      pass = ok(server.posts[0].book === plainId + '@' + voiceNow && server.posts[0].family === plainId,
+                'the computer is given the book under this voice, and told which book it is a voice of',
+                server.posts[0].book + ' / ' + server.posts[0].family) && pass;
 
       // 2. Again: everything is stored, so nothing new is sent or fetched.
       const bundlesBefore = server.bundles.length;
@@ -3264,6 +3315,74 @@ const T = {
       await waitFor(() => !V().isActive(), 5000, 'session ended');
       pass = ok(server.calls.length === 0 && !P.running, 'Play on a book no computer has does not call one', server.calls.length) && pass;
       V().closeSheet();
+
+      // 16. A book the computer took under the bare id, before voices had
+      //     their own, keeps that id while it is in this voice.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const plain = VT().state.preparedIndex.book;
+        const voice = VT().state.prefs.neuralVoice;
+        server.book = plain; server.voice = voice;
+        P.start({ remote });
+        await waitFor(() => !P.running, 20000, 'the old-id book finished');
+        pass = ok(server.posts.length > 0 && server.posts.every(p => p.book === plain),
+                  'a book already there in this voice keeps the id it has', server.posts.map(p => p.book).join(',')) && pass;
+
+        // In another voice it is left alone, stopped, and this voice goes
+        // beside it under its own id.
+        await reset();
+        server.book = plain; server.voice = 'am_puck';
+        server.pending = [{ key: 'old', text: 'Still rendering in the other voice.' }];
+        server.perPoll = 0;                      // so it is still rendering when asked
+        P.start({ remote });
+        await waitFor(() => server.posts.length > 0, 10000, 'this voice to be sent');
+        pass = ok(server.stops.indexOf(plain) !== -1, 'the other voice is stopped rather than left competing', server.stops.join(',')) && pass;
+        server.perPoll = Infinity;
+        await waitFor(() => !P.running, 20000, 'the new-id book finished');
+        pass = ok(server.posts.every(p => p.book === plain + '@' + voice), 'and this voice gets its own id',
+                  server.posts.map(p => p.book).join(',')) && pass;
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book arrives') && pass;
+      }
+
+      // 17. Changing narrator while a computer works: the computer is handed
+      //     the new voice, playback carries on in it, and what was collected
+      //     in the first voice is kept.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.perPoll = 2;
+      {
+        const plain = VT().state.preparedIndex.book;
+        const ch = VT().channel, playReal = ch.play;
+        const heard = [];
+        ch.play = function (u, o) { if (!(o && o.loop)) heard.push(VT().state.prefs.neuralVoice); return playReal.apply(ch, arguments); };
+        P.start({ remote });
+        V().toggle();
+        await waitFor(() => heard.length > 0, 20000, 'the first voice to be heard');
+        pass = ok(heard[0] === 'af_heart', 'it starts in Heart', heard[0]) && pass;
+        document.querySelector('#novel-screen .vc-chip[data-voice="am_michael"]').click();
+        await waitFor(() => server.posts.some(p => p.voice === 'am_michael'), 10000, 'the computer to be given Michael');
+        const handed = server.posts.find(p => p.voice === 'am_michael');
+        pass = ok(handed.book === plain + '@am_michael' && handed.family === plain,
+                  'changing narrator hands the computer the new voice as its own book', handed.book) && pass;
+        pass = ok(P.running && P.voice === 'am_michael', 'and the phone is now collecting that voice', P.voice) && pass;
+        pass = ok(server.stopped === 0, 'without telling the computer to stop: starting the new voice pauses the old one there', server.stopped) && pass;
+        await waitFor(() => heard.indexOf('am_michael') !== -1, 30000, 'Michael to be heard');
+        pass = ok(V().isActive() && V().state().playing, 'and playback carries on in the new voice') && pass;
+        const kept = await VT().preparedStore.clipKeys(plain);
+        pass = ok(kept.some(k => k.split('|')[3] === 'af_heart') && kept.some(k => k.split('|')[3] === 'am_michael'),
+                  'what was collected in the first voice is kept beside the new one',
+                  kept.filter(k => k.split('|')[3] === 'af_heart').length + ' Heart clips') && pass;
+        VT().pause();
+        ch.play = playReal;
+        await waitFor(() => !P.running, 40000, 'Michael to finish');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book finishes in the new voice') && pass;
+        Store.prefs.set('voice.neuralVoice', 'af_heart');
+      }
     } finally {
       if (P.running) P.stop(null);
       ne.ensureReady = realEnsure;
@@ -3272,6 +3391,7 @@ const T = {
       Store.prefs.set('voice.remoteUrl', '');
       Store.prefs.set('voice.remoteCode', '');
       Store.prefs.set('voice.remoteBooks', []);
+      Store.prefs.set('voice.neuralVoice', 'af_heart');
       await VT().deletePrepared();
       endSession();
     }

@@ -1,0 +1,342 @@
+<!doctype html>
+<!--
+  The monitor page for voice-server. The server prints a link to it, with its
+  code, when it starts; open that in a browser to see what it is doing.
+
+  It holds nothing itself. Every few seconds it asks /activity, with the code,
+  and draws the answer: whether the voice is loaded, each book with a bar and
+  a time left, and the last things the server said. All text goes in through
+  textContent, so a book title can never run as markup.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice server</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1c1b19; --soft: #6b6862; --line: #e2dfd8;
+    --track: #e8e5de; --go: #2f7d5b; --warn: #b4551d; --bad: #b3261e; --idle: #8a867e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211; --card: #1c1c1a; --ink: #ecebe7; --soft: #a19d94; --line: #2c2b28;
+      --track: #2c2b28; --go: #5fbf93; --warn: #e39a5f; --bad: #f2867f; --idle: #7d7a72;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: .02em; color: var(--soft); margin: 0 0 14px; }
+  h2 { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); margin: 30px 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card + .card { margin-top: 12px; }
+
+  /* The one thing to read at a glance: is anything happening? */
+  .now { display: flex; align-items: center; gap: 16px; }
+  .ring {
+    flex: none; width: 42px; height: 42px; border-radius: 50%;
+    border: 4px solid var(--track); border-top-color: var(--go);
+  }
+  .ring.spin { animation: spin 0.9s linear infinite; }
+  .ring.idle { border-top-color: var(--track); }
+  .ring.bad { border-color: var(--bad); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .ring.spin { animation-duration: 4s; } }
+  .now-title { font-size: 22px; font-weight: 650; line-height: 1.2; }
+  .now-sub { color: var(--soft); margin-top: 3px; }
+
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--soft); font-size: 14px; }
+  .facts b { color: var(--ink); font-weight: 600; }
+
+  .book-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .book-title { font-weight: 650; overflow-wrap: anywhere; }
+  .book-voice { color: var(--soft); font-size: 14px; white-space: nowrap; }
+  .tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+  .tag.go { color: var(--go); } .tag.idle { color: var(--idle); } .tag.warn { color: var(--warn); }
+  .bar { height: 12px; border-radius: 99px; background: var(--track); overflow: hidden; margin: 12px 0 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--go); border-radius: 99px; transition: width .6s ease; }
+  .bar.paused i { background: var(--idle); }
+  .count { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+  .count .pct { font-weight: 650; }
+  .detail { color: var(--soft); font-size: 14px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .trouble { color: var(--bad); font-size: 14px; margin-top: 6px; overflow-wrap: anywhere; }
+
+  .empty { color: var(--soft); }
+  .log { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--soft); max-height: 260px; overflow: auto; }
+  .log div { display: flex; gap: 10px; }
+  .log time { flex: none; opacity: .7; }
+  .log span { overflow-wrap: anywhere; }
+
+  form { display: flex; gap: 8px; margin-top: 12px; }
+  input { flex: 1; font: inherit; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  button { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; border: 0; background: var(--go); color: #fff; cursor: pointer; }
+  footer { margin-top: 22px; color: var(--soft); font-size: 13px; text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Offline Reader voice server</h1>
+
+  <section class="card" aria-live="polite">
+    <div class="now">
+      <div class="ring idle" id="ring" role="img" aria-label="Activity"></div>
+      <div>
+        <div class="now-title" id="now-title">Connecting…</div>
+        <div class="now-sub" id="now-sub"></div>
+      </div>
+    </div>
+    <div class="facts" id="facts" hidden></div>
+    <form id="code-form" hidden>
+      <input id="code" inputmode="numeric" autocomplete="off" placeholder="Six-digit code the server printed" aria-label="Code">
+      <button type="submit">Connect</button>
+    </form>
+  </section>
+
+  <h2 id="books-head" hidden>Books</h2>
+  <div id="books"></div>
+
+  <h2 id="log-head" hidden>What it has been doing</h2>
+  <section class="card log" id="log" hidden></section>
+
+  <footer id="foot"></footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var POLL_MS = 2000;
+  var VOICES = { af_heart: 'Heart', af_bella: 'Bella', af_nicole: 'Nicole', bf_emma: 'Emma',
+                 am_michael: 'Michael', am_fenrir: 'Fenrir', am_puck: 'Puck', bm_george: 'George' };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var el = function (tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+
+  // The code comes from the link the server prints, and is remembered so the
+  // page can be reopened from a bookmark.
+  var code = new URLSearchParams(location.search).get('code') || '';
+  try { if (!code) code = localStorage.getItem('voice-code') || ''; } catch (e) {}
+
+  function num(n) { return Number(n || 0).toLocaleString('en-US'); }
+
+  function span(ms) {
+    var min = Math.round(ms / 60000);
+    if (min < 1) return 'under a minute';
+    if (min < 60) return min + ' min';
+    var h = Math.floor(min / 60), m = min % 60;
+    if (h < 48) return h + ' h' + (m ? ' ' + m + ' min' : '');
+    return Math.round(h / 24) + ' days';
+  }
+
+  function ago(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    if (s < 5) return 'just now';
+    if (s < 90) return s + ' s ago';
+    return span(ms) + ' ago';
+  }
+
+  function size(bytes) {
+    if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+    if (bytes >= 1e6) return Math.round(bytes / 1e6) + ' MB';
+    return Math.max(1, Math.round(bytes / 1e3)) + ' KB';
+  }
+
+  function pct(done, total) {
+    if (!total) return 0;
+    return Math.min(100, (done / total) * 100);
+  }
+
+  function pctText(p) { return (p > 0 && p < 10 ? p.toFixed(1) : Math.floor(p)) + '%'; }
+
+  function setRing(kind) { $('ring').className = 'ring ' + kind; }
+
+  function headline(title, sub, ring) {
+    $('now-title').textContent = title;
+    $('now-sub').textContent = sub || '';
+    setRing(ring);
+    document.title = title + ' · Voice server';
+  }
+
+  function fact(label, value) {
+    var d = el('span');
+    d.append(label + ' ', el('b', '', value));
+    return d;
+  }
+
+  function engineText(info) {
+    if (!info) return 'not loaded';
+    if (info.dtype === 'gpu') return 'graphics card';
+    return 'this computer’s processor' + (info.cores ? ', ' + info.cores + ' cores' : '');
+  }
+
+  // How many copies of the voice are running, and whether that number is
+  // still being worked out.
+  function copiesText(info) {
+    var t = info.tuning;
+    var s = String(info.copies);
+    if (!t) return s + ' (fixed)';
+    if (t.phase === 'trying') return s + ', trying ' + (t.copies + 1);
+    if (t.phase === 'measuring') return s + ', measuring';
+    return s + ', the fastest found';
+  }
+
+  /** One book: a bar, how far, how fast, how long. */
+  function bookCard(b, now) {
+    var card = el('section', 'card');
+    var head = el('div', 'book-head');
+    var left = el('div');
+    left.append(el('div', 'book-title', b.title || 'Untitled book'),
+                el('div', 'book-voice', 'Voice: ' + (VOICES[b.voice] || b.voice || 'unknown')));
+    var done = b.total > 0 && b.done >= b.total;
+    var tag = done ? el('span', 'tag go', 'Ready')
+      : b.running ? el('span', 'tag go', 'Rendering')
+      : el('span', 'tag idle', 'Paused');
+    head.append(left, tag);
+    card.append(head);
+
+    var p = pct(b.done, b.total);
+    var bar = el('div', 'bar' + (b.running || done ? '' : ' paused'));
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-valuenow', String(Math.floor(p)));
+    var fill = el('i'); fill.style.width = p.toFixed(2) + '%';
+    bar.append(fill);
+    card.append(bar);
+
+    var count = el('div', 'count');
+    count.append(el('span', '', num(b.done) + ' of ' + num(b.total) + ' parts'), el('span', 'pct', pctText(p)));
+    card.append(count);
+
+    var bits = [];
+    if (b.seconds) bits.push(span(b.seconds * 1000) + ' of audio ready');
+    if (b.bytes) bits.push(size(b.bytes));
+    if (b.running && b.startedAt && b.rendered > 0) {
+      var elapsed = Math.max(1, now - b.startedAt);
+      var left2 = b.total - b.done;
+      if (left2 > 0) bits.push('about ' + span((elapsed / b.rendered) * left2) + ' left');
+      if (b.renderedSeconds) bits.push((b.renderedSeconds * 1000 / elapsed).toFixed(1) + '× as fast as listening');
+    }
+    if (bits.length) card.append(el('div', 'detail', bits.join(' · ')));
+
+    if (b.running) {
+      card.append(el('div', 'detail', b.lastAt ? 'Last part finished ' + ago(now - b.lastAt) + '.'
+        : 'Working on its first part.'));
+    } else if (!done) {
+      card.append(el('div', 'detail', 'Not rendering right now. It carries on when the app asks for this book again.'));
+    }
+    if (b.failed) {
+      card.append(el('div', 'trouble', num(b.failed) + (b.failed === 1 ? ' part' : ' parts') + ' failed'
+        + (b.lastError ? ': ' + b.lastError : '') + '. They are tried again when the app asks for the book.'));
+    }
+    return card;
+  }
+
+  function draw(a) {
+    var now = a.now || Date.now();
+    var books = a.books || [];
+    var running = books.filter(function (b) { return b.running; });
+    var load = a.load || { busy: 0, slots: 0, queued: 0 };
+
+    if (a.error) headline('The voice could not load', a.error, 'bad');
+    else if (!a.ready) headline('Loading the voice…', 'The first start downloads about 330 MB. Books sent now are kept and begin when it is ready.', 'spin');
+    else if (running.length) {
+      var b = running[0];
+      headline('Rendering' + (running.length > 1 ? ' ' + running.length + ' books' : ''),
+        (b.title || 'A book') + ' · ' + pctText(pct(b.done, b.total)) + ' done', 'spin');
+    }
+    else if (load.busy) headline('Rendering', 'Working on a part.', 'spin');
+    else headline('Idle', books.length ? 'Nothing to render. Every book here is finished or paused.'
+                                       : 'Waiting for the app to send a book.', 'idle');
+
+    var facts = $('facts');
+    facts.replaceChildren(
+      fact('Voice on', engineText(a.info)),
+      fact('Computers', String(a.workers || 1)),
+      fact('Rendering now', load.busy + ' of ' + load.slots + (load.queued ? ', ' + load.queued + ' waiting' : '')),
+      fact('Running for', span(now - (a.startedAt || now)))
+    );
+    if (a.info && a.info.copies) {
+      facts.append(fact('Copies of the voice', copiesText(a.info)));
+      if (a.info.tuning && a.info.tuning.speed) facts.append(fact('Speed', a.info.tuning.speed + '× as fast as listening'));
+    }
+    if (a.library) facts.append(fact('Stored as', a.library.compress ? 'AAC (small)' : 'WAV (large, install ffmpeg)'));
+    facts.hidden = false;
+
+    var wrap = $('books');
+    $('books-head').hidden = false;
+    // Rendering first, then unfinished, then done; newest first inside each.
+    var rank = function (x) { return x.running ? 0 : (x.total && x.done >= x.total) ? 2 : 1; };
+    books.sort(function (x, y) { return rank(x) - rank(y) || (y.created || 0) - (x.created || 0); });
+    if (!books.length) {
+      var none = el('section', 'card empty', 'No books yet. In the app, open a book, open the voice sheet and tap Prepare on my computer.');
+      wrap.replaceChildren(none);
+    } else {
+      wrap.replaceChildren.apply(wrap, books.map(function (b) { return bookCard(b, now); }));
+    }
+
+    var lines = a.log || [];
+    var log = $('log');
+    var stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.replaceChildren.apply(log, lines.map(function (l) {
+      var row = el('div');
+      var t = el('time', '', new Date(l.at).toLocaleTimeString());
+      row.append(t, el('span', '', l.text));
+      return row;
+    }));
+    log.hidden = $('log-head').hidden = !lines.length;
+    if (stick) log.scrollTop = log.scrollHeight;
+
+    $('foot').textContent = 'Updated ' + new Date().toLocaleTimeString() + '. This page refreshes itself.';
+  }
+
+  var timer = 0;
+  function again() { clearTimeout(timer); timer = setTimeout(poll, POLL_MS); }
+
+  function askForCode(message) {
+    headline('Enter the code', message, 'idle');
+    $('code-form').hidden = false;
+    $('facts').hidden = true;
+  }
+
+  function poll() {
+    if (!code) { askForCode('Type the six-digit code the server printed when it started.'); return; }
+    fetch('/activity', { headers: { 'x-voice-code': code }, cache: 'no-store' }).then(function (r) {
+      if (r.status === 401) {
+        askForCode('That code does not match. The server prints a new one each time it starts.');
+        return null;
+      }
+      if (!r.ok) throw new Error('answered ' + r.status);
+      return r.json();
+    }).then(function (a) {
+      if (!a) return;
+      $('code-form').hidden = true;
+      try { localStorage.setItem('voice-code', code); } catch (e) {}
+      draw(a);
+      again();
+    }).catch(function () {
+      headline('The server is not answering', 'It may have been stopped. Start it again in Terminal; this page reconnects by itself.', 'bad');
+      $('foot').textContent = 'Last tried ' + new Date().toLocaleTimeString() + '.';
+      again();
+    });
+  }
+
+  $('code-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    code = $('code').value.trim();
+    poll();
+  });
+
+  poll();
+})();
+</script>
+</body>
+</html>

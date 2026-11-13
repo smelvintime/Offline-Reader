@@ -1406,6 +1406,64 @@ card), so the book can be heard while the rest of it is made:
 Only a computer can do this. The phone renders slower than speech, and it is
 the heat, so its own preparing still gives way to listening.
 
+**Changing narrator.** Stored audio is per voice: the voice is part of every
+clip key, and `state.preparedIndex` is read per voice. `voiceChanged()` (the
+chip's handler) therefore asks everything again for the new voice, and holds
+playback until that index read is back. Restarting before it finished found
+nothing prepared and ended the session, even on a book fully prepared in the
+voice chosen, which read as "only Heart works". A voice with no audio yet says
+so ("not prepared in this voice") rather than playing nothing.
+
+On the computer each voice is its own book. `voice-server`'s library keeps one
+voice per book id and starts a book over when its voice changes, so sending
+the bare id meant trying Michael threw away every hour of Heart. The app sends
+`id@voice` (`preparer.remoteIdFor`) and names the book they both are as
+`family`; the server gives the folder the voice's name, renders one voice of a
+family at a time (the one just asked for; the other pauses and keeps its
+audio), and after a restart carries on only with the voice asked for last. A
+book taken under the bare id before this keeps that id while it is in the
+current voice, so nothing rendered is orphaned. Changing narrator while a
+computer is working hands it the new voice (`voiceChanged` stops the phone's
+watching and starts a run in the new voice), and with a session playing, Play
+carries on in it as its clips arrive.
+
+**Using the whole computer.** `onnxruntime-node` runs a forward pass
+synchronously on the thread that asks for it. Inside the server that was the
+only thread, so nothing else happened while a sentence rendered (no reply to
+the phone, no monitor page), `--slots` above 1 rendered sentences one after
+another, and one pass spread over sixteen cores measured six times realtime
+with most of them waiting, because the model's graph is mostly a chain. The
+voice now runs as copies in processes of their own (`engine-worker.mjs`,
+managed by `farm.mjs`), one thread each: the thread count is set by building
+kokoro-js's model and tokenizer by hand with `session_options`, since its own
+`from_pretrained` passes none. The first copy loads alone, since on a first
+run it is the one downloading the model, and a copy that dies is replaced and
+its sentence rendered on another, once.
+
+How many copies is measured, not guessed (`tuner.mjs`): start at half the
+cores, measure seconds of audio per second of clock over a window in which the
+copies were at least 85% busy, add one, and keep it only if that was 5% faster.
+The ceiling is the core count or half the memory at about 1 GB a copy,
+whichever is lower. On a laptop this tends to stop at the fast cores by
+itself, since a slow core adds less than 5%, which also leaves the machine
+usable. It looks again every twenty minutes and remembers the answer in
+`voice-tuning.json`. `--workers N` fixes the number; `--gpu` is unaffected,
+since that engine is a service of its own. The pool reads a worker's
+`capacity()` rather than a fixed `slots`, and the job queue's width follows it.
+`npm run bench` prints the speed of each arrangement on the machine it is run
+on, and the real-model CI job runs it so the numbers are on record.
+
+**Watching the computer work.** `voice-server` serves a monitor page at `/`
+(`voice-server/monitor.html`; the server prints the link with its code). It is
+an empty frame served without the code, and everything it shows comes from
+`GET /activity`, which needs the code: whether the voice is loaded, how many
+slots are busy, each book with its run (`jobs.overview()`: parts, time left
+from the run's real throughput, audio seconds per wall second, when the last
+part landed) and the last lines of the server's own log. `library.list()`
+keeps each unopened book's summary by `book.json`'s modification time, since
+the page asks every two seconds and a long serial's manifest is tens of
+megabytes.
+
 ---
 
 ## 3. `window.Store` — persistence API

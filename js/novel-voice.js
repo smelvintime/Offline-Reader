@@ -3336,6 +3336,7 @@
     remoteTotal: 0,
     remoteMsPerPart: 0,  // measured there, not here, so the estimate is the computer's
     remoteNext: 0,       // the last part number collected, for the next pass
+    remoteBook: null,    // the id this book goes by on the computer, in this voice
     have: null,          // clip keys this book already holds, read once per run
     waiting: null,       // key → the chapter whose record it is the last part of
     plans: null,         // chapter id → its record, once the chapter has been planned
@@ -3413,6 +3414,7 @@
       this.remoteTotal = 0;
       this.remoteMsPerPart = 0;
       this.remoteNext = 0;
+      this.remoteBook = null;
       this.have = null;
       this.waiting = null;
       this.plans = null;
@@ -3450,7 +3452,7 @@
       // Stop means stop, including on the computer. What it has already
       // rendered it keeps, so tapping Prepare again carries on from there.
       if (this.remote && !keepComputer) {
-        remoteCall(this.remote, '/job/stop?book=' + encodeURIComponent(this.book), { method: 'POST' })
+        remoteCall(this.remote, '/job/stop?book=' + encodeURIComponent(this.remoteBook || this.book), { method: 'POST' })
           .catch(function () {});
       }
       neuralEngine.cancelPending();
@@ -3565,6 +3567,33 @@
     },
 
     /**
+     * The id this book goes by on the computer, in this voice.
+     *
+     * The computer keeps one voice per id and starts a book over when its
+     * voice changes, so sending the bare book id meant that trying Michael
+     * threw away every hour of Heart it had rendered. Each voice is its own
+     * book there instead, "id@voice", and the job names the book they both
+     * are as `family`, so the computer renders one voice of it at a time.
+     *
+     * A book it took before this, under the bare id, keeps that id if it is
+     * in this voice, so nothing already rendered is orphaned.
+     */
+    remoteIdFor: async function (book, voice) {
+      const own = book + '@' + voice;
+      const r = await remoteCall(this.remote, '/job?book=' + encodeURIComponent(book),
+        { timeoutMs: REMOTE_STATUS_TIMEOUT_MS, alsoOk: 404 });
+      if (r.status === 404) return own;
+      const had = r.data || {};
+      if (had.voice === voice) return book;
+      // In another voice, from before voices had their own ids. Leave its
+      // audio where it is, and stop it competing with the voice wanted now.
+      if (had.running) {
+        remoteCall(this.remote, '/job/stop?book=' + encodeURIComponent(book), { method: 'POST' }).catch(function () {});
+      }
+      return own;
+    },
+
+    /**
      * A chapter as the parts a computer renders: every group's key, its text
      * and where its sentences begin. → [{ key, text, cuts }]
      */
@@ -3624,7 +3653,8 @@
         if (!want.length || !this.alive(id)) return;
         voiceEvent('prepare-first', { chapter: chapterId, parts: want.length });
         const sent = await remoteJob(this.remote, {
-          book: book, title: (info && info.title) || '', voice: voice, parts: want, first: true,
+          book: this.remoteBook || book, family: book, title: (info && info.title) || '',
+          voice: voice, parts: want, first: true,
         });
         if (this.alive(id)) this.remoteTotal = Number(sent.total) || this.remoteTotal;
       } catch (e) {
@@ -3655,6 +3685,9 @@
 
       await this.waitRemote(id);
       if (!this.alive(id)) return;
+      const rbook = await this.remoteIdFor(book, voice);
+      if (!this.alive(id)) return;
+      this.remoteBook = rbook;
 
       this.sending = true;
       syncSheet();
@@ -3686,7 +3719,7 @@
           if (!chunk.length) return;
           const batch = chunk;
           chunk = [];
-          const took = await remoteJob(self.remote, { book: book, title: title, voice: voice, parts: batch });
+          const took = await remoteJob(self.remote, { book: rbook, family: book, title: title, voice: voice, parts: batch });
           if (!self.alive(id)) return;
           sent = true;
           self.remoteTotal = Number(took.total) || self.remoteTotal + batch.length;
@@ -3728,7 +3761,7 @@
         if (sendError) throw sendError;
         let s = null;
         if (sent) {
-          s = await remoteJobState(this.remote, book);
+          s = await remoteJobState(this.remote, rbook);
           if (!this.alive(id)) return;
           this.remoteDone = Number(s.done) || 0;
           this.remoteTotal = Number(s.total) || this.remoteTotal;
@@ -3770,7 +3803,7 @@
     collectRemote: async function (id, book, voice) {
       const have = this.have || new Set();
       if (!this.remoteNext) {
-        const man = await remoteManifest(this.remote, book);
+        const man = await remoteManifest(this.remote, this.remoteBook || book);
         if (!this.alive(id)) return;
         let lowest = 0;
         for (const p of (man.parts || [])) {
@@ -3788,7 +3821,7 @@
       try {
         for (;;) {
           if (!this.alive(id)) return;
-          const data = await remoteBundle(this.remote, book, this.remoteNext, REMOTE_COLLECT_PARTS);
+          const data = await remoteBundle(this.remote, this.remoteBook || book, this.remoteNext, REMOTE_COLLECT_PARTS);
           if (!this.alive(id) || !data) return;
           const zip = await window.JSZip.loadAsync(data);
           const entry = zip.file('book.json');
@@ -4124,7 +4157,7 @@
     const partly = bookHasPrepared();
     const msg = why || (partly
       ? 'This chapter is not prepared yet, so listening stops here. Prepare the rest of the book to carry on.'
-      : 'This book is not prepared yet, so it can only be read on screen. Prepare it to listen.');
+      : 'This book is not prepared in this voice yet, so it can only be read on screen. Prepare it to listen.');
     setPreparing(false);
     finishSession(msg);
     if (fromPlay) { ensureDom(); openSheet(); syncSheet(); }
@@ -4675,10 +4708,10 @@
         chip.dataset.voice = v.id;
         chip.append(el('span', 'vc-chip-name', v.label), el('span', 'vc-chip-note', v.note));
         chip.addEventListener('click', function () {
+          if (state.prefs.neuralVoice === v.id) return;
           state.prefs.neuralVoice = v.id;
           prefSet(PREF.neuralVoice, v.id);
-          syncSheet();
-          restartCurrentIfPlaying();
+          voiceChanged();
         });
         natVoices.appendChild(chip);
       })(NEURAL_VOICES[i]);
@@ -4785,7 +4818,7 @@
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
           + (preparedOnly ? 'Listening plays the chapters that are ready and stops at the first that is not.' : 'The rest use the live voice until prepared.');
-        else line = (preparedOnly ? 'This book is not prepared, so it cannot be read aloud yet. ' : '')
+        else line = (preparedOnly ? 'This book is not prepared in this voice, so it cannot be read aloud yet. ' : '')
           + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;
       }
@@ -5225,6 +5258,40 @@
     if (state.playing) { cancelSpeech(); state.playing = true; speakCurrent(); }
   }
 
+  /**
+   * The narrator was changed. Stored audio is per voice, so everything that
+   * was true of the book a moment ago has to be asked again for this one.
+   *
+   * Which chapters are prepared is read per voice, and that read is not
+   * instant. Restarting playback before it finished found nothing prepared
+   * and ended the session, even on a book fully prepared in the new voice:
+   * that was "it only works with Heart". So playback is held until the read
+   * is back.
+   *
+   * A computer rendering the book in the voice just left is handed the new
+   * one, since that is now the voice someone wants to hear. It keeps what it
+   * made of the old one; going back to that voice carries on from there.
+   */
+  let voiceChangeSeq = 0;
+  function voiceChanged() {
+    const seq = ++voiceChangeSeq;
+    const remote = preparer.running && preparer.remote && preparer.voice !== state.prefs.neuralVoice
+      ? preparer.remote : null;
+    // The computer is not told to stop here: starting the new voice pauses
+    // the old one there, and a voice that turns out to be finished on this
+    // phone starts nothing, in which case the old one may as well carry on.
+    if (remote) preparer.stop(null, true);
+    const wasPlaying = state.active && state.playing;
+    if (wasPlaying) { cancelSpeech(); state.playing = true; setPreparingSoon(); }
+    syncSheet();
+    preparedIndexReady().then(function () {
+      if (seq !== voiceChangeSeq) return;
+      if (remote && !preparer.running && state.bridge && !bookFullyPrepared()) preparer.start({ remote: remote });
+      syncSheet();
+      if (wasPlaying && state.active && state.playing) speakCurrent();
+    });
+  }
+
   function previewVoice() {
     const wasPlaying = state.playing;
     if (wasPlaying) pause();
@@ -5481,6 +5548,7 @@
       joinWavs: joinWavs,
       wavPcm: wavPcm,
       remoteStreaming: remoteStreaming,
+      voiceChanged: voiceChanged,
       preparedClipUrl: preparedClipUrl,
       preparedMarks: preparedMarks,
       preparedClipKey: preparedClipKey,

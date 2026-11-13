@@ -7,12 +7,14 @@
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
+    "bench": "node bench.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.5.1",
     "kokoro-js": "1.2.1"
   }
 }

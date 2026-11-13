@@ -66,6 +66,25 @@ The first start downloads the voice (about 330 MB) into a cache inside
 `node_modules`, so later starts are quick. The phone shows "Your computer is
 loading the voice" while that happens.
 
+## Watching it work
+
+When it starts, the server prints a **Monitor** link. Open it in a browser on
+this computer:
+
+```
+http://localhost:8787/?code=123456
+```
+
+(with the code your server printed). The page shows whether the voice has
+loaded, a ring that spins while anything is rendering, and each book with a
+progress bar, how many parts are done, about how long is left, how fast it is
+going compared with listening, and when the last part finished. Under that are
+the last things the server said. It refreshes itself every two seconds, and
+says so if the server stops answering.
+
+From another device on the same Wi-Fi, use the server's **Address** in place
+of `localhost`, with the same `?code=`.
+
 ## More than one computer
 
 Every computer renders its share at the same time, and each part goes to
@@ -117,6 +136,14 @@ The app talks to it over these, all needing the same `x-voice-code` header:
 | `GET /bundle?book=…` | every finished part as one zip, holding `book.json` and `parts/`. To collect a book in several passes, send `&from=N` with the `next` from the last zip you took (also the `x-next` header), and you get only what has landed since. A part rendered a sentence at a time carries `marks` in `book.json`: the second each sentence starts at, which is what the app's highlight follows. |
 | `GET /books` | everything this computer holds. |
 | `DELETE /book?book=…` | removes a book and its audio. |
+| `GET /` | the monitor page. Needs no code, because it holds nothing: it asks `/activity` for what it shows. |
+| `GET /activity` | everything the monitor page shows: the voice, how busy the computers are, every book with its progress, and the last lines of the log. |
+
+A book can be kept in more than one voice. The app sends each voice as its own
+book (`book` is `id@voice`) and names the book they both are in `family`. Each
+gets its own folder, with the voice in its name. Only one voice of a family
+renders at a time: the one asked for most recently. The other pauses, keeps
+its audio, and carries on when the app asks for that voice again.
 
 The zip is an ordinary zip: double-click it in Finder, or put it on a USB
 stick, if you would rather move a book by hand than over Wi-Fi.

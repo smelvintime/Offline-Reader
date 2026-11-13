@@ -1406,6 +1406,38 @@ card), so the book can be heard while the rest of it is made:
 Only a computer can do this. The phone renders slower than speech, and it is
 the heat, so its own preparing still gives way to listening.
 
+**Changing narrator.** Stored audio is per voice: the voice is part of every
+clip key, and `state.preparedIndex` is read per voice. `voiceChanged()` (the
+chip's handler) therefore asks everything again for the new voice, and holds
+playback until that index read is back. Restarting before it finished found
+nothing prepared and ended the session, even on a book fully prepared in the
+voice chosen, which read as "only Heart works". A voice with no audio yet says
+so ("not prepared in this voice") rather than playing nothing.
+
+On the computer each voice is its own book. `voice-server`'s library keeps one
+voice per book id and starts a book over when its voice changes, so sending
+the bare id meant trying Michael threw away every hour of Heart. The app sends
+`id@voice` (`preparer.remoteIdFor`) and names the book they both are as
+`family`; the server gives the folder the voice's name, renders one voice of a
+family at a time (the one just asked for; the other pauses and keeps its
+audio), and after a restart carries on only with the voice asked for last. A
+book taken under the bare id before this keeps that id while it is in the
+current voice, so nothing rendered is orphaned. Changing narrator while a
+computer is working hands it the new voice (`voiceChanged` stops the phone's
+watching and starts a run in the new voice), and with a session playing, Play
+carries on in it as its clips arrive.
+
+**Watching the computer work.** `voice-server` serves a monitor page at `/`
+(`voice-server/monitor.html`; the server prints the link with its code). It is
+an empty frame served without the code, and everything it shows comes from
+`GET /activity`, which needs the code: whether the voice is loaded, how many
+slots are busy, each book with its run (`jobs.overview()`: parts, time left
+from the run's real throughput, audio seconds per wall second, when the last
+part landed) and the last lines of the server's own log. `library.list()`
+keeps each unopened book's summary by `book.json`'s modification time, since
+the page asks every two seconds and a long serial's manifest is tens of
+megabytes.
+
 ---
 
 ## 3. `window.Store` — persistence API

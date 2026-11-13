@@ -804,7 +804,7 @@ async function main() {
     console.log('    Books:    ' + root);
     if (!compress) {
       console.log('              storing WAV, about 170 MB an hour. Install ffmpeg');
-      console.log('              (brew install ffmpeg) for 22 MB an hour instead.');
+      console.log('              (' + (process.platform === 'win32' ? 'winget install ffmpeg' : 'brew install ffmpeg') + ') for 22 MB an hour instead.');
     }
     console.log('');
     checkPeers(peers, code);

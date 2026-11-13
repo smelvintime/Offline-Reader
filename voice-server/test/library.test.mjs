@@ -789,10 +789,11 @@ test('the monitor page opens without the code and shows nothing without it', asy
 
     const end = await until(async () => {
       const a = await (await ask(base, '/activity')).json();
-      return a.books[0].ready ? a : null;
+      // All clips can be ready while the job is still saving book.json.
+      return a.books[0].running === false ? a : null;
     }, 'the book to finish');
+    assert.equal(end.books[0].ready, true);
     assert.equal(end.books[0].done, 6);
-    assert.equal(end.books[0].running, false);
     assert.ok(end.log.some(l => /6 of 6 parts ready/.test(l.text)), 'what the terminal said is on the page too');
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
 });

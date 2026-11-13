@@ -346,7 +346,12 @@
     const H = plugin('CapacitorHttp');
     if (H && H.request) {
       const r = await H.request({
-        url: url, method: o.method || 'GET', headers: o.headers || {},
+        url: url, method: o.method || 'GET',
+        // iOS attaches the body only when a content type is present
+        // (CapacitorUrlRequest.setRequestBody), so without this a POST arrives
+        // empty and voice-server answers 400 "body must be JSON". fetch adds
+        // the header on its own; the plugin does not.
+        headers: Object.assign(o.json !== undefined ? { 'content-type': 'application/json' } : {}, o.headers || {}),
         data: o.json, responseType: o.binary ? 'arraybuffer' : 'json',
         connectTimeout: 8000, readTimeout: timeout,
       });

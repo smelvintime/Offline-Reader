@@ -4,9 +4,11 @@
 // docs/PREPARED_BOOKS_PLAN.md: a book is prepared once and then plays from
 // stored audio. Preparing on the phone is the hot, slow part, and a desktop
 // chip renders the same model many times faster. So the app can hand the work
-// here: it sends one group of text at a time, this renders it with the same
-// Kokoro model and voices, and the phone stores the WAV exactly as if it had
-// made it itself. Playback on the phone does not change at all.
+// here: it sends the book's text, this renders it with the same Kokoro model
+// and voices and keeps it (library.mjs, jobs.mjs), and the phone collects the
+// audio and stores it exactly as if it had made it itself. A part that says
+// where its sentences begin is rendered a sentence at a time (join.mjs), so
+// the app can light the sentence being spoken.
 //
 //   cd voice-server && npm install     # once
 //   npm start                          # prints the address and code to type in
@@ -17,17 +19,50 @@
 //
 // The model, voices, trimming and WAV format match js/novel-voice-worker.js
 // so a group sounds the same whichever machine rendered it.
+//
+// More than one computer: start the others as usual with the same --code,
+// and this one with --peer for each of them. The phone talks to this one
+// only; each part goes to whichever computer is free, so a faster machine
+// simply takes more of the book.
 
 import { createServer } from 'node:http';
-import { networkInterfaces, cpus } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { networkInterfaces, cpus, totalmem } from 'node:os';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomInt } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createLibrary, defaultLibraryRoot, haveFfmpeg } from './library.mjs';
+import { createJobs } from './jobs.mjs';
+import { writeZip, ZIP_MAX_ENTRIES } from './zip.mjs';
+import { createFarm } from './farm.mjs';
+import { createTuner } from './tuner.mjs';
 
 export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 export const DEFAULT_PORT = 8787;
 const MAX_BODY = 64 * 1024;       // one group is a few hundred characters
+const MAX_JOB_BODY = 32 * 1024 * 1024;   // one chunk of a book's text
+// A book's size and a bundle's size are different limits, and tying them
+// together was wrong. A zip without zip64 holds 65535 entries, but a long
+// serial runs to thousands of chapters and hundreds of thousands of parts,
+// which is fine because it is collected a bundle at a time. This is only a
+// sanity bound: about 2700 hours of narration.
+const MAX_PARTS = 1000000;
+const MAX_KEY = 512;
 const MAX_TEXT = 4000;
+const MAX_CUTS = 200;            // sentences in one part; a real one has a handful
 const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
+const PEER_TIMEOUT_MS = 120000;
+const PEER_REST_MS = 30000;      // a computer that failed is left alone this long
+const LOG_KEEP = 200;            // lines of this server's own log kept in memory
+const LOG_SHOW = 40;             // and how many of them the monitor page is sent
+
+// Read once, when first asked for: tests that never open it never touch disk.
+let monitorHtml = null;
+function monitorPage() {
+  if (monitorHtml === null) monitorHtml = readFileSync(new URL('./monitor.html', import.meta.url), 'utf8');
+  return monitorHtml;
+}
 
 // ── Same as js/novel-voice-worker.js ────────────────────────────────────────
 
@@ -66,23 +101,95 @@ export function encodeWav(f32, sampleRate) {
 
 // ── The engine ──────────────────────────────────────────────────────────────
 
+// Roughly what one loaded copy of the voice holds, for deciding how many fit.
+const COPY_BYTES = { fp32: 1.0e9, fp16: 0.7e9, q8: 0.5e9 };
+
 /**
- * Kokoro through kokoro-js on Node's ONNX Runtime (CPU, every core). fp32 by
- * default: on a desktop CPU it is both the faster and the better-sounding
- * file, the same choice native/or-kokoro makes on the phone.
- * → { info, generate(text, voice) → Promise<{ pcm: Float32Array, rate }> }
+ * The most copies worth trying: no more than there are cores, and no more
+ * than fit in half this computer's memory, which is left for everything else
+ * on it. Never fewer than one.
+ */
+export function copyCeiling(dtype, cores, memory) {
+  const each = COPY_BYTES[dtype] || COPY_BYTES.fp32;
+  return Math.max(1, Math.min(cores, Math.floor((memory * 0.5) / each)));
+}
+
+async function readTuning(file, want) {
+  if (!file) return 0;
+  try {
+    const t = JSON.parse(await readFile(file, 'utf8'));
+    return t.cores === want.cores && t.dtype === want.dtype && t.threads === want.threads ? Math.floor(t.copies) || 0 : 0;
+  } catch (e) { return 0; }
+}
+
+/**
+ * Kokoro through kokoro-js on Node's ONNX Runtime, on this computer's
+ * processor, in as many copies as the computer renders fastest with.
+ *
+ * One copy cannot use the computer. ONNX Runtime's Node binding runs a
+ * forward pass synchronously, and the model's graph is mostly a chain, so a
+ * single pass spread over sixteen cores measured six times realtime with most
+ * of them waiting. Each copy here is a process of its own on one thread
+ * (engine-worker.mjs), so ten cores render ten sentences at a time, and the
+ * server's own thread is free to answer the phone and the monitor page
+ * while they do.
+ *
+ * `workers` is a number, or 'auto' (the default): start with half the cores
+ * and let tuner.mjs find the fastest number by trying, remembered in
+ * `tuningFile` for next time.
+ *
+ * fp32 by default: on a desktop CPU it is both the faster and the
+ * better-sounding file, the same choice native/or-kokoro makes on the phone.
+ * → { info, generate(text, voice) → Promise<{ pcm: Float32Array, rate }>,
+ *     capacity(), close() }
  */
 export async function loadKokoro(opts) {
   const o = opts || {};
-  const { KokoroTTS } = await import('kokoro-js');
+  const log = o.log || function () {};
   const dtype = o.dtype || 'fp32';
-  const tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype, device: 'cpu' });
-  return {
-    info: { model: MODEL_ID, dtype, cores: cpus().length },
-    generate: async function (text, voice) {
-      const audio = await tts.generate(text, { voice, speed: 1 });
-      return { pcm: audio.audio || audio.data, rate: audio.sampling_rate || 24000 };
+  const cores = cpus().length;
+  const threads = Math.max(1, Math.floor(Number(o.threads) || 1));
+  const auto = o.workers === undefined || o.workers === null || o.workers === 'auto';
+  const ceiling = copyCeiling(dtype, cores, o.memory || totalmem());
+  const shape = { cores: cores, dtype: dtype, threads: threads };
+  const remembered = auto ? await readTuning(o.tuningFile, shape) : 0;
+  const size = auto
+    ? Math.min(ceiling, remembered || Math.max(2, Math.floor(cores / 2)))
+    : Math.max(1, Math.floor(Number(o.workers)) || 1);
+
+  const farm = createFarm({
+    script: o.script || new URL('./engine-worker.mjs', import.meta.url),
+    env: Object.assign({ VOICE_DTYPE: dtype, VOICE_THREADS: String(threads) }, o.env || {}),
+    size: size,
+    log: log,
+  });
+  try { await farm.ready; }
+  catch (e) { farm.close(); throw e; }
+
+  const tuner = auto ? createTuner({
+    farm: farm, max: ceiling, log: log,
+    windowMs: o.windowMs, restMs: o.restMs, tickMs: o.tickMs,
+    onSettle: function (copies) {
+      if (!o.tuningFile) return;
+      mkdir(join(o.tuningFile, '..'), { recursive: true })
+        .then(function () { return writeFile(o.tuningFile, JSON.stringify(Object.assign({ copies: copies }, shape))); })
+        .catch(function () {});
     },
+  }) : null;
+  if (tuner) tuner.start();
+
+  return {
+    // Read when asked, not once: the number of copies changes as it tunes.
+    get info() {
+      return {
+        model: MODEL_ID, dtype: dtype, cores: cores,
+        copies: farm.size(), threads: farm.threads() === null ? threads : farm.threads(),
+        tuning: tuner ? tuner.status() : null,
+      };
+    },
+    generate: function (text, voice) { return farm.generate(text, voice); },
+    capacity: function () { return farm.capacity(); },
+    close: function () { if (tuner) tuner.stop(); farm.close(); },
   };
 }
 
@@ -94,7 +201,7 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, x-voice-code');
-  res.setHeader('Access-Control-Expose-Headers', 'x-seconds, x-render-ms');
+  res.setHeader('Access-Control-Expose-Headers', 'x-seconds, x-render-ms, x-parts, x-from, x-next, x-ready');
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 }
@@ -105,18 +212,165 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function readBody(req) {
+function readBody(req, limit) {
+  const max = limit || MAX_BODY;
   return new Promise(function (resolve, reject) {
     let size = 0;
     const chunks = [];
     req.on('data', function (c) {
       size += c.length;
-      if (size > MAX_BODY) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
+      if (size > max) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
     req.on('error', reject);
   });
+}
+
+/** Where a part's sentences begin: whole numbers, rising, from 0, inside the text. */
+function cutsOk(cuts, length) {
+  if (!Array.isArray(cuts) || !cuts.length || cuts.length > MAX_CUTS || cuts[0] !== 0) return false;
+  for (let i = 0; i < cuts.length; i++) {
+    if (!Number.isInteger(cuts[i]) || cuts[i] >= length) return false;
+    if (i && cuts[i] <= cuts[i - 1]) return false;
+  }
+  return true;
+}
+
+/** Why a posted book cannot be taken, as a sentence, or null if it can. */
+function jobProblem(job) {
+  if (!job || typeof job !== 'object' || Array.isArray(job)) return 'body must be a JSON object';
+  if (typeof job.book !== 'string' || !job.book.trim() || job.book.length > MAX_KEY) return 'book must be an id';
+  if (!VOICE_RE.test(String(job.voice || ''))) return 'unknown voice';
+  if (job.title !== undefined && typeof job.title !== 'string') return 'title must be text';
+  if (job.family !== undefined && (typeof job.family !== 'string' || !job.family.trim() || job.family.length > MAX_KEY)) return 'family must be an id';
+  const parts = job.parts === undefined ? [] : job.parts;
+  if (!Array.isArray(parts)) return 'parts must be a list';
+  if (parts.length > MAX_PARTS) return 'a book may have at most ' + MAX_PARTS + ' parts';
+  for (const p of parts) {
+    if (!p || typeof p.key !== 'string' || !p.key || p.key.length > MAX_KEY) return 'every part needs a key of 1 to ' + MAX_KEY + ' characters';
+    if (typeof p.text !== 'string' || !p.text.trim() || p.text.length > MAX_TEXT) return 'every part needs 1 to ' + MAX_TEXT + ' characters of text';
+    if (p.cuts !== undefined && !cutsOk(p.cuts, p.text.length)) return 'cuts must be rising positions inside the text, starting at 0';
+  }
+  return null;
+}
+
+// ── Sharing the work ────────────────────────────────────────────────────────
+
+/** "192.168.1.21" → "http://192.168.1.21:8787", as the app reads an address. */
+export function peerBase(input) {
+  let s = String(input || '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'http://' + s;
+  s = s.replace(/\/+$/, '');
+  if (!/:\d+$/.test(new URL(s).host)) s += ':' + DEFAULT_PORT;
+  return s;
+}
+
+/**
+ * Kokoro on a GPU, in the small Python service next door, behind the same
+ * contract as loadKokoro. Why it exists: the engine above is pinned to the
+ * CPU to match the phone, which is right on a phone and costs roughly thirty
+ * times the wall clock on a desktop with a graphics card sitting idle in it.
+ *
+ * Raw float32 samples come back, not WAV, so the hop encodes nothing. Unlike
+ * the CPU engine this one is worth asking several things at once: see slots.
+ */
+export function gpuEngine(base) {
+  const url = String(base).replace(/\/+$/, '') + '/render';
+  return {
+    info: { model: MODEL_ID, dtype: 'gpu', at: base },
+    generate: async function (text, voice) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text, voice: voice }),
+        signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error('the GPU voice answered ' + res.status + ' ' + (await res.text()).slice(0, 200));
+      return { pcm: new Float32Array(await res.arrayBuffer()), rate: Number(res.headers.get('x-rate')) || 24000 };
+    },
+  };
+}
+
+/** Another voice-server, asked over HTTP with the same code. */
+export function peerWorker(base, code) {
+  return {
+    name: base,
+    peer: true,
+    render: async function (text, voice) {
+      const res = await fetch(base + '/render', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-voice-code': code },
+        body: JSON.stringify({ text: text, voice: voice }),
+        signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error('answered ' + res.status + ' ' + (await res.text()).slice(0, 200));
+      return {
+        wav: Buffer.from(await res.arrayBuffer()),
+        seconds: Number(res.headers.get('x-seconds')) || 0,
+        ms: Number(res.headers.get('x-render-ms')) || 0,
+      };
+    },
+  };
+}
+
+/**
+ * A computer renders `slots` parts at a time, one by default (ONNX Runtime
+ * already spreads one forward pass over every core; two at once would only
+ * fight over them). A GPU is the exception and says so by asking for more:
+ * one paragraph leaves it about a third busy, and the rest of the card is
+ * only reachable by giving it several at once.
+ *
+ * A waiting part goes to whichever computer frees up first. A peer that fails
+ * rests for a while and its part goes to another, in the end to this one, so
+ * a peer that is asleep, still loading or gone never stops the book.
+ */
+export function createPool(workers, log) {
+  const queue = [];   // { text, voice, resolve, reject, tried: Set }
+  workers.forEach(function (w) { w.slots = Number(w.slots) || 1; w.busy = 0; w.restUntil = 0; w.rendered = 0; });
+  // A worker may say how many it can take right now rather than a fixed
+  // number: this computer's copies of the voice come and go as it tunes.
+  const slotsOf = function (w) { return typeof w.capacity === 'function' ? Math.max(1, w.capacity()) : w.slots; };
+
+  function pump() {
+    workers.forEach(function (w) {
+      while (w.busy < slotsOf(w) && Date.now() >= w.restUntil) {
+        const i = queue.findIndex(function (j) { return !j.tried.has(w); });
+        if (i < 0) return;
+        const job = queue.splice(i, 1)[0];
+        w.busy++;
+        w.render(job.text, job.voice).then(function (r) {
+          w.rendered++;
+          job.resolve(r);
+        }, function (e) {
+          if (!w.peer) { job.reject(e); return; }
+          log(w.name + ' failed, leaving it for ' + PEER_REST_MS / 1000 + ' s: ' + (e && e.message));
+          w.restUntil = Date.now() + PEER_REST_MS;
+          setTimeout(pump, PEER_REST_MS).unref();
+          job.tried.add(w);
+          queue.unshift(job);
+        }).finally(function () { w.busy--; pump(); });
+      }
+    });
+  }
+
+  return {
+    render: function (text, voice) {
+      return new Promise(function (resolve, reject) {
+        queue.push({ text: text, voice: voice, resolve: resolve, reject: reject, tried: new Set() });
+        pump();
+      });
+    },
+    shares: function () {
+      return workers.map(function (w) { return { name: w.name, rendered: w.rendered, resting: Date.now() < w.restUntil }; });
+    },
+    /** How busy the computers are right now, for the monitor page. */
+    load: function () {
+      let busy = 0, slots = 0;
+      workers.forEach(function (w) { busy += w.busy; slots += slotsOf(w); });
+      return { busy: busy, slots: slots, queued: queue.length };
+    },
+  };
 }
 
 /**
@@ -125,31 +379,102 @@ function readBody(req) {
  */
 export function createVoiceServer(options) {
   const code = String(options.code);
-  const log = options.log || function () {};
+  // What the terminal shows is also kept, a screenful of it, for the monitor
+  // page: the window this runs in is often not the one being looked at.
+  const said = [];
+  const tell = options.log || function () {};
+  const log = function (m) {
+    said.push({ at: Date.now(), text: String(m) });
+    if (said.length > LOG_KEEP) said.shift();
+    tell(m);
+  };
+  const startedAt = Date.now();
   let engine = null;
   let loadError = null;
-  Promise.resolve(options.engine).then(
-    function (e) { engine = e; log('voice ready'); },
-    function (e) { loadError = e; log('voice failed to load: ' + (e && e.message)); });
+  // The engine, a promise of one, or a function that makes one and is handed
+  // this server's log, so what the engine says shows on the monitor page too.
+  const loaded = Promise.resolve(typeof options.engine === 'function' ? options.engine({ log: log }) : options.engine).then(
+    function (e) { engine = e; log('voice ready'); return e; },
+    function (e) { loadError = e; log('voice failed to load: ' + (e && e.message)); throw e; });
+  loaded.catch(function () {});   // /status carries the reason; nothing else waits on it
 
-  // One render at a time: ONNX Runtime already spreads one forward pass over
-  // every core, and two at once would only fight over them. The phone keeps
-  // one request waiting behind the current one so this never sits idle.
-  let chain = Promise.resolve();
+  // This computer plus any peers. A part waits for the model rather than
+  // failing, so a book posted a second after startup is simply taken and
+  // begins when the voice has loaded.
+  const local = {
+    name: 'this computer',
+    slots: Number(options.slots) || 1,
+    // An engine that runs several copies says how many are ready; one that
+    // does not (a graphics card, a test's fake) takes `slots` at a time.
+    capacity: function () {
+      return engine && typeof engine.capacity === 'function' ? engine.capacity() : local.slots;
+    },
+    render: async function (text, voice) {
+      const eng = engine || await loaded;
+      const t0 = Date.now();
+      const out = await eng.generate(text, voice);
+      const pcm = trimSilence(out.pcm, out.rate);
+      return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
+    },
+  };
+  const peers = (options.peers || []).map(function (p) { return peerWorker(peerBase(p), code); });
+  const pool = createPool([local].concat(peers), log);
   let rendered = 0;
+
+  // Keeping books is optional, so the render-only tests and an app that only
+  // knows /render carry on unchanged: without a library those routes 404 and
+  // nothing is written to disk.
+  const library = options.library || null;
+  const jobs = library ? createJobs({
+    library: library,
+    pool: pool,
+    log: log,
+    // One part in hand per computer and one waiting, so no computer idles on
+    // a round trip. This used to be the phone's job; it belongs here.
+    width: function () { return 1 + local.capacity() + peers.length; },
+  }) : null;
 
   function authorised(req) { return String(req.headers['x-voice-code'] || '') === code; }
 
-  return createServer(async function (req, res) {
+  const srv = createServer(async function (req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); res.end(); return; }
+
+    // The monitor page. Served without the code because it holds nothing: it
+    // is an empty frame that asks /activity for everything it shows, and that
+    // needs the code like every other route.
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/monitor')) {
+      cors(res);
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(monitorPage());
+      return;
+    }
+
     if (!authorised(req)) { sendJson(res, 401, { error: 'wrong code' }); return; }
+
+    // Everything the monitor page shows, in one answer.
+    if (req.method === 'GET' && url.pathname === '/activity') {
+      sendJson(res, 200, {
+        ok: true, now: Date.now(), startedAt: startedAt,
+        ready: !!engine, error: loadError ? String(loadError.message || loadError) : null,
+        info: engine ? engine.info : null, rendered: rendered,
+        workers: 1 + peers.length, shares: pool.shares(), load: pool.load(),
+        library: library ? { root: library.root, compress: library.compress } : null,
+        books: jobs ? await jobs.overview() : [],
+        log: said.slice(-LOG_SHOW),
+      });
+      return;
+    }
 
     if (req.method === 'GET' && url.pathname === '/status') {
       sendJson(res, 200, {
-        ok: true, version: 1,
+        // 2: parts may carry `cuts` and come back with `marks`, and a job
+        // may say `first`.
+        ok: true, version: 2,
         ready: !!engine, error: loadError ? String(loadError.message || loadError) : null,
         info: engine ? engine.info : null, rendered: rendered,
+        workers: 1 + peers.length, shares: pool.shares(),
+        library: library ? { root: library.root, compress: library.compress, busy: jobs.running() } : null,
       });
       return;
     }
@@ -165,15 +490,8 @@ export function createVoiceServer(options) {
       if (loadError) { sendJson(res, 503, { error: 'the voice failed to load: ' + loadError.message }); return; }
       if (!engine) { sendJson(res, 503, { error: 'the voice is still loading' }); return; }
 
-      const work = chain.then(async function () {
-        const t0 = Date.now();
-        const out = await engine.generate(text, voice);
-        const pcm = trimSilence(out.pcm, out.rate);
-        return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
-      });
-      chain = work.catch(function () {});
       try {
-        const r = await work;
+        const r = await pool.render(text, voice);
         rendered++;
         cors(res);
         res.writeHead(200, {
@@ -189,8 +507,147 @@ export function createVoiceServer(options) {
       return;
     }
 
+    // ── Books this computer prepares and keeps ─────────────────────────────
+
+    const bookRoutes = ['/books', '/job', '/job/stop', '/bundle', '/book', '/manifest'];
+    if (bookRoutes.indexOf(url.pathname) !== -1 && !library) {
+      sendJson(res, 404, { error: 'this server renders only; it does not keep books' });
+      return;
+    }
+    const asked = url.searchParams.get('book') || '';
+
+    if (req.method === 'GET' && url.pathname === '/books') {
+      sendJson(res, 200, { root: library.root, compress: library.compress, books: await library.list() });
+      return;
+    }
+
+    // Take a whole book at once. The phone sends every part it needs, this
+    // answers as soon as they are written down, and the rendering carries on
+    // here afterwards: nothing has to stay awake but this computer.
+    if (req.method === 'POST' && url.pathname === '/job') {
+      let job;
+      try { job = JSON.parse(await readBody(req, MAX_JOB_BODY)); }
+      catch (e) {
+        sendJson(res, e.status || 400, { error: e.status ? 'that book is too large to send in one piece' : 'body must be JSON' });
+        return;
+      }
+      const wrong = jobProblem(job);
+      if (wrong) { sendJson(res, 400, { error: wrong }); return; }
+      if (loadError) { sendJson(res, 503, { error: 'the voice failed to load: ' + loadError.message }); return; }
+      try {
+        sendJson(res, 202, await jobs.start(job));
+      } catch (e) {
+        sendJson(res, 500, { error: 'could not take the book: ' + (e && e.message ? e.message : e) });
+      }
+      return;
+    }
+
+    // Which part holds which key, and how far each got, with no audio. The
+    // phone reads this to work out what it is still missing, which it cannot
+    // tell from a count alone once parts start landing out of order.
+    if (req.method === 'GET' && url.pathname === '/manifest') {
+      const m = asked ? await library.find(asked) : null;
+      if (!m) { sendJson(res, 404, { error: 'this computer has no such book' }); return; }
+      sendJson(res, 200, {
+        v: m.v, book: m.book, title: m.title, voice: m.voice, total: m.parts.length,
+        parts: m.parts.map(function (p) { return { key: p.key, seq: p.file ? p.seq : 0 }; }),
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/job') {
+      const state = asked ? await jobs.state(asked) : null;
+      if (!state) { sendJson(res, 404, { error: 'this computer has no such book' }); return; }
+      sendJson(res, 200, state);
+      return;
+    }
+
+    // Stops feeding the pool. Parts in flight finish and are kept, so nothing
+    // rendered is thrown away and posting the book again carries on.
+    if (req.method === 'POST' && url.pathname === '/job/stop') {
+      sendJson(res, 200, { stopped: jobs.cancel(asked) });
+      return;
+    }
+
+    if (req.method === 'DELETE' && url.pathname === '/book') {
+      jobs.cancel(asked);
+      const removed = await library.remove(asked);
+      jobs.forget(asked);
+      sendJson(res, removed ? 200 : 404, { removed: removed });
+      return;
+    }
+
+    // Everything ready, as one zip: book.json says which key each file holds,
+    // and `from` skips the parts a phone already collected on an earlier pass.
+    if (req.method === 'GET' && url.pathname === '/bundle') {
+      const m = asked ? await library.find(asked) : null;
+      if (!m) { sendJson(res, 404, { error: 'this computer has no such book' }); return; }
+      const done = m.parts.filter(function (p) { return p.file; });
+      // `from` is the last sequence number the phone already holds, not a
+      // position: parts finish out of order, and a position would step over
+      // one that landed late.
+      const from = Math.max(0, Number(url.searchParams.get('from')) || 0);
+      // A whole book is more than a phone wants to hold in memory while it
+      // unpacks, so it collects in passes; `limit` is how big a pass it asks
+      // for. Clamped to what one zip can hold, which is where that ceiling
+      // actually belongs.
+      const limit = Math.max(1, Math.min(ZIP_MAX_ENTRIES,
+        Number(url.searchParams.get('limit')) || ZIP_MAX_ENTRIES));
+      const take = done.filter(function (p) { return (p.seq || 0) > from; })
+                       .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); })
+                       .slice(0, limit);
+      if (!take.length) {
+        sendJson(res, 404, { error: from ? 'nothing new since last time' : 'no part of this book is ready yet' });
+        return;
+      }
+      const next = take[take.length - 1].seq || 0;
+      // The text stays here: the phone already has the book it sent.
+      const manifest = {
+        v: m.v, book: m.book, title: m.title, voice: m.voice, created: m.created,
+        from: from, next: next, ready: done.length, total: m.parts.length,
+        parts: take.map(function (p) {
+          const out = { key: p.key, file: p.file, seconds: p.seconds, bytes: p.bytes, seq: p.seq };
+          // When each sentence starts in the clip, where it was rendered a
+          // sentence at a time. The app lights the sentence from these.
+          if (p.marks) out.marks = p.marks;
+          return out;
+        }),
+      };
+      cors(res);
+      res.writeHead(200, {
+        'content-type': 'application/zip',
+        'content-disposition': 'attachment; filename="' + m.dir + '.zip"',
+        'x-parts': String(take.length),
+        'x-from': String(from),
+        'x-next': String(next),
+        'x-ready': String(done.length),
+      });
+      try {
+        await writeZip(res, (async function* () {
+          yield { name: 'book.json', body: Buffer.from(JSON.stringify(manifest, null, 1)) };
+          for (const p of take) yield { name: 'parts/' + p.file, body: await library.readPart(m, p) };
+        })());
+      } catch (e) {
+        // The headers are long gone, so the only honest signal left is a zip
+        // that ends early. The phone sees a short read and asks again.
+        log('bundle stopped early: ' + (e && e.message));
+      }
+      res.end();
+      return;
+    }
+
     sendJson(res, 404, { error: 'not found' });
   });
+
+  // So the command line can resume unfinished books, and tests can look.
+  srv.library = library;
+  srv.jobs = jobs;
+  // The engine's copies are processes of their own: they go when this does.
+  srv.on('close', function () { if (engine && typeof engine.close === 'function') engine.close(); });
+  srv.stopEngine = function () {
+    return loaded.then(function (e) { if (e && typeof e.close === 'function') e.close(); }, function () {});
+  };
+  return srv;
 }
 
 /** IPv4 addresses the phone could reach this machine on. */
@@ -212,14 +669,60 @@ function arg(name, fallback) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
+/** Every value of a flag that may repeat: --peer a --peer b, or --peer a,b. */
+function args(name) {
+  const out = [];
+  process.argv.forEach(function (a, i) {
+    if (a === '--' + name && process.argv[i + 1]) out.push.apply(out, process.argv[i + 1].split(','));
+  });
+  return out.map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+/** Says at start whether each peer answers, so a typo shows up at once. */
+async function checkPeers(peers, code) {
+  for (const p of peers) {
+    const base = peerBase(p);
+    let line;
+    try {
+      const r = await fetch(base + '/status', { headers: { 'x-voice-code': code }, signal: AbortSignal.timeout(5000) });
+      if (r.status === 401) line = 'answers, but its code differs; start it with --code ' + code;
+      else line = (await r.json()).ready ? 'ready' : 'answers, still loading its voice';
+    } catch (e) {
+      line = 'not reachable yet; this computer covers its share until it is';
+    }
+    console.log('    Sharing with ' + base + ': ' + line);
+  }
+}
+
 async function main() {
   const port = Number(arg('port', DEFAULT_PORT));
   const code = arg('code', String(randomInt(0, 1000000)).padStart(6, '0'));
   const dtype = arg('dtype', 'fp32');
+  // --gpu http://127.0.0.1:8899 renders on a graphics card instead of here.
+  // Several at once, because that is the only way a card is kept busy.
+  const gpu = arg('gpu', '');
+  const slots = Number(arg('slots', gpu ? 8 : 1)) || 1;
+  // How many copies of the voice run on this computer's processor: a number,
+  // or 'auto' to find the fastest by trying. --threads is what each is given.
+  const workers = arg('workers', 'auto');
+  const threads = Number(arg('threads', 1)) || 1;
+  const peers = args('peer');
+  const log = function (m) { console.log('voice-server: ' + m); };
+  const root = arg('library', defaultLibraryRoot());
+  const compress = await haveFfmpeg();
+  const library = createLibrary({ root: root, compress: compress, log: log });
   const server = createVoiceServer({
     code: code,
-    engine: loadKokoro({ dtype: dtype }),
-    log: function (m) { console.log('voice-server: ' + m); },
+    peers: peers,
+    library: library,
+    engine: gpu ? gpuEngine(gpu) : function (ctx) {
+      return loadKokoro({
+        dtype: dtype, workers: workers, threads: threads, log: ctx.log,
+        tuningFile: join(root, 'voice-tuning.json'),
+      });
+    },
+    slots: slots,
+    log: log,
   });
   server.listen(port, '0.0.0.0', function () {
     const addrs = lanAddresses();
@@ -230,10 +733,39 @@ async function main() {
     addrs.forEach(function (a) { console.log('    Address:  ' + a + ':' + port); });
     if (!addrs.length) console.log('    Address:  (no network found; connect this computer to Wi-Fi)');
     console.log('    Code:     ' + code);
+    console.log('    Monitor:  http://localhost:' + port + '/?code=' + code);
+    console.log('              open that in a browser on this computer to watch it work');
+    console.log('    Books:    ' + root);
+    if (!compress) {
+      console.log('              storing WAV, about 170 MB an hour. Install ffmpeg');
+      console.log('              (brew install ffmpeg) for 22 MB an hour instead.');
+    }
     console.log('');
+    checkPeers(peers, code);
+    if (gpu) {
+      console.log('  Voice on the GPU at ' + gpu + ', ' + slots + ' at a time.');
+      console.log('  That service must be running; nothing renders here without it.');
+    }
+    if (!gpu) {
+      console.log(workers === 'auto'
+        ? '  Using this computer’s processor: several copies of the voice at once,'
+        : '  Using this computer’s processor: ' + workers + ' at once (--workers).');
+      if (workers === 'auto') {
+        console.log('  and it finds the fastest number by trying while it works. The monitor');
+        console.log('  page shows how many. To leave room for other work: --workers 4');
+      }
+    }
     console.log('  Loading the voice (the first run downloads about 330 MB)…');
     console.log('  Leave this window open while the book prepares. Ctrl+C stops it.');
+    // Turning this computer on is enough: a book left half done carries on
+    // without the phone having to ask again.
+    server.jobs.resumeAll().catch(function (e) { log('could not resume: ' + e.message); });
   });
+  // Ctrl+C: the copies of the voice are separate processes and must not be
+  // left running, rendering for nobody.
+  const quit = function () { server.stopEngine().then(function () { process.exit(0); }); setTimeout(function () { process.exit(0); }, 2000).unref(); };
+  process.on('SIGINT', quit);
+  process.on('SIGTERM', quit);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

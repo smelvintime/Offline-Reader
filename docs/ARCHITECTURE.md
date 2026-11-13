@@ -1283,19 +1283,22 @@ keyed by version, book, chapter, voice, group range and a hash of the spoken
 text; `chapters` recording each finished chapter). Groups are always cut at the
 widest caps from the start of the chapter (`preparedPlan`), never the adaptive
 or fast-start caps, so a clip made earlier is found again. A Play on a prepared
-chapter never loads the model: `speakPrepared` snaps the cursor to the start of
-the stored group holding it and plays the clip through the same channel, gaps
-and highlight.
+chapter never loads the model: `speakPrepared` finds the stored group holding
+the cursor and plays its clip through the same channel and gaps, from the
+sentence under the cursor where the clip is timed (below) and from the start
+of the group where it is not.
 
-**Narration plays prepared audio and nothing else** (`preparedOnly`), and only
-once the whole book is prepared (`bookFullyPrepared`). Until then the book is
-read on screen only: Play ends the session and opens the voice sheet on
-Prepare, which says listening starts when the book is done. A series that
-gains a chapter later is not fully prepared again until that chapter is. The live model
-never runs for listening, so it is never prewarmed either, and the iPhone voice
-is not offered at all (`defaultNarrator()` is always `natural`, the narrator
-row is hidden). The live engine remains as the thing preparing runs on, and
-the test page switches `preparedOnly` off to exercise it.
+**Narration plays prepared audio and nothing else** (`preparedOnly`). A chapter
+with stored audio plays; one without does not, and no other voice stands in:
+the live model never runs for listening, so it is never prewarmed either, and
+the iPhone voice is not offered at all (`defaultNarrator()` is always
+`natural`, the narrator row is hidden). A book with nothing prepared opens the
+voice sheet on Prepare instead of playing, and a partly prepared one plays its
+ready chapters and stops at the first that is not, saying why. The whole-book
+rule this replaces (nothing plays until every chapter is stored) made a
+thousand-chapter serial wait hours to hear its first page. The live engine
+remains as the thing preparing runs on, and the test page switches
+`preparedOnly` off to exercise it.
 
 Stored audio is managed library-wide through
 `NovelVoice.preparedLibrary`: `list()` sums every book's clips (all voices and
@@ -1304,14 +1307,18 @@ chapter records, and `remove(seriesId)` deletes a book's IndexedDB records and
 its native AAC folder whether or not it is open. Settings lists it under
 **Prepared audio** (read when the screen opens, not at boot), including books
 no longer in the library, and removing a book from the library
-(`catalogue.confirmDelete`) removes its audio too. Off the charger (or when
-`Platform.charging()` cannot tell, as in Safari) the Prepare tap asks first,
-since preparing heats the phone and drains it. Preparing never runs
-under a listening session (Play stops it), pauses at serious heat, and loops a
-silent clip so the background audio mode keeps it running with the screen
-locked. It stops when the book closes; tapping Prepare again resumes at the
-first missing group. `PREPARED_VERSION` invalidates every stored clip when
-segmentation, normalisation or grouping changes what a group says.
+(`catalogue.confirmDelete`) removes its audio too. The audio kept on a
+computer by `voice-server` is not touched by either: that is deleted there
+(`DELETE /book`), or by removing its folder.
+
+Preparing on the phone: off the charger (or when `Platform.charging()` cannot
+tell, as in Safari) the Prepare tap asks first, since preparing heats the phone
+and drains it. It never runs under a listening session (Play stops it), pauses
+at serious heat, and loops a silent clip so the background audio mode keeps it
+running with the screen locked. It stops when the book closes; tapping Prepare
+again resumes at the first missing group. `PREPARED_VERSION` invalidates every
+stored clip when segmentation, normalisation or grouping changes what a group
+says.
 
 On a native build whose `or-kokoro` has the clip methods
 (`Platform.kokoro.clips`: `clipsAvailable`, `saveClip`, `readClip`,
@@ -1325,25 +1332,148 @@ WebView's file scheme. Older builds, the web, and a run whose encoder fails
 store WAV in IndexedDB instead; the failure is toasted once and kept in the
 voice diagnostics (`prepared.compressionError`).
 
+**The highlight follows the sentence, exactly, because a clip is rendered a
+sentence at a time.** Kokoro reports no timing, and the ONNX export has one
+output, the waveform, so nothing inside a group's clip says where its second
+sentence starts. Guessing from text length drifts. The only exact answer is to
+render each sentence by itself and join the pieces where every length is known
+to the sample. `preparedUnits(sentences, group)` cuts a group into those
+pieces: one per sentence, a sentence `splitLong` cut in two kept whole (the
+held, rising comma `groupSentences` warns about), a piece with nothing to
+pronounce folded into its neighbour. Each is rendered, trimmed, and joined
+with the same 220 ms rest the app leaves between two clips, and the clip is
+stored with `marks`: the second each piece starts at. Both renderers do this
+the same way (`joinWavs` in `js/novel-voice.js`, `voice-server/join.mjs`), so
+a clip is timed alike whichever machine made it.
+
+`speakPrepared` reads the marks with the clip. `followMarks` polls the playing
+element's clock (60 ms) and moves the cursor, the highlight and the page with
+the voice, forwards only, since a clip still seeking to its start reads zero.
+Play and resume start at the sentence under the cursor (`channel.play`'s
+`at`), not at the start of its group, and a skip is one sentence. The clip key
+is unchanged, still one clip per group, so nothing already prepared is thrown
+away: a clip without marks (made before this, or by an older voice-server)
+plays from the start of its group and lights the group, as before. What it
+costs is prosody across a full stop inside a group, which Kokoro no longer
+sees, and a little speed, since per-call overhead is paid per sentence.
+
 **Preparing on a computer** (`docs/MAC_PREPARE_PLAN.md`, `voice-server/`).
-"Prepare on my computer" hands the render step to `voice-server`, a small Node
-server on the reader's own computer that runs the same Kokoro model and voices
-through kokoro-js and answers `POST /render` with the WAV the phone would have
-made (same trim and encoder). Only `renderPart` changes: keys, storage, AAC,
-resume and playback are the phone path's, so a book can mix parts from both.
+"Prepare on my computer" hands the book to `voice-server`, a small Node server
+on the reader's own computer that runs the same Kokoro model and voices. The
+computer owns the work: the phone plans the book (`preparer.runRemote`), posts
+its parts to `POST /job` in chunks of 2000, and from then on only watches
+`GET /job` and collects finished audio from `GET /bundle` as zips of 200 parts,
+storing each clip under the key it would have had if the phone had made it.
+The queue, the retries and the files (`~/OfflineReaderBooks`, AAC where ffmpeg
+is installed) are the computer's, and it carries on with the app closed or the
+server restarted. A part carries `cuts`, where its sentences begin in its
+text; the server renders those pieces separately across its pool (this
+computer, `--peer` computers, a `--gpu` service) and answers with `marks`.
+
 The phone calls through `Platform.localHttp` (`CapacitorHttp` natively, since
 a fetch from `capacitor://localhost` to `http://` on the LAN is mixed content;
-plain `fetch` on a web page served over http), with a six-digit code the
+plain `fetch` on a web page served over http), with the six-digit code the
 server prints in `x-voice-code`. The form shows only where that can work: the
-native app or an http page. One part is asked for ahead so the computer never
-waits on the round trip (at most two requests in flight, never across
-chapters). No charging question and no heat pauses, since the phone only
-stores files; the silent loop still runs so the app stays alive to receive
-them. A computer still loading its model is polled every 3 s; an unreachable
-one, a wrong code or a failed load stops with a sentence to act on, and never
-falls back to the phone. Diagnostics say `source: 'computer'` and the address,
-not the code. iOS needs `NSLocalNetworkUsageDescription` and
+native app or an http page. A computer still loading its model is polled every
+3 s; an unreachable one, a wrong code or a failed load stops with a sentence to
+act on, and never falls back to the phone. No charging question and no heat
+pauses, since the phone only stores files. Diagnostics say `source: 'computer'`
+and the address, not the code. iOS needs `NSLocalNetworkUsageDescription` and
 `NSAllowsLocalNetworking`, which `npm run sync` applies.
+
+**Listening while the computer works.** A computer renders several times
+faster than anyone listens (about 6x on a CPU, about 100x on a graphics
+card), so the book can be heard while the rest of it is made:
+
+- Play does not stop a computer's run (it still stops the phone's own), and
+  starting one does not pause listening. The book is sent from the reader's
+  chapter on, and sending, watching and collecting run side by side, so the
+  first chapter is being rendered while chapter five hundred is still being
+  read off the phone's storage.
+- `remoteStreaming()` is true while a computer is preparing this book in this
+  voice. Under it a chapter that is not stored yet still counts as playable:
+  `speakPrepared` finds no clip and `awaitStreamedClip` holds the place, with
+  the ring on the play button, until the collector stores that key
+  (`preparer.have`), then plays. A silent loop holds the audio session
+  meanwhile, because iOS suspends a page that is playing nothing and then
+  nothing would be collected. The watch loop polls every second, not every
+  three, while someone waits.
+- A wait longer than two seconds means the computer is elsewhere in the book
+  (the reader jumped ahead). `preparer.askFirst` posts that chapter and what
+  follows it, up to 2000 parts, with `first: true`, and `voice-server/jobs.mjs`
+  renders those before anything else (`run.urgent`). What follows matters as
+  much as the chapter: asking for one chapter would leave the reader waiting
+  again at the start of the next.
+- A book that has been sent to a computer is remembered (`voice.remoteBooks`),
+  and Play on audio that is not here goes back to that computer by itself
+  (`resumeStreaming`): it may have finished hours ago with the app closed, in
+  which case this is only the collection. A book no computer was given never
+  goes looking for one.
+- Closing the book stops the phone's watching and leaves the computer working.
+  Only the Stop button, or deleting the audio, tells the computer to stop.
+- If the computer stops or cannot be reached while playback waits, the session
+  ends with that reason rather than waiting for ever.
+
+Only a computer can do this. The phone renders slower than speech, and it is
+the heat, so its own preparing still gives way to listening.
+
+**Changing narrator.** Stored audio is per voice: the voice is part of every
+clip key, and `state.preparedIndex` is read per voice. `voiceChanged()` (the
+chip's handler) therefore asks everything again for the new voice, and holds
+playback until that index read is back. Restarting before it finished found
+nothing prepared and ended the session, even on a book fully prepared in the
+voice chosen, which read as "only Heart works". A voice with no audio yet says
+so ("not prepared in this voice") rather than playing nothing.
+
+On the computer each voice is its own book. `voice-server`'s library keeps one
+voice per book id and starts a book over when its voice changes, so sending
+the bare id meant trying Michael threw away every hour of Heart. The app sends
+`id@voice` (`preparer.remoteIdFor`) and names the book they both are as
+`family`; the server gives the folder the voice's name, renders one voice of a
+family at a time (the one just asked for; the other pauses and keeps its
+audio), and after a restart carries on only with the voice asked for last. A
+book taken under the bare id before this keeps that id while it is in the
+current voice, so nothing rendered is orphaned. Changing narrator while a
+computer is working hands it the new voice (`voiceChanged` stops the phone's
+watching and starts a run in the new voice), and with a session playing, Play
+carries on in it as its clips arrive.
+
+**Using the whole computer.** `onnxruntime-node` runs a forward pass
+synchronously on the thread that asks for it. Inside the server that was the
+only thread, so nothing else happened while a sentence rendered (no reply to
+the phone, no monitor page), `--slots` above 1 rendered sentences one after
+another, and one pass spread over sixteen cores measured six times realtime
+with most of them waiting, because the model's graph is mostly a chain. The
+voice now runs as copies in processes of their own (`engine-worker.mjs`,
+managed by `farm.mjs`), one thread each: the thread count is set by building
+kokoro-js's model and tokenizer by hand with `session_options`, since its own
+`from_pretrained` passes none. The first copy loads alone, since on a first
+run it is the one downloading the model, and a copy that dies is replaced and
+its sentence rendered on another, once.
+
+How many copies is measured, not guessed (`tuner.mjs`): start at half the
+cores, measure seconds of audio per second of clock over a window in which the
+copies were at least 85% busy, add one, and keep it only if that was 5% faster.
+The ceiling is the core count or half the memory at about 1 GB a copy,
+whichever is lower. On a laptop this tends to stop at the fast cores by
+itself, since a slow core adds less than 5%, which also leaves the machine
+usable. It looks again every twenty minutes and remembers the answer in
+`voice-tuning.json`. `--workers N` fixes the number; `--gpu` is unaffected,
+since that engine is a service of its own. The pool reads a worker's
+`capacity()` rather than a fixed `slots`, and the job queue's width follows it.
+`npm run bench` prints the speed of each arrangement on the machine it is run
+on, and the real-model CI job runs it so the numbers are on record.
+
+**Watching the computer work.** `voice-server` serves a monitor page at `/`
+(`voice-server/monitor.html`; the server prints the link with its code). It is
+an empty frame served without the code, and everything it shows comes from
+`GET /activity`, which needs the code: whether the voice is loaded, how many
+slots are busy, each book with its run (`jobs.overview()`: parts, time left
+from the run's real throughput, audio seconds per wall second, when the last
+part landed) and the last lines of the server's own log. `library.list()`
+keeps each unopened book's summary by `book.json`'s modification time, since
+the page asks every two seconds and a long serial's manifest is tens of
+megabytes.
 
 ---
 

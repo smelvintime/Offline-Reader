@@ -11,9 +11,11 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   (16-bit WAV, about 170 MB per hour of audio). Progress, a stop button,
   resume from the first missing group, and "Delete prepared audio".
 - Playback of a prepared chapter plays stored clips and never loads the model.
-- Narration plays only once the whole book is prepared. Until then the book
-  is read on screen only, and Play opens the sheet on Prepare. No live model
-  while listening, and the iPhone voice is never used.
+- Narration plays stored audio only: a prepared chapter plays, an unprepared
+  one does not, and Play on a book with nothing prepared opens the sheet on
+  Prepare. No live model while listening, and the iPhone voice is never used.
+  (For a while nothing played until the whole book was prepared; a
+  thousand-chapter serial made that hours of waiting, so it went.)
 - Preparing pauses at serious heat, stops when listening starts or the book
   closes, and keeps running with the screen locked through a silent audio loop.
 
@@ -32,6 +34,42 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   Same keys, same storage and playback; one part asked for ahead; clear
   messages for an unreachable computer or a wrong code, and no fall back to
   the phone.
+
+- The computer keeps the book, not just the renderer (server side only so
+  far). `POST /job` takes a whole book at once and answers before any of it
+  is rendered, so the phone is free the moment it has uploaded; the queue,
+  the retries and the files live in `voice-server/library.mjs` and
+  `voice-server/jobs.mjs`, under `~/OfflineReaderBooks`. Parts are AAC where
+  ffmpeg is installed and WAV where it is not. `GET /bundle` hands the
+  finished audio back as one ordinary zip, `&from=N` collecting only what is
+  new, and an unfinished book resumes by itself when the server starts
+  again.
+
+- The app sends, watches and collects (`preparer.runRemote`). "Prepare on my
+  computer" now plans every unprepared chapter, posts the whole book in one
+  request, polls `/job` for progress, and brings the audio back in passes of
+  200 parts as it is finished, writing each clip under the key it would have
+  had if the phone had made it. Gone with it: the per-part round trip, the
+  two-in-flight look-ahead, and the silent keep-alive loop, because nothing
+  on the phone has to stay awake any more. The progress line says so. The
+  first pass of a run asks `/manifest` which parts it lacks, so a book half
+  collected before the app was closed is not downloaded twice, and Stop now
+  stops the computer too. Clips collected this way are stored as they
+  arrived, already compressed, rather than through the native encoder.
+
+- Listening while a computer prepares. Play no longer stops a computer's
+  run; the book is sent from the reader's chapter on; a chapter that has not
+  arrived is waited for with the ring on the play button, and a jump ahead
+  asks the computer to make that chapter and what follows it first
+  (`first: true` on `POST /job`). Play on a book a computer was given goes
+  back to it by itself. `docs/ARCHITECTURE.md` §2.14 has the detail.
+
+- The highlight follows the sentence, not the group. Each group is rendered a
+  sentence at a time and joined, on the phone and on the computer alike, and
+  the clip is stored with the second each sentence starts at (`marks`). This
+  is the "per-sentence time offsets" entry under "Dropped from the first
+  draft", done the one way that is exact. Clips made before it still play,
+  with their group lit.
 
 Still to do from the phases below: the overnight `BGProcessingTask`, a native
 player, and the side-by-side battery measurement.
@@ -178,4 +216,6 @@ crosses back to JavaScript, which today happens for every clip.
   model run. The native `renderChapter` converts text to tokens during
   preparation anyway.
 - Per-sentence time offsets. Kokoro gives no alignment, so per-group offsets
-  are what can be known exactly.
+  are what can be known exactly. (Since done another way: each sentence is
+  rendered by itself and the clip joined from them, so the offsets are exact.
+  See "Built so far".)

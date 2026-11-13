@@ -135,6 +135,7 @@ window.SpeechSynthesisUtterance = function (text) {
 </script>
 
 <!-- Same relative order as index.html: voice before reader. -->
+<script src="../jszip.min.js"></script>
 <script src="../js/novel-voice.js"></script>
 <script src="../js/novel-reader.js"></script>
 
@@ -2670,10 +2671,29 @@ const T = {
                 'every chapter prepared', sum.ready + '/' + sum.total) && pass;
       pass = ok(sum.bytes > 0, 'stored audio has a size', sum.bytes) && pass;
       const rendered = neuralStub.spoken.length;
-      pass = ok(rendered > CHAPTERS.length, 'one render per group', rendered) && pass;
       let groups = 0;
       VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
-      pass = ok(rendered === groups, 'no group rendered twice', rendered + ' renders / ' + groups + ' groups') && pass;
+      // A group is rendered a sentence at a time and stored as one clip, so
+      // there are more renders than clips and exactly one clip per group.
+      const bookId = VT().state.preparedIndex.book;
+      const storedKeys = await VT().preparedStore.clipKeys(bookId);
+      pass = ok(storedKeys.length === groups, 'one stored clip per group', storedKeys.length + ' clips / ' + groups + ' groups') && pass;
+      pass = ok(rendered > groups, 'rendered a sentence at a time', rendered + ' renders / ' + groups + ' groups') && pass;
+      const sentencesNow = VT().segmentBlocks(CHAPTERS[0].blocks, blockText);
+      const planNow = VT().preparedPlan(sentencesNow);
+      const unitsNow = planNow.reduce((n, g) => n + VT().preparedUnits(sentencesNow, g).length, 0);
+      const chapterNow = CHAPTERS[0].id;
+      const chapterKeys = storedKeys.filter(k => k.split('|')[2] === chapterNow);
+      let marksNow = 0, marksOk = true;
+      for (const k of chapterKeys) {
+        const rec = await VT().preparedStore.getClip(k);
+        if (!Array.isArray(rec.marks)) { marksOk = false; continue; }
+        marksNow += rec.marks.length;
+        marksOk = marksOk && rec.marks[0] === 0 && rec.marks.every((m, i) => !i || m > rec.marks[i - 1])
+          && rec.marks[rec.marks.length - 1] < rec.seconds;
+      }
+      pass = ok(marksOk && unitsNow > planNow.length && marksNow === unitsNow, 'every clip says when each of its sentences starts',
+                marksNow + ' marks / ' + unitsNow + ' sentences') && pass;
 
       // 2. Play: stored audio, no engine.
       ne.dispose();
@@ -2699,20 +2719,107 @@ const T = {
       pass = ok(neuralStub.spoken.length === 0, 'nothing generated during playback', neuralStub.spoken.length) && pass;
       ne.ensureReady = realEnsure;
 
-      // Skips step by stored group, or they would land back where they were.
+      // A clip that knows where its sentences start is stepped through a
+      // sentence at a time. One that does not steps by stored group, or the
+      // skip would land back where it was.
       VT().pause();
       const st = VT().state;
       const plan = VT().preparedPlan(st.sentences);
-      const multi = plan.find(g => g.to > g.from && plan.indexOf(g) + 1 < plan.length);
+      const multi = plan.find(g => VT().preparedUnits(st.sentences, g).length > 1 && plan.indexOf(g) + 1 < plan.length);
       if (multi) {
+        const mUnits = VT().preparedUnits(st.sentences, multi);
+        const mKey = VT().preparedClipKey(bookId, st.chapterId, st.prefs.neuralVoice, multi);
+        await VT().preparedClipUrl(mKey);
+        const mMarks = VT().preparedMarks.get(mKey);
         st.index = multi.from;
         VT().skip(1);
-        pass = ok(st.index === multi.to + 1, 'skip forward moves to the next stored group',
+        pass = ok(st.index === mUnits[1].from, 'skip forward moves one sentence inside a timed clip',
+                  'from ' + multi.from + ' to ' + st.index) && pass;
+        VT().skip(-1);
+        pass = ok(st.index === multi.from, 'skip back returns one sentence', st.index) && pass;
+
+        // Resuming part-way through a group starts the clip at that sentence.
+        st.index = mUnits[1].from;
+        const chS = VT().channel, playS = chS.play;
+        let startedAt = null;
+        chS.play = function (u, o) { if (startedAt === null && o && !o.loop) startedAt = o.at || 0; return playS.apply(chS, arguments); };
+        VT().resume();
+        await waitFor(() => startedAt !== null, 3000, 'resumed inside the group');
+        chS.play = playS;
+        VT().pause();
+        pass = ok(startedAt === mMarks[1] && startedAt > 0, 'resume starts the clip at the sentence under the cursor',
+                  startedAt + ' of ' + JSON.stringify(mMarks)) && pass;
+
+        VT().preparedMarks.set(mKey, null);     // as a clip made before sentences were timed
+        st.index = multi.from;
+        VT().skip(1);
+        pass = ok(st.index === multi.to + 1, 'an untimed clip skips forward by stored group',
                   'from ' + multi.from + ' to ' + st.index + ', next starts ' + (multi.to + 1)) && pass;
         VT().skip(-1);
-        pass = ok(st.index === multi.from, 'skip back returns to the previous group', st.index) && pass;
+        pass = ok(st.index === multi.from, 'and back by group', st.index) && pass;
+        VT().preparedMarks.set(mKey, mMarks);
       } else {
         pass = ok(false, 'fixture has a multi-sentence group to skip over') && pass;
+      }
+
+      // The highlight follows the sentence being spoken, not the whole group.
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const hl = VT().highlighter, applyReal = hl.apply;
+        const lit = [];
+        hl.apply = function (x) { if (x && V().state().chapterId === CHAPTERS[0].id) lit.push(x.blockIdx + ':' + x.start + '-' + x.end); return applyReal.apply(hl, arguments); };
+        V().toggle();
+        await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 20000, 'chapter 1 played through');
+        hl.apply = applyReal;
+        VT().pause();
+        endSession();
+        await freshOpen({ preparedOnly: true });
+        await VT().loadPreparedIndex();
+        const st1 = VT().state;
+        V().toggle(); VT().pause();            // a session, so the sentences are seeded
+        const plan1 = VT().preparedPlan(st1.sentences);
+        const multi1 = plan1.find(g => VT().preparedUnits(st1.sentences, g).length > 1);
+        const spans = VT().preparedUnits(st1.sentences, multi1).map(u => u.blockIdx + ':' + u.start + '-' + u.end);
+        const where = spans.map(sp => lit.indexOf(sp));
+        pass = ok(where.every(i => i >= 0) && where.every((i, n) => !n || i > where[n - 1]),
+                  'each sentence of a group is lit in turn as it is spoken', spans.join(' ') + ' at ' + where.join(',')) && pass;
+        pass = ok(lit.indexOf(multi1.blockIdx + ':' + multi1.start + '-' + multi1.end) === -1,
+                  'and the whole group is never lit at once') && pass;
+      }
+
+      // Changing narrator. Stored audio is per voice, and which chapters are
+      // prepared is read per voice too: a switch made while playing used to
+      // restart before that read came back, find nothing, and end the
+      // session, even on a book fully prepared in the voice chosen.
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const chip = id => document.querySelector('#novel-screen .vc-chip[data-voice="' + id + '"]');
+        V().toggle(); VT().pause();                      // a session, so the sheet exists
+        chip('am_michael').click();
+        await waitFor(() => VT().preparedSummary().loaded && VT().state.preparedIndex.voice === 'am_michael', 3000, 'Michael’s index');
+        pass = ok(VT().preparedSummary().ready === 0, 'a book prepared in Heart is not prepared in Michael') && pass;
+        VT().syncSheet();
+        pass = ok(/not prepared in this voice/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'and the sheet says so') && pass;
+        P.start();
+        await waitFor(() => !P.running, 15000, 'prepared in Michael too');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'the book is then prepared in both voices') && pass;
+
+        const chV = VT().channel, playV = chV.play;
+        const heardIn = [];
+        chV.play = function (u, o) { if (!(o && o.loop)) heardIn.push(VT().state.prefs.neuralVoice); return playV.apply(chV, arguments); };
+        VT().resume();
+        await waitFor(() => heardIn.indexOf('am_michael') !== -1, 5000, 'playing in Michael');
+        chip('af_heart').click();
+        await waitFor(() => heardIn.indexOf('af_heart') !== -1, 5000, 'playing in Heart after the switch');
+        chV.play = playV;
+        pass = ok(V().isActive() && V().state().playing, 'changing to a prepared voice while playing keeps playing') && pass;
+        pass = ok(VT().state.preparedIndex.voice === 'af_heart', 'from that voice’s own audio') && pass;
+        VT().pause();
       }
 
       // 3. Play stops a preparation; starting again renders nothing new.
@@ -2732,10 +2839,9 @@ const T = {
       pass = ok(k !== VT().preparedClipKey('b', 'c', 'af_heart', Object.assign({}, g, { text: 'The lamp guttered.' })),
                 'text is part of the key') && pass;
 
-      // 5. A partly prepared book plays nothing, not even its prepared
-      //    chapters: listening starts once the whole book is done. No other
-      //    voice stands in, even where an iPhone voice exists and was the
-      //    stored choice.
+      // 5. A partly prepared book plays the chapters that are ready and stops
+      //    at the first that is not. No other voice stands in, even where an
+      //    iPhone voice exists and was the stored choice.
       const platformBefore = window.Platform;
       let systemSpoke = 0;
       window.Platform = { speech: {
@@ -2760,10 +2866,12 @@ const T = {
         await waitFor(() => !V().isActive(), 15000, 'session ended');
         await pause(200);
         chP.play = playReal;
-        pass = ok(playedIn.length === 0, 'a partly prepared book plays nothing, prepared chapters included',
+        pass = ok(playedIn.length > 0 && playedIn.every(c => c === CHAPTERS[0].id),
+                  'a partly prepared book plays its prepared chapter and stops at the unprepared one',
                   playedIn.length + ' clips') && pass;
-        pass = ok(/whole book/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
-                  'the sheet says listening needs the whole book') && pass;
+        VT().syncSheet();
+        pass = ok(/stops at the first that is not/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'the sheet says where listening stops') && pass;
         V().closeSheet();
         pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice either',
                   neuralStub.spoken.length + ' generated, ' + loads + ' loads') && pass;
@@ -2792,6 +2900,7 @@ const T = {
       V().closeSheet();
     } finally {
       if (P.running) P.stop(null);
+      Store.prefs.set('voice.neuralVoice', 'af_heart');
       await VT().deletePrepared();
       endSession();
     }
@@ -2808,31 +2917,120 @@ const T = {
     const P = VT().preparer;
     const oldPlatform = window.Platform;
     const realEnsure = ne.ensureReady;
+    const realKeepAwake = P.keepAwake;
     const wav = VT().encodeWav(new Float32Array(2400), 24000);   // 100 ms
-    const server = {
-      ready: true, status: 200, fail: false, renders: [], inFlight: 0, maxInFlight: 0, statusCalls: 0,
-    };
     const remote = { base: 'http://192.168.1.20:8787', code: '424242' };
-    let asked = 0;
+
+    // A voice-server in a variable: it takes a whole book, renders it in its
+    // own time, and hands back finished parts as zips.
+    const server = {
+      ready: true, status: 200, fail: false, workers: undefined,
+      posts: [], calls: [], statusCalls: 0, bundles: [], stopped: 0, stops: [],
+      pending: [], done: new Map(), seq: 0, voice: '', book: null,
+      perPoll: Infinity,      // parts rendered per progress check
+      failTail: 0,            // this many parts at the end never render
+      take(job) {
+        this.posts.push(job);
+        // A different id is a different book: this fake holds one at a time.
+        if (job.book !== this.book) { this.pending = []; this.done = new Map(); this.seq = 0; }
+        this.book = job.book;
+        this.voice = job.voice;
+        const fresh = [];
+        (job.parts || []).forEach(p => {
+          if (this.done.has(p.key)) return;
+          const at = this.pending.findIndex(q => q.key === p.key);
+          if (at !== -1) { if (!job.first) return; this.pending.splice(at, 1); }
+          fresh.push(p);
+        });
+        // Parts asked for first jump the queue, as voice-server's do.
+        this.pending = job.first ? fresh.concat(this.pending) : this.pending.concat(fresh);
+      },
+      render(n) {
+        const stop = Math.max(0, this.pending.length - this.failTail);
+        for (let i = 0; i < n && i < stop; i++) {
+          const p = this.pending.shift();
+          const rec = { key: p.key, seq: ++this.seq, file: 'p' + this.seq + '.m4a', seconds: 0.1 };
+          // A part that says where its sentences begin comes back timed.
+          if (Array.isArray(p.cuts)) rec.marks = p.cuts.map((c, n) => Math.round(n * 0.1 / p.cuts.length * 1000) / 1000);
+          this.done.set(p.key, rec);
+        }
+      },
+      get total() { return this.pending.length + this.done.size; },
+      state() {
+        return {
+          book: this.book, voice: this.voice, total: this.total, done: this.done.size, bytes: this.done.size * wav.byteLength,
+          ready: this.total > 0 && this.pending.length === 0,
+          running: this.pending.length > this.failTail,
+          failed: this.pending.length && this.pending.length <= this.failTail ? this.pending.length : 0,
+          lastError: this.failTail ? 'the voice gave up' : '', msPerPart: 12,
+        };
+      },
+      manifest() {
+        const parts = [...this.pending.map(p => ({ key: p.key, seq: 0 })),
+                       ...[...this.done.values()].map(p => ({ key: p.key, seq: p.seq }))];
+        return { v: 1, book: 'b', voice: this.voice, total: parts.length, parts };
+      },
+      async bundle(from, limit) {
+        const take = [...this.done.values()].filter(p => p.seq > from)
+          .sort((a, b) => a.seq - b.seq).slice(0, limit);
+        if (!take.length) return null;
+        const zip = new JSZip();
+        zip.file('book.json', JSON.stringify({
+          v: 1, book: 'b', title: 't', voice: this.voice, created: 1,
+          from, next: take[take.length - 1].seq, ready: this.done.size, total: this.total,
+          parts: take.map(p => Object.assign({ key: p.key, file: p.file, seconds: p.seconds, bytes: wav.byteLength, seq: p.seq },
+                                             p.marks ? { marks: p.marks } : {})),
+        }));
+        take.forEach(p => zip.file('parts/' + p.file, wav.slice(0)));
+        this.bundles.push({ from, limit, parts: take.length });
+        return zip.generateAsync({ type: 'arraybuffer' });
+      },
+    };
+
+    let asked = 0, awake = 0;
     window.Platform = {
       charging: () => Promise.resolve(false),
       confirm: () => { asked++; return Promise.resolve(true); },
       localHttp: async (url, o) => {
+        const path = url.slice(remote.base.length);
+        server.calls.push({ path, code: o.headers['x-voice-code'] });
         if (server.fail) throw new Error('network down');
         if (server.status !== 200) return { status: server.status, headers: {}, data: { error: 'nope' } };
-        if (url.endsWith('/status')) {
+        if (path === '/status') {
           server.statusCalls++;
-          return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null } };
+          return { status: 200, headers: {}, data: { ok: true, version: 1, ready: server.ready, error: null, workers: server.workers } };
         }
-        server.renders.push({ url, code: o.headers['x-voice-code'], voice: o.json.voice, binary: o.binary });
-        server.inFlight++;
-        server.maxInFlight = Math.max(server.maxInFlight, server.inFlight);
-        await pause(15);
-        server.inFlight--;
-        return { status: 200, headers: { 'x-seconds': '0.1' }, data: wav.slice(0) };
+        if (path === '/job' && o.method === 'POST') {
+          server.take(o.json);
+          return { status: 202, headers: {}, data: server.state() };
+        }
+        const asked = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('book');
+        const unknown = { status: 404, headers: {}, data: { error: 'this computer has no such book' } };
+        if (path.startsWith('/job/stop')) { server.stopped++; server.stops.push(asked); return { status: 200, headers: {}, data: { stopped: true } }; }
+        if (path.startsWith('/job?')) {
+          if (asked !== server.book) return unknown;
+          server.render(server.perPoll);
+          return { status: 200, headers: {}, data: server.state() };
+        }
+        if (path.startsWith('/manifest')) return asked === server.book ? { status: 200, headers: {}, data: server.manifest() } : unknown;
+        if (path.startsWith('/bundle')) {
+          if (asked !== server.book) return unknown;
+          const q = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+          const data = await server.bundle(Number(q.get('from')) || 0, Number(q.get('limit')) || Infinity);
+          return data ? { status: 200, headers: {}, data } : { status: 404, headers: {}, data: { error: 'nothing new' } };
+        }
+        return { status: 404, headers: {}, data: { error: 'not found' } };
       },
     };
     let loads = 0;
+    const reset = async () => {
+      if (P.running) P.stop(null);
+      await VT().deletePrepared();
+      server.pending = []; server.done = new Map(); server.seq = 0;
+      server.posts = []; server.calls = []; server.bundles = []; server.perPoll = Infinity; server.failTail = 0;
+      server.stopped = 0; server.stops = []; server.workers = undefined; server.book = null; server.voice = '';
+    };
+    const chapterOfKey = k => String(k).split('|')[2];
     try {
       pass = ok(VT().remoteBase(' 192.168.1.20 ') === 'http://192.168.1.20:8787', 'address gets scheme and port') && pass;
       pass = ok(VT().remoteBase('http://mac.local:9000/') === 'http://mac.local:9000', 'given port kept, slash dropped') && pass;
@@ -2841,65 +3039,359 @@ const T = {
       await VT().deletePrepared();
       ne.dispose();
       ne.ensureReady = function () { loads++; return realEnsure.apply(ne, arguments); };
+      P.keepAwake = function (on) { if (on) awake++; return realKeepAwake.apply(P, arguments); };
       neuralStub.spoken = [];
 
-      // 1. The whole book, on the computer.
+      // 1. The whole book goes over in one request, and comes back as zips.
       const started = await P.request({ remote });
       pass = ok(started && P.running, 'preparing started') && pass;
       pass = ok(asked === 0, 'no charging question for the computer', asked) && pass;
-      await waitFor(() => P.chapterAt > 0, 5000, 'first chapter');
-      pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
-      await waitFor(() => !P.running, 15000, 'preparing finished');
+      await waitFor(() => !P.running, 20000, 'preparing finished');
+
       const sum = VT().preparedSummary();
       pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready + '/' + sum.total + ' ' + P.message) && pass;
       let groups = 0;
       VT().state.preparedIndex.chapters.forEach(r => { groups += r.groups; });
-      pass = ok(server.renders.length === groups, 'one render per group', server.renders.length + '/' + groups) && pass;
-      pass = ok(server.renders.every(r => r.code === '424242' && r.voice === VT().state.prefs.neuralVoice && r.binary
-                && r.url === remote.base + '/render'), 'each render carries the code and voice') && pass;
-      pass = ok(server.maxInFlight === 2, 'the next part is asked for early, never more than one', server.maxInFlight) && pass;
+      pass = ok(server.posts.length === 1, 'the book went over in one request, not one per part', server.posts.length) && pass;
+      pass = ok(server.posts[0].parts.length === groups, 'every part of the book was sent at once',
+                server.posts[0].parts.length + '/' + groups) && pass;
+      pass = ok(server.posts[0].voice === VT().state.prefs.neuralVoice && server.posts[0].book && server.posts[0].title !== undefined,
+                'the job names the book and the voice') && pass;
+      pass = ok(server.calls.every(c => c.code === '424242'), 'every call carries the code') && pass;
+      pass = ok(!server.calls.some(c => c.path === '/render'), 'nothing is rendered a part at a time any more') && pass;
+      pass = ok(awake === 0, 'the phone is not kept awake for the computer’s work', awake) && pass;
       pass = ok(loads === 0, 'the phone model was never loaded', loads) && pass;
       pass = ok(neuralStub.spoken.length === 0, 'the phone engine generated nothing', neuralStub.spoken.length) && pass;
+
       const diag = VT().voiceDiagnostics().prepared;
       pass = ok(diag.source === 'computer' && diag.remote === remote.base && !/424242/.test(JSON.stringify(diag)),
                 'diagnostics name the computer, not the code', JSON.stringify(diag)) && pass;
 
-      // 2. Again: everything is stored, nothing is rendered.
-      server.renders = [];
-      P.start({ remote });
-      await waitFor(() => !P.running, 5000, 'second pass finished');
-      pass = ok(server.renders.length === 0, 'a prepared book renders nothing again', server.renders.length) && pass;
+      // Each part says where its sentences begin, and the clip that comes
+      // back is stored with when each one starts.
+      const sentParts = server.posts[0].parts;
+      const cutsOk = sentParts.every(p => Array.isArray(p.cuts) && p.cuts[0] === 0
+        && p.cuts.every((c, n) => Number.isInteger(c) && c < p.text.length && (!n || c > p.cuts[n - 1])));
+      pass = ok(cutsOk && sentParts.some(p => p.cuts.length > 1), 'every part says where its sentences begin',
+                sentParts.map(p => p.cuts.length).join(',')) && pass;
+      const cutPart = sentParts.find(p => p.cuts.length > 1);
+      pass = ok(cutPart.cuts.every(c => !c || cutPart.text[c - 1] === ' '), 'a cut falls on the start of a sentence',
+                JSON.stringify(cutPart.cuts) + ' in ' + cutPart.text) && pass;
+      const cutClip = await VT().preparedStore.getClip(cutPart.key);
+      pass = ok(cutClip && Array.isArray(cutClip.marks) && cutClip.marks.length === cutPart.cuts.length,
+                'and its clip is stored with a mark per sentence', cutClip && JSON.stringify(cutClip.marks)) && pass;
+      pass = ok(chapterOfKey(sentParts[0].key) === CHAPTERS[0].id, 'the book is sent from the chapter the reader is on') && pass;
+      // Each voice is its own book on the computer, so trying another
+      // narrator does not wipe this one's audio there.
+      const plainId = VT().state.preparedIndex.book;
+      const voiceNow = VT().state.prefs.neuralVoice;
+      pass = ok(server.posts[0].book === plainId + '@' + voiceNow && server.posts[0].family === plainId,
+                'the computer is given the book under this voice, and told which book it is a voice of',
+                server.posts[0].book + ' / ' + server.posts[0].family) && pass;
 
-      // 3. Failures stop with a sentence to act on; nothing falls back to the phone.
-      await VT().deletePrepared();
+      // 2. Again: everything is stored, so nothing new is sent or fetched.
+      const bundlesBefore = server.bundles.length;
+      server.posts = [];
+      P.start({ remote });
+      await waitFor(() => !P.running, 8000, 'second pass finished');
+      pass = ok(server.posts.length === 0, 'a prepared book is not sent again', server.posts.length) && pass;
+      pass = ok(server.bundles.length === bundlesBefore, 'and nothing is downloaded again',
+                server.bundles.length - bundlesBefore) && pass;
+
+      // 3. A long book arrives in passes, each part stored exactly once.
+      await reset();
+      server.perPoll = 2;
+      P.start({ remote });
+      await waitFor(() => !P.running, 30000, 'collected in passes');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'the whole book arrived in passes',
+                VT().preparedSummary().ready + ' ' + P.message) && pass;
+      pass = ok(server.bundles.length > 1, 'it took more than one pass', server.bundles.length) && pass;
+      const seen = server.bundles.reduce((n, b) => n + b.parts, 0);
+      pass = ok(seen === server.done.size, 'each part came down once, never twice', seen + '/' + server.done.size) && pass;
+
+      // 4. Half collected, then the app restarts: it asks what it is missing
+      //    instead of downloading the book again.
+      server.bundles = [];
+      P.remoteNext = 0;                      // a fresh run knows nothing
+      P.start({ remote });
+      await waitFor(() => !P.running, 10000, 'restarted collect');
+      pass = ok(server.calls.some(c => c.path.startsWith('/manifest')), 'it asks which parts it lacks') && pass;
+      pass = ok(server.bundles.length === 0, 'and downloads none of what it already has', server.bundles.length) && pass;
+
+      // 5. A computer that gives up part way: what arrived is kept, and the
+      //    message says to tap again.
+      await reset();
+      server.failTail = 2;
+      P.start({ remote });
+      await waitFor(() => !P.running, 20000, 'stopped part way');
+      pass = ok(/could not be rendered/.test(P.message) && /carry on/.test(P.message),
+                'it says what went wrong and what to do', P.message) && pass;
+      pass = ok(VT().preparedSummary().ready < CHAPTERS.length, 'the book is not called ready') && pass;
+      server.failTail = 0;
+      P.start({ remote });
+      await waitFor(() => !P.running, 20000, 'finished on the second try');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'tapping again finished it', P.message) && pass;
+
+      // 6. Failures name themselves, and nothing falls back to the phone.
+      await reset();
       server.status = 401;
       P.start({ remote });
-      await waitFor(() => !P.running, 5000, '401 stops');
+      await waitFor(() => !P.running, 8000, '401 stops');
       pass = ok(/code does not match/.test(P.message), 'wrong code is named', P.message) && pass;
       server.status = 200;
       server.fail = true;
       P.start({ remote });
-      await waitFor(() => !P.running, 5000, 'network error stops');
+      await waitFor(() => !P.running, 8000, 'network error stops');
       pass = ok(/Could not reach your computer at http:\/\/192\.168\.1\.20:8787/.test(P.message), 'unreachable is named', P.message) && pass;
       server.fail = false;
       pass = ok(loads === 0 && neuralStub.spoken.length === 0, 'no fall back to the phone', loads) && pass;
 
-      // 4. A computer still loading the model: wait, then prepare.
+      // 7. A computer still loading the model: wait, say so, then send.
+      await reset();
       server.ready = false;
       server.statusCalls = 0;
-      server.renders = [];
       P.start({ remote });
-      await waitFor(() => P.remoteLoading, 3000, 'waiting for the computer');
+      await waitFor(() => P.remoteLoading, 5000, 'waiting for the computer');
       pass = ok(/loading the voice/.test(VT().preparerLine()), 'the line says it is loading', VT().preparerLine()) && pass;
-      pass = ok(server.renders.length === 0, 'nothing sent while it loads') && pass;
+      pass = ok(server.posts.length === 0, 'nothing sent while it loads') && pass;
       server.ready = true;
-      await waitFor(() => !P.running, 20000, 'prepared after loading');
+      await waitFor(() => !P.running, 25000, 'prepared after loading');
       pass = ok(server.statusCalls >= 2 && VT().preparedSummary().ready === CHAPTERS.length,
                 'waited, then prepared', server.statusCalls + ' polls') && pass;
+
+      // 8. Stop means stop on the computer too.
+      await reset();
+      server.perPoll = 1;
+      server.stopped = 0;
+      P.start({ remote });
+      await waitFor(() => P.remoteTotal > 0, 8000, 'the job was taken');
+      pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
+      pass = ok(/close the app/.test(VT().preparerLine()), 'and that the phone is free to go', VT().preparerLine()) && pass;
+      P.stop('Paused.');
+      await pause(50);
+      pass = ok(server.stopped === 1, 'stopping tells the computer to stop', server.stopped) && pass;
+
+      // 9. A book too big for one request goes over in chunks and still
+      //    arrives whole. A real serial is hundreds of thousands of parts.
+      await reset();
+      VT().setRemoteChunkParts(4);
+      P.start({ remote });
+      await waitFor(() => !P.running, 25000, 'chunked book finished');
+      pass = ok(server.posts.length > 1, 'the book went over in several requests', server.posts.length) && pass;
+      pass = ok(server.posts.every(p => p.parts.length <= 4), 'none bigger than the chunk size',
+                server.posts.map(p => p.parts.length).join(',')) && pass;
+      const sentKeys = server.posts.flatMap(p => p.parts.map(q => q.key));
+      pass = ok(new Set(sentKeys).size === sentKeys.length, 'no part sent twice', sentKeys.length) && pass;
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the whole book still arrived',
+                VT().preparedSummary().ready + ' ' + P.message) && pass;
+      VT().setRemoteChunkParts(2000);
+
+      // 10. Two computers are named as two.
+      await reset();
+      server.perPoll = Infinity;
+      server.workers = 2;
+      P.start({ remote });
+      await waitFor(() => P.remoteTotal > 0, 8000, 'two computers started');
+      pass = ok(/^On 2 computers: /.test(VT().preparerLine()), 'the line counts the computers', VT().preparerLine()) && pass;
+      await waitFor(() => !P.running, 20000, 'prepared on two computers');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'prepared across two') && pass;
+
+      // 11. Listening while the computer works: Play does not stop it, the
+      //     first clips play before the book is finished, playback waits at
+      //     the edge of what has arrived and carries on by itself.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      Store.prefs.set('voice.remoteBooks', []);
+      server.perPoll = 2;
+      {
+        const ch = VT().channel, playReal = ch.play;
+        const heard = [];
+        ch.play = function (u, o) { if (!(o && o.loop)) heard.push({ chapter: V().state().chapterId, running: P.running }); return playReal.apply(ch, arguments); };
+        P.start({ remote });
+        V().toggle();
+        await pause(50);
+        pass = ok(P.running && server.stopped === 0, 'pressing Play does not stop the computer', server.stopped) && pass;
+        pass = ok(V().state().playing, 'and the session is playing, waiting for the first clip') && pass;
+        let waited = false, busy = false;
+        await waitFor(() => {
+          if (VT().state.streamWait) {
+            waited = true;
+            busy = busy || document.querySelector('#novel-screen .vc-play').getAttribute('aria-busy') === 'true';
+          }
+          return heard.length > 0;
+        }, 20000, 'the first clip to arrive and play');
+        pass = ok(heard[0].running && VT().preparedSummary().ready < CHAPTERS.length,
+                  'the book is heard before it is finished', VT().preparedSummary().ready + ' chapters ready') && pass;
+        await waitFor(() => { waited = waited || !!VT().state.streamWait; return V().state().chapterId === CHAPTERS[1].id && heard.some(h => h.chapter === CHAPTERS[1].id); },
+                      60000, 'playing on into chapter 2 as it arrives');
+        pass = ok(waited && busy, 'at the edge of what has arrived it waits, with the ring on the play button') && pass;
+        pass = ok(V().state().playing, 'and carries on by itself') && pass;
+        pass = ok(server.stopped === 0, 'the computer was never told to stop', server.stopped) && pass;
+        pass = ok(loads === 0 && neuralStub.spoken.length === 0, 'and the phone engine was never used', loads) && pass;
+        VT().pause();
+        ch.play = playReal;
+      }
+      await waitFor(() => !P.running, 40000, 'the rest of the book arrived');
+      pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the whole book finished behind the listening') && pass;
+      pass = ok((Store.prefs.get('voice.remoteBooks', []) || []).indexOf(VT().state.preparedIndex.book) !== -1,
+                'the book is remembered as one a computer has') && pass;
+
+      // 12. A jump to a far chapter asks the computer to make that chapter
+      //     next, and it is heard before the chapters skipped over exist.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.perPoll = 1;
+      {
+        const ch = VT().channel, playReal = ch.play;
+        const heard = [];
+        ch.play = function (u, o) { if (!(o && o.loop)) heard.push(V().state().chapterId); return playReal.apply(ch, arguments); };
+        P.start({ remote });
+        V().toggle();
+        await waitFor(() => P.remoteTotal > 0, 8000, 'the book was taken');
+        const next = document.querySelector('#novel-screen .nv-footer button[aria-label="Next chapter"]');
+        next.click();
+        await waitFor(() => V().state().chapterId === CHAPTERS[1].id, 5000, 'jumped to chapter 2');
+        next.click();
+        await waitFor(() => V().state().chapterId === CHAPTERS[2].id, 5000, 'jumped to chapter 3');
+        await waitFor(() => server.posts.some(p => p.first), 10000, 'the computer was asked to jump ahead');
+        const first = server.posts.find(p => p.first);
+        pass = ok(first.parts.length > 0 && first.parts.every(p => chapterOfKey(p.key) === CHAPTERS[2].id),
+                  'the chapter being waited for is asked for first', first.parts.length + ' parts') && pass;
+        await waitFor(() => heard.indexOf(CHAPTERS[2].id) !== -1, 30000, 'chapter 3 to be heard');
+        pass = ok(!VT().chapterPrepared(CHAPTERS[1].id), 'it is heard before the chapter skipped over is ready') && pass;
+        VT().pause();
+        ch.play = playReal;
+      }
+
+      // 13. Closing the book leaves the computer working, and Play on a book
+      //     a computer was given goes back to it without the Prepare button.
+      window.NovelReader.close({ navigate: false });
+      await pause(50);
+      pass = ok(!P.running, 'closing the book stops the phone watching') && pass;
+      pass = ok(server.stopped === 0, 'but does not stop the computer', server.stopped) && pass;
+      server.perPoll = Infinity;
+      server.render(Infinity);                 // it finished while the app was shut
+      Store.prefs.set('voice.remoteUrl', '192.168.1.20');
+      Store.prefs.set('voice.remoteCode', '424242');
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const ch = VT().channel, playReal = ch.play;
+        let heard = 0;
+        ch.play = function (u, o) { if (!(o && o.loop)) heard++; return playReal.apply(ch, arguments); };
+        V().toggle();
+        await waitFor(() => heard > 0, 20000, 'Play to collect the book and start');
+        pass = ok(V().state().playing, 'Play goes back to the computer for a book it was given') && pass;
+        VT().pause();
+        ch.play = playReal;
+        await waitFor(() => !P.running, 30000, 'collected');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and collects what it finished while the app was shut') && pass;
+      }
+
+      // 14. A computer that cannot be reached ends the wait with the reason.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.fail = true;
+      V().toggle();
+      await waitFor(() => !V().isActive(), 15000, 'the session to end');
+      pass = ok(/Could not reach your computer/.test(P.message), 'an unreachable computer is named, not waited on for ever', P.message) && pass;
+      server.fail = false;
+      V().closeSheet();
+
+      // 15. A book no computer was ever given does not go looking for one.
+      await reset();
+      Store.prefs.set('voice.remoteBooks', []);
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.calls = [];
+      V().toggle();
+      await waitFor(() => !V().isActive(), 5000, 'session ended');
+      pass = ok(server.calls.length === 0 && !P.running, 'Play on a book no computer has does not call one', server.calls.length) && pass;
+      V().closeSheet();
+
+      // 16. A book the computer took under the bare id, before voices had
+      //     their own, keeps that id while it is in this voice.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        const plain = VT().state.preparedIndex.book;
+        const voice = VT().state.prefs.neuralVoice;
+        server.book = plain; server.voice = voice;
+        P.start({ remote });
+        await waitFor(() => !P.running, 20000, 'the old-id book finished');
+        pass = ok(server.posts.length > 0 && server.posts.every(p => p.book === plain),
+                  'a book already there in this voice keeps the id it has', server.posts.map(p => p.book).join(',')) && pass;
+
+        // In another voice it is left alone, stopped, and this voice goes
+        // beside it under its own id.
+        await reset();
+        server.book = plain; server.voice = 'am_puck';
+        server.pending = [{ key: 'old', text: 'Still rendering in the other voice.' }];
+        server.perPoll = 0;                      // so it is still rendering when asked
+        P.start({ remote });
+        await waitFor(() => server.posts.length > 0, 10000, 'this voice to be sent');
+        pass = ok(server.stops.indexOf(plain) !== -1, 'the other voice is stopped rather than left competing', server.stops.join(',')) && pass;
+        server.perPoll = Infinity;
+        await waitFor(() => !P.running, 20000, 'the new-id book finished');
+        pass = ok(server.posts.every(p => p.book === plain + '@' + voice), 'and this voice gets its own id',
+                  server.posts.map(p => p.book).join(',')) && pass;
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book arrives') && pass;
+      }
+
+      // 17. Changing narrator while a computer works: the computer is handed
+      //     the new voice, playback carries on in it, and what was collected
+      //     in the first voice is kept.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.perPoll = 2;
+      {
+        const plain = VT().state.preparedIndex.book;
+        const ch = VT().channel, playReal = ch.play;
+        const heard = [];
+        ch.play = function (u, o) { if (!(o && o.loop)) heard.push(VT().state.prefs.neuralVoice); return playReal.apply(ch, arguments); };
+        P.start({ remote });
+        V().toggle();
+        await waitFor(() => heard.length > 0, 20000, 'the first voice to be heard');
+        pass = ok(heard[0] === 'af_heart', 'it starts in Heart', heard[0]) && pass;
+        document.querySelector('#novel-screen .vc-chip[data-voice="am_michael"]').click();
+        await waitFor(() => server.posts.some(p => p.voice === 'am_michael'), 10000, 'the computer to be given Michael');
+        const handed = server.posts.find(p => p.voice === 'am_michael');
+        pass = ok(handed.book === plain + '@am_michael' && handed.family === plain,
+                  'changing narrator hands the computer the new voice as its own book', handed.book) && pass;
+        pass = ok(P.running && P.voice === 'am_michael', 'and the phone is now collecting that voice', P.voice) && pass;
+        pass = ok(server.stopped === 0, 'without telling the computer to stop: starting the new voice pauses the old one there', server.stopped) && pass;
+        await waitFor(() => heard.indexOf('am_michael') !== -1, 30000, 'Michael to be heard');
+        pass = ok(V().isActive() && V().state().playing, 'and playback carries on in the new voice') && pass;
+        const kept = await VT().preparedStore.clipKeys(plain);
+        pass = ok(kept.some(k => k.split('|')[3] === 'af_heart') && kept.some(k => k.split('|')[3] === 'am_michael'),
+                  'what was collected in the first voice is kept beside the new one',
+                  kept.filter(k => k.split('|')[3] === 'af_heart').length + ' Heart clips') && pass;
+        VT().pause();
+        ch.play = playReal;
+        await waitFor(() => !P.running, 40000, 'Michael to finish');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book finishes in the new voice') && pass;
+        Store.prefs.set('voice.neuralVoice', 'af_heart');
+      }
     } finally {
       if (P.running) P.stop(null);
       ne.ensureReady = realEnsure;
+      P.keepAwake = realKeepAwake;
       window.Platform = oldPlatform;
+      Store.prefs.set('voice.remoteUrl', '');
+      Store.prefs.set('voice.remoteCode', '');
+      Store.prefs.set('voice.remoteBooks', []);
+      Store.prefs.set('voice.neuralVoice', 'af_heart');
       await VT().deletePrepared();
       endSession();
     }
@@ -2942,7 +3434,9 @@ const T = {
       await waitFor(() => !P.running, 15000, 'preparing finished');
       const sum = VT().preparedSummary();
       pass = ok(sum.ready === CHAPTERS.length, 'every chapter prepared', sum.ready) && pass;
-      pass = ok(disk.size === neuralStub.spoken.length && disk.size > 0, 'one file per rendered group', disk.size) && pass;
+      let nGroups = 0;
+      VT().state.preparedIndex.chapters.forEach(r => { nGroups += r.groups; });
+      pass = ok(disk.size === nGroups && disk.size > 0, 'one file per group', disk.size + ' files / ' + nGroups + ' groups') && pass;
       pass = ok(sum.bytes === disk.size * 100, 'sizes come from the files', sum.bytes) && pass;
       const anyKey = [...disk.keys()][0];
       pass = ok(disk.get(anyKey) > 44, 'the plugin was handed the WAV', disk.get(anyKey) + ' bytes') && pass;

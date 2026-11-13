@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readPhononFiles, phononVoice, PHONON_PACES, PHONON_TEMPERATURE, PHONON_SEED } from './phonon.mjs';
 
@@ -14,7 +15,8 @@ function say(m) { if (process.send) process.send(m); }
 
 async function load() {
   const pkg = dirname(createRequire(import.meta.url).resolve('phonon-tts/package.json'));
-  const wasm = await import(join(pkg, 'wasm/phonon_tts.js'));
+  // A URL, not a path: on Windows a path starts C:, which import() refuses.
+  const wasm = await import(pathToFileURL(join(pkg, 'wasm/phonon_tts.js')).href);
   await wasm.default({ module_or_path: readFileSync(join(pkg, 'wasm/phonon_tts_simd_bg.wasm')) });
   const files = await readPhononFiles(process.env.PHONON_DIR);
   const engine = { wasm: wasm, files: files, paces: new Map() };

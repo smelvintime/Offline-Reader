@@ -424,11 +424,32 @@
     { id: 'am_fenrir',  label: 'Fenrir',  note: 'American · deep' },
     { id: 'am_puck',    label: 'Puck',    note: 'American · light' },
     { id: 'bm_george',  label: 'George',  note: 'British' },
+    // Phonon, on the computer only (voice-server/phonon.mjs): the phone has no
+    // Phonon, so a book in this voice is never prepared or previewed here.
+    { id: 'pn_trevor',  label: 'Trevor',  note: 'Your computer', computer: true },
   ];
+
+  // A computer voice's pace is spoken into its audio, so it is part of the
+  // voice id: 'pn_trevor_13' is Trevor at 1.3x. A new pace is a new voice to
+  // the computer and to the prepared store, exactly as a new narrator is, so
+  // a book never changes speed partway through. 1.4x is the model's limit.
+  const PHONON_PACES = [1.0, 1.1, 1.2, 1.3, 1.4];
+  const PHONON_PACE_DEFAULT = 1.3;
+  function voiceBase(id) { return String(id || '').replace(/_\d{2}$/, ''); }
+  function phononPaceOf(id) { const m = /_(\d{2})$/.exec(String(id || '')); return m ? Number(m[1]) / 10 : null; }
+  function phononVoiceId(base, pace) { return base + '_' + Math.round(pace * 10); }
+
+  /** A voice only voice-server can render, never this phone. */
+  function computerOnlyVoice(id) {
+    const base = voiceBase(id);
+    return NEURAL_VOICES.some(function (v) { return v.id === base && v.computer; });
+  }
+  const COMPUTER_ONLY_TEXT = 'Trevor is made on your computer. Use Prepare on my computer.';
 
   const PREF = {
     narrator:     'voice.narrator',
     rate:         'voice.rate',
+    phononPace:   'voice.phononPace',   // the pace Trevor's chip picks
     pitch:        'voice.pitch',
     neuralVoice:  'voice.neuralVoice',
     systemVoice:  'voice.systemVoice',
@@ -447,7 +468,10 @@
   const DEFAULTS = {
     rate: 1,
     pitch: 1,
-    neuralVoice: 'af_heart',
+    // Trevor at his default pace: the narrator chosen by ear. He exists only
+    // on a computer, so a reader with none picks a Kokoro voice to prepare
+    // on the phone, and the sheet says so when they try.
+    neuralVoice: phononVoiceId('pn_trevor', PHONON_PACE_DEFAULT),
     systemVoice: '',        // '' = whatever iOS picks for the language
     follow: true,
     autoNext: true,
@@ -613,7 +637,11 @@
   }
 
   function validNeuralVoice(id) {
-    for (let i = 0; i < NEURAL_VOICES.length; i++) if (NEURAL_VOICES[i].id === id) return id;
+    for (let i = 0; i < NEURAL_VOICES.length; i++) {
+      const v = NEURAL_VOICES[i];
+      if (!v.computer && v.id === id) return id;
+      if (v.computer && v.id === voiceBase(id) && PHONON_PACES.indexOf(phononPaceOf(id)) !== -1) return id;
+    }
     return DEFAULTS.neuralVoice;
   }
 
@@ -3402,6 +3430,7 @@
         this.start({ remote: remote });
         return Promise.resolve(this.running);
       }
+      if (computerOnlyVoice(state.prefs.neuralVoice)) { this.message = COMPUTER_ONLY_TEXT; syncSheet(); return Promise.resolve(false); }
       const cap = neuralCapability();
       if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return Promise.resolve(false); }
       if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return Promise.resolve(false); }
@@ -3436,6 +3465,7 @@
       const book = preparedBook();
       if (!book) return;
       const remote = (opts && opts.remote) || null;
+      if (!remote && computerOnlyVoice(state.prefs.neuralVoice)) { this.message = COMPUTER_ONLY_TEXT; syncSheet(); return; }
       const cap = remote ? { ok: true } : neuralCapability();
       if (!cap.ok) { this.message = 'The natural voice cannot run here, so this book cannot be prepared.'; syncSheet(); return; }
       if (!neuralSpeaks(docLang())) { this.message = 'The natural voice reads English, and this book is not in English.'; syncSheet(); return; }
@@ -4781,9 +4811,10 @@
         chip.dataset.voice = v.id;
         chip.append(el('span', 'vc-chip-name', v.label), el('span', 'vc-chip-note', v.note));
         chip.addEventListener('click', function () {
-          if (state.prefs.neuralVoice === v.id) return;
-          state.prefs.neuralVoice = v.id;
-          prefSet(PREF.neuralVoice, v.id);
+          const id = v.computer ? phononVoiceId(v.id, phononPacePref()) : v.id;
+          if (state.prefs.neuralVoice === id) return;
+          state.prefs.neuralVoice = id;
+          prefSet(PREF.neuralVoice, id);
           voiceChanged();
         });
         natVoices.appendChild(chip);
@@ -4933,6 +4964,19 @@
       inc: function () { setRate(state.prefs.rate + RATE_STEP); },
     }));
 
+    // Trevor's pace, unlike Speed, is made into the audio: changing it is a
+    // new voice to the computer, which prepares the book again at that pace.
+    const paceRow = stepRow('Trevor’s pace', {
+      get: function () { return phononPaceOf(state.prefs.neuralVoice) || phononPacePref(); },
+      fmt: function (v) { return v.toFixed(1) + '×'; },
+      dec: function () { setPhononPace(-1); },
+      inc: function () { setPhononPace(1); },
+    });
+    paceRow.classList.add('vc-pace-row');
+    paceRow.appendChild(el('div', 'vc-hint', 'Spoken this fast, not sped up. A new pace prepares the book again on your computer; the other pace is kept.'));
+    body.appendChild(paceRow);
+    sheetSync.push(function () { paceRow.hidden = !computerOnlyVoice(state.prefs.neuralVoice); });
+
     const pitchRow = stepRow('Pitch', {
       get: function () { return state.prefs.pitch; },
       fmt: function (v) { return v.toFixed(2).replace(/0$/, ''); },
@@ -4972,7 +5016,7 @@
       pitchRow.hidden = true;
       const chips = natVoices.querySelectorAll('.vc-chip');
       for (let i = 0; i < chips.length; i++) {
-        const onV = chips[i].dataset.voice === state.prefs.neuralVoice;
+        const onV = chips[i].dataset.voice === voiceBase(state.prefs.neuralVoice);
         chips[i].classList.toggle('vc-on', onV);
         chips[i].setAttribute('aria-checked', String(onV));
       }
@@ -5317,6 +5361,25 @@
     channel.setRate(state.prefs.rate);
   }
 
+  function phononPacePref() {
+    const p = Number(prefGet(PREF.phononPace, PHONON_PACE_DEFAULT));
+    return PHONON_PACES.indexOf(p) !== -1 ? p : PHONON_PACE_DEFAULT;
+  }
+
+  /** One step faster (+1) or slower (-1) for the selected computer voice. */
+  function setPhononPace(step) {
+    const id = state.prefs.neuralVoice;
+    if (!computerOnlyVoice(id)) return;
+    const at = PHONON_PACES.indexOf(phononPaceOf(id));
+    const pace = PHONON_PACES[clamp(at + step, 0, PHONON_PACES.length - 1)];
+    const next = phononVoiceId(voiceBase(id), pace);
+    if (next === id) return;
+    prefSet(PREF.phononPace, pace);
+    state.prefs.neuralVoice = next;
+    prefSet(PREF.neuralVoice, next);
+    voiceChanged();
+  }
+
   function setPitch(v) {
     state.prefs.pitch = clamp(Math.round(v * 100) / 100, PITCH_MIN, PITCH_MAX);
     prefSet(PREF.pitch, state.prefs.pitch);
@@ -5383,6 +5446,8 @@
       return;
     }
 
+    if (computerOnlyVoice(state.prefs.neuralVoice)) { previewOnComputer(done); return; }
+
     const cap = neuralCapability();
     if (!cap.ok) { toast('The natural voice cannot run here — ' + cap.reason + '.'); done(); return; }
     setPreparing(true);
@@ -5403,6 +5468,25 @@
         syncSheet();
         done();
       });
+  }
+
+  /** Preview a computer-only voice by asking the computer for the sentence. */
+  function previewOnComputer(done) {
+    const remote = remoteFromPrefs();
+    if (!remote.base) { toast('Type your computer’s address under Prepare on my computer to hear Trevor.'); done(); return; }
+    setPreparing(true);
+    remoteCall(remote, '/render', {
+      method: 'POST', json: { text: PREVIEW_TEXT, voice: state.prefs.neuralVoice }, binary: true,
+      timeoutMs: REMOTE_STATUS_TIMEOUT_MS * 4,
+    }).then(function (r) {
+      setPreparing(false);
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'audio/wav' }));
+      return channel.play(url, { rate: state.prefs.rate, onended: function () { URL.revokeObjectURL(url); done(); } });
+    }).catch(function (e) {
+      setPreparing(false);
+      toast('Preview failed: ' + (e && e.message ? e.message : e));
+      done();
+    });
   }
 
   // Same animation contract as the reader's own sheet: [hidden] keeps the

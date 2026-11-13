@@ -157,6 +157,98 @@ test('parts go to whichever computer is free, the faster one taking more', async
   } finally { server.close(); peer.server.close(); }
 });
 
+test('a peer that can take several at once is given several, as a GPU needs', async () => {
+  let now = 0, most = 0;
+  const wide = {
+    info: {},
+    generate: async function () {
+      most = Math.max(most, ++now);
+      await new Promise(r => setTimeout(r, 40));
+      now--;
+      return { pcm: new Float32Array(240).fill(0.5), rate: 24000 };
+    },
+  };
+  const peerServer = createVoiceServer({ code: '123456', engine: wide, slots: 4 });
+  await new Promise(r => peerServer.listen(0, '127.0.0.1', r));
+  const peerAddr = '127.0.0.1:' + peerServer.address().port;
+  const { server, base } = await startWithPeers(timedEngine(1000, []), [peerAddr]);
+  try {
+    // The first answer says how many it takes; after that it is kept that busy.
+    // Two, so one reaches the peer while this computer holds the other.
+    await Promise.all([render(base, 'warm 1'), render(base, 'warm 2')]);
+    most = 0;
+    const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => render(base, 'part ' + i)));
+    assert.deepEqual(rs.map(r => r.status), rs.map(() => 200));
+    assert.equal(most, 4, 'the peer rendered 4 at once, not 1');
+  } finally { server.close(); peerServer.close(); }
+});
+
+test('one computer renders on its GPU and its processor at once', async () => {
+  const cpu = [], card = [];
+  const server = createVoiceServer({ code: '123456', engine: timedEngine(30, cpu), gpu: timedEngine(30, card), gpuSlots: 3 });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const rs = await Promise.all(Array.from({ length: 12 }, (_, i) => render(base, 'part ' + i)));
+    assert.deepEqual(rs.map(r => r.status), rs.map(() => 200));
+    assert.equal(cpu.length + card.length, 12, 'each part rendered once');
+    assert.ok(card.length > cpu.length, 'the GPU, taking 3 at once, did more: ' + card.length + ' vs ' + cpu.length);
+    assert.ok(cpu.length >= 1, 'the processor did some too');
+    assert.equal(rs[0].headers.get('x-slots'), '4', 'tells a main computer it takes 3 + 1');
+  } finally { server.close(); }
+});
+
+test('a GPU service that stops leaves the processor rendering', async () => {
+  const cpu = [];
+  const broken = { info: {}, generate: async () => { throw new Error('connection refused'); } };
+  const server = createVoiceServer({ code: '123456', engine: timedEngine(5, cpu), gpu: broken });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const rs = await Promise.all(Array.from({ length: 4 }, (_, i) => render(base, 'part ' + i)));
+    assert.deepEqual(rs.map(r => r.status), [200, 200, 200, 200]);
+    assert.equal(cpu.length, 4);
+  } finally { server.close(); }
+});
+
+test('Phonon voices go to Phonon, started only when first asked for', async () => {
+  const kokoro = [], card = [], pn = [];
+  let started = 0;
+  const server = createVoiceServer({
+    code: '123456', engine: timedEngine(5, kokoro), gpu: timedEngine(5, card), gpuSlots: 4,
+    phonon: function () { started++; return timedEngine(5, pn); },
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const say = (t, voice) => fetch(base + '/render', {
+    method: 'POST', headers: { 'x-voice-code': '123456' }, body: JSON.stringify({ text: t, voice }),
+  });
+  try {
+    await Promise.all(Array.from({ length: 4 }, (_, i) => say('k ' + i, 'am_michael')));
+    assert.equal(started, 0, 'a Kokoro book never starts Phonon');
+    const rs = await Promise.all(Array.from({ length: 6 }, (_, i) => say('p ' + i, 'pn_trevor_13')));
+    assert.deepEqual(rs.map(r => r.status), rs.map(() => 200));
+    assert.equal(started, 1, 'started once');
+    assert.equal(pn.length, 6, 'every Phonon part rendered by Phonon');
+    assert.ok([...kokoro, ...card].every(t => t.startsWith('k ')), 'neither Kokoro nor the GPU took a Phonon part');
+  } finally { server.close(); }
+});
+
+test('a computer without Phonon says so instead of rendering it in Kokoro', async () => {
+  const kokoro = [];
+  const { server, base } = await start(timedEngine(5, kokoro));
+  try {
+    const r = await render(base, 'hello');            // a Kokoro voice still works
+    assert.equal(r.status, 200);
+    const p = await fetch(base + '/render', {
+      method: 'POST', headers: { 'x-voice-code': '123456' }, body: JSON.stringify({ text: 'hi', voice: 'pn_trevor_13' }),
+    });
+    assert.equal(p.status, 500);
+    assert.match(await p.text(), /no Phonon/);
+    assert.equal(kokoro.length, 1);
+  } finally { server.close(); }
+});
+
 test('a peer that is gone or has another code never stops the book', async () => {
   const mine = [], theirs = [];
   const wrongCode = await start(timedEngine(5, theirs), '999999');

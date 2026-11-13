@@ -31,7 +31,10 @@ Apache-2.0) and the ONNX Runtime Web binaries it drives (MIT, © Microsoft);
 see `vendor/tts/README.md`. The Kokoro-82M model weights (Apache-2.0) are not
 in this repository — the app downloads them from Hugging Face only when a
 reader enables the Natural voice, and synthesis then runs entirely on the
-reader's device.
+reader's device. The optional voice server (`voice-server/`) also uses
+phonon-tts 0.7.1 (Apache-2.0 or MIT) and downloads the Phonon model
+`gradium/phonon-31m-en` and its voice catalog (both Apache-2.0) on first use;
+neither is in this repository.
 
 ## What the application does
 

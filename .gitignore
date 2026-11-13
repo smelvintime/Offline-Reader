@@ -30,3 +30,4 @@ assets/splash-dark.png
 __pycache__/
 *.pyc
 voice-server/gpu/.venv/
+voice-server/.cache/

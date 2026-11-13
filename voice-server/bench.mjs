@@ -12,6 +12,7 @@
 
 import { cpus, totalmem } from 'node:os';
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { createFarm } from './farm.mjs';
 import { copyCeiling } from './server.mjs';
 
@@ -33,14 +34,21 @@ const SENTENCES = [
 async function memoryOf(pid) {
   try {
     const m = /VmRSS:\s+(\d+) kB/.exec(await readFile('/proc/' + pid + '/status', 'utf8'));
-    return m ? Number(m[1]) * 1024 : 0;
-  } catch (e) { return 0; }
+    if (m) return Number(m[1]) * 1024;
+  } catch (e) { /* not Linux */ }
+  // macOS has no /proc; ps reports the same thing, in kilobytes.
+  return new Promise(function (resolve) {
+    execFile('ps', ['-o', 'rss=', '-p', String(pid)], function (err, out) {
+      const kb = err ? 0 : Number(String(out).trim());
+      resolve(kb > 0 ? kb * 1024 : 0);
+    });
+  });
 }
 
 async function measure(dtype, copies, threads, rounds) {
   const pids = [];
   const farm = createFarm({
-    script: new URL('./engine-worker.mjs', import.meta.url),
+    script: process.env.BENCH_SCRIPT || new URL('./engine-worker.mjs', import.meta.url),
     env: { VOICE_DTYPE: dtype, VOICE_THREADS: String(threads) },
     size: copies,
     log: function (m) { console.log('    ' + m); },
@@ -51,8 +59,11 @@ async function measure(dtype, copies, threads, rounds) {
     while (farm.size() < copies) await new Promise(function (r) { setTimeout(r, 100); });
     // Once through unmeasured: the first pass through a fresh copy is slow.
     await Promise.all(Array.from({ length: copies }, function () { return farm.generate(SENTENCES[0], 'af_heart'); }));
-    const work = [];
-    for (let r = 0; r < rounds; r++) for (const s of SENTENCES) work.push(s);
+    // Enough sentences that every copy gets several. With a dozen copies and
+    // a dozen sentences the run ends when the slowest single sentence does,
+    // with most copies already idle, and the speed reads low and noisy.
+    const count = Math.max(rounds * SENTENCES.length, copies * 4);
+    const work = Array.from({ length: count }, function (_, i) { return SENTENCES[i % SENTENCES.length]; });
     farm.window();
     const t0 = Date.now();
     await Promise.all(work.map(function (s) { return farm.generate(s, 'af_heart'); }));

@@ -34,6 +34,28 @@ function saveEvery(parts) {
   return Math.min(SAVE_DEBOUNCE_MAX_MS, SAVE_DEBOUNCE_MS + parts * 0.1);
 }
 
+const RENAME_TRIES = 8;   // about two seconds in all, for a lock that lasts a moment
+
+/**
+ * rename(), tried again when Windows refuses it. Windows will not replace a
+ * file that anything has open, even only to read it: the monitor page reading
+ * book.json, antivirus, the search indexer. Each lets go in a moment, so a
+ * refusal is waited out rather than reported. A Mac never refuses.
+ */
+export async function renameRetrying(from, to, renameFn) {
+  const mv = renameFn || rename;
+  for (let i = 0; ; i++) {
+    try { return await mv(from, to); }
+    catch (e) {
+      if (i + 1 >= RENAME_TRIES || ['EPERM', 'EBUSY', 'EACCES'].indexOf(e && e.code) === -1) throw e;
+      await new Promise(function (r) { setTimeout(r, 50 * (i + 1)); });
+    }
+  }
+}
+
+// manifest → the save of it in progress, so two never overlap.
+const saving = new WeakMap();
+
 // manifest → Map(key → part). Outside the manifest so it is never serialized,
 // and so merging chunk 150 of a book costs no more than merging chunk 1.
 const indexes = new WeakMap();
@@ -137,10 +159,21 @@ export function createLibrary(options) {
   function dirOf(m) { return join(root, m.dir); }
   function manifestPath(m) { return join(dirOf(m), 'book.json'); }
 
-  async function save(m) {
+  // One save at a time per book. Two at once share the .tmp file, and the
+  // first rename takes it away from the second; a long book's manifest takes
+  // long enough to write that the debounce can fire into one in progress.
+  function save(m) {
+    const next = (saving.get(m) || Promise.resolve()).catch(function () {}).then(function () {
+      return writeManifest(m);
+    });
+    saving.set(m, next);
+    return next;
+  }
+
+  async function writeManifest(m) {
     const tmp = manifestPath(m) + '.tmp';
     await writeFile(tmp, JSON.stringify(m, null, 1));
-    await rename(tmp, manifestPath(m));      // never a half-written manifest
+    await renameRetrying(tmp, manifestPath(m));      // never a half-written manifest
   }
 
   /**

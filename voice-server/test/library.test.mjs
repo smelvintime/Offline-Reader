@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, rm, readFile, readdir, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createLibrary, bookDir, partName, summary, haveFfmpeg, LIBRARY_VERSION } from '../library.mjs';
+import { createLibrary, bookDir, partName, summary, haveFfmpeg, renameRetrying, LIBRARY_VERSION } from '../library.mjs';
 import { createJobs } from '../jobs.mjs';
 import { writeZip, crc32 } from '../zip.mjs';
 import { createVoiceServer, encodeWav } from '../server.mjs';
@@ -796,4 +796,29 @@ test('the monitor page opens without the code and shows nothing without it', asy
     assert.equal(end.books[0].done, 6);
     assert.ok(end.log.some(l => /6 of 6 parts ready/.test(l.text)), 'what the terminal said is on the page too');
   } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('a rename Windows refuses for a moment is tried again, and a real failure is not', async () => {
+  let tries = 0;
+  const busy = async () => { if (++tries < 3) throw Object.assign(new Error('locked'), { code: 'EPERM' }); };
+  await renameRetrying('a', 'b', busy);
+  assert.equal(tries, 3, 'succeeds once the lock is let go');
+  tries = 0;
+  const gone = async () => { tries++; throw Object.assign(new Error('missing'), { code: 'ENOENT' }); };
+  await assert.rejects(renameRetrying('a', 'b', gone), /missing/);
+  assert.equal(tries, 1, 'a missing file is not waited for');
+});
+
+test('saves of one book never overlap, however many are asked for at once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lib-'));
+  const errors = [];
+  const lib = createLibrary({ root, compress: false, log: m => { if (/could not write/.test(m)) errors.push(m); } });
+  const parts = Array.from({ length: 3000 }, (_, i) => ({ key: 'k' + i, text: 'part ' + i + ' '.repeat(200) }));
+  const { manifest } = await lib.accept({ book: 'b', title: 'Big', voice: 'af_heart', parts });
+  await Promise.all(Array.from({ length: 6 }, () => lib.release(manifest)));
+  assert.deepEqual(errors, []);
+  const saved = JSON.parse(await readFile(join(root, manifest.dir, 'book.json'), 'utf8'));
+  assert.equal(saved.parts.length, 3000);
+  assert.deepEqual((await readdir(join(root, manifest.dir))).filter(f => f.endsWith('.tmp')), [], 'no .tmp left behind');
+  await rm(root, { recursive: true, force: true });
 });

@@ -145,6 +145,11 @@ faster one simply does more.
    It says straight away whether each one answers. Repeat `--peer` for a
    third.
 
+   Either computer can use its graphics chip: add `--gpu` on that one, as
+   below, and it renders on its chip and its processor together. Each
+   computer tells the main one how many parts it takes at once, so every
+   one is kept as busy as it would be on its own.
+
 3. On the phone, type only the main computer's address. The progress line
    reads "On 2 computers".
 
@@ -185,6 +190,31 @@ its audio, and carries on when the app asks for that voice again.
 The zip is an ordinary zip: double-click it in Finder, or put it on a USB
 stick, if you would rather move a book by hand than over Wi-Fi.
 
+## The Trevor voice (Phonon)
+
+Besides the Kokoro voices the phone also has, this server speaks one more:
+**Trevor**, from Phonon (`gradium/phonon-31m-en`, Apache 2.0). In the app it
+is the voice marked "Your computer", and the narrator a new reader starts with.
+
+- **Trevor's pace** (1.0x to 1.4x, 1.3x to begin with) sits under Speed while
+  Trevor is chosen. It is spoken into the audio rather than sped up, so it
+  sounds natural, and a new pace is a new voice to this server: the book is
+  prepared again at that pace, and the old pace is kept. 1.4x is as fast as
+  the model goes; Speed still works on top. The voice id carries it:
+  `pn_trevor_13` is 1.3x.
+
+- Only a computer makes it. The phone has no Phonon, so it will not prepare a
+  book in Trevor itself; use **Prepare on my computer**. Preview asks the
+  computer too.
+- Nothing to install. The first Trevor book downloads the model and voice
+  (about 65 MB) into `voice-server/.cache/phonon/`, pinned to fixed
+  revisions so a book never changes voice halfway.
+- It runs in its own copies on the processor, tuned like Kokoro's and
+  remembered in `voice-tuning-phonon.json`, and starts only when a Trevor book
+  arrives. A Mac renders a chapter of a novel in under a minute.
+- It never goes to `--gpu`, which is a Kokoro service. Every computer sharing
+  a Trevor book needs this version of voice-server.
+
 ## Options
 
 `npm start -- --port 8787 --code 123456 --dtype fp32`
@@ -205,11 +235,30 @@ stick, if you would rather move a book by hand than over Wi-Fi.
   many copies fast; raise it only with a small `--workers`.
 - `--peer`: another computer running voice-server with the same code, to
   share the work with. Repeat it, or separate addresses with commas.
-- `--gpu`: render on a graphics card instead of this computer's CPU, through
-  the small Python service described below. About sixteen times faster.
+- `--gpu`: render on a graphics card too, through the small Python service
+  described below. The card has first pick of the work and the processor's
+  copies take what it cannot, so both are busy; if the service stops, the
+  processor carries on alone. `--workers 0` uses the card only.
 - `--slots`: how many parts to render at once. 1 on the CPU, where one
   forward pass already uses every core, and 8 with `--gpu`, because one
   paragraph leaves a card about a third busy.
+
+### A Windows computer as one of them
+
+The server runs the same on Windows; only the setup differs.
+
+- Install Node (`winget install OpenJS.NodeJS.LTS`) and, if this one will be
+  the main computer, ffmpeg (`winget install ffmpeg`). Then `npm install`
+  here as usual.
+- There is no `caffeinate`: start it with plain `npm start -- ...`, and set
+  Settings → System → Power → Sleep to Never while a book prepares.
+- The first start, Windows Firewall asks about `node`: allow it on
+  **Private** networks, or the other computer cannot reach it. If the Wi-Fi
+  is marked Public, change it to Private (Settings → Network → Wi-Fi → the
+  network → Private).
+- An NVIDIA card is the `gpu_voice.py` service below, not `mac_voice.py`.
+  Start it first, then `npm start -- --code 123456 --gpu http://127.0.0.1:8899`.
+  Its processor helps as on a Mac.
 
 ## Rendering on a graphics card
 
@@ -243,8 +292,10 @@ npm start -- --gpu http://127.0.0.1:8899 --code 123456
 ```
 
 The phone sees no difference: same model, same voices, same clip keys, same
-manifest. If the Python service is not running then nothing renders and the
-server says so, because `--gpu` does not load the CPU voice as well.
+manifest. The CPU voice loads as well and takes what the card cannot; if
+the Python service is not running, the CPU does it all and the log says the
+GPU failed. With `--workers 0` there is no CPU voice and nothing renders
+without the service.
 
 ### On a Mac's graphics chip
 

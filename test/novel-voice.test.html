@@ -310,6 +310,9 @@ async function freshOpen(opts) {
   neuralStub.reset();
   try { localStorage.removeItem('or.voiceGuard'); } catch (e) {}
   Store.prefs.set('voice.rate', 1);
+  // The default narrator is Trevor, who only a computer renders. These suites
+  // exercise the phone's own engine, so they start in a Kokoro voice.
+  Store.prefs.set('voice.neuralVoice', (opts && opts.voice) || 'af_heart');
   Store.prefs.set('voice.follow', (opts && 'follow' in opts) ? opts.follow : true);
   Store.prefs.set('voice.autoNext', (opts && 'autoNext' in opts) ? opts.autoNext : true);
   Store.prefs.set('voice.highlight', true);
@@ -428,7 +431,9 @@ const T = {
     const p = VT().readPrefs();
     pass = ok(p.rate === 1.6, 'rate clamps to its ceiling', p.rate) && pass;
     pass = ok(p.pitch === 0.8, 'pitch clamps to its floor', p.pitch) && pass;
-    pass = ok(p.neuralVoice === 'af_heart', 'unknown narrator falls back') && pass;
+    pass = ok(p.neuralVoice === 'pn_trevor_13', 'unknown narrator falls back to the default, Trevor at 1.3×', p.neuralVoice) && pass;
+    Store.prefs.set('voice.neuralVoice', 'pn_trevor_19');
+    pass = ok(VT().readPrefs().neuralVoice === 'pn_trevor_13', 'and so does a pace Trevor cannot do') && pass;
     Store.prefs.set('voice.rate', 1);
     return { name: 'prefs validate', pass };
   },
@@ -3382,6 +3387,39 @@ const T = {
         await waitFor(() => !P.running, 40000, 'Michael to finish');
         pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book finishes in the new voice') && pass;
         Store.prefs.set('voice.neuralVoice', 'af_heart');
+      }
+
+      // 18. Trevor is Phonon, which only a computer has: the phone will not
+      //     prepare it itself, and the computer is handed it like any voice.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.perPoll = Infinity;
+      {
+        Store.prefs.set('voice.phononPace', 1.3);
+        const paceRow = document.querySelector('#novel-screen .vc-pace-row');
+        pass = ok(paceRow && paceRow.hidden, 'the pace control is hidden for a phone voice') && pass;
+        document.querySelector('#novel-screen .vc-chip[data-voice="pn_trevor"]').click();
+        pass = ok(VT().state.prefs.neuralVoice === 'pn_trevor_13', 'Trevor is chosen at his remembered pace',
+                  VT().state.prefs.neuralVoice) && pass;
+        await waitFor(() => !paceRow.hidden, 2000, 'the pace control to show for Trevor');
+        pass = ok(/1\.3×/.test(paceRow.textContent), 'and it reads 1.3×', paceRow.textContent) && pass;
+        const started = await P.request();
+        pass = ok(started === false && !P.running && /made on your computer/.test(P.message || ''),
+                  'the phone will not prepare Trevor itself', P.message) && pass;
+        P.start({ remote });
+        await waitFor(() => server.posts.some(p => p.voice === 'pn_trevor_13'), 10000, 'the computer to be given Trevor');
+        paceRow.querySelector('[aria-label$="up"]').click();
+        pass = ok(VT().state.prefs.neuralVoice === 'pn_trevor_14' && Store.prefs.get('voice.phononPace') === 1.4,
+                  'a faster pace is Trevor at 1.4×, remembered', VT().state.prefs.neuralVoice) && pass;
+        await waitFor(() => server.posts.some(p => p.voice === 'pn_trevor_14'), 10000, 'the computer to be given the new pace');
+        paceRow.querySelector('[aria-label$="up"]').click();
+        pass = ok(VT().state.prefs.neuralVoice === 'pn_trevor_14', 'and 1.4× is as fast as it goes') && pass;
+        await waitFor(() => !P.running, 40000, 'Trevor to finish');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book arrives at that pace') && pass;
+        Store.prefs.set('voice.neuralVoice', 'af_heart');
+        Store.prefs.set('voice.phononPace', 1.3);
       }
     } finally {
       if (P.running) P.stop(null);

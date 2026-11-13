@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.1",
-    "kokoro-js": "1.2.1"
+    "kokoro-js": "1.2.1",
+    "phonon-tts": "0.7.1"
   }
 }

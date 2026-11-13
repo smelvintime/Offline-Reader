@@ -37,6 +37,7 @@ import { createJobs } from './jobs.mjs';
 import { writeZip, ZIP_MAX_ENTRIES } from './zip.mjs';
 import { createFarm } from './farm.mjs';
 import { createTuner } from './tuner.mjs';
+import { ensurePhononFiles, isPhononVoice, PHONON_MODEL } from './phonon.mjs';
 
 export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 export const DEFAULT_PORT = 8787;
@@ -51,7 +52,7 @@ const MAX_PARTS = 1000000;
 const MAX_KEY = 512;
 const MAX_TEXT = 4000;
 const MAX_CUTS = 200;            // sentences in one part; a real one has a handful
-const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
+const VOICE_RE = /^[a-z]{2}_[a-z]+(_\d{2})?$/;   // a Phonon voice ends in its pace
 const PEER_TIMEOUT_MS = 120000;
 const PEER_REST_MS = 30000;      // a computer that failed is left alone this long
 const LOG_KEEP = 200;            // lines of this server's own log kept in memory
@@ -102,7 +103,7 @@ export function encodeWav(f32, sampleRate) {
 // ── The engine ──────────────────────────────────────────────────────────────
 
 // Roughly what one loaded copy of the voice holds, for deciding how many fit.
-const COPY_BYTES = { fp32: 1.0e9, fp16: 0.7e9, q8: 0.5e9 };
+const COPY_BYTES = { fp32: 1.0e9, fp16: 0.7e9, q8: 0.5e9, phonon: 0.3e9 };
 
 /**
  * The most copies worth trying: no more than there are cores, and no more
@@ -182,7 +183,7 @@ export async function loadKokoro(opts) {
     // Read when asked, not once: the number of copies changes as it tunes.
     get info() {
       return {
-        model: MODEL_ID, dtype: dtype, cores: cores,
+        model: o.model || MODEL_ID, dtype: dtype, cores: cores,
         copies: farm.size(), threads: farm.threads() === null ? threads : farm.threads(),
         tuning: tuner ? tuner.status() : null,
       };
@@ -191,6 +192,21 @@ export async function loadKokoro(opts) {
     capacity: function () { return farm.capacity(); },
     close: function () { if (tuner) tuner.stop(); farm.close(); },
   };
+}
+
+/**
+ * Phonon (phonon.mjs) on this computer's processor: the same farm and tuner
+ * as Kokoro, with phonon-worker.mjs as the copy. It remembers its own copy
+ * count, since a copy of it costs a different amount than one of Kokoro.
+ */
+export async function loadPhonon(opts) {
+  const o = opts || {};
+  const dir = await ensurePhononFiles({ log: o.log, dir: o.dir });
+  return loadKokoro(Object.assign({}, o, {
+    script: o.script || new URL('./phonon-worker.mjs', import.meta.url),
+    env: Object.assign({ PHONON_DIR: dir }, o.env || {}),
+    dtype: 'phonon', threads: 1, model: PHONON_MODEL,
+  }));
 }
 
 // ── The HTTP surface ────────────────────────────────────────────────────────
@@ -292,11 +308,17 @@ export function gpuEngine(base) {
   };
 }
 
-/** Another voice-server, asked over HTTP with the same code. */
+/**
+ * Another voice-server, asked over HTTP with the same code. One part at a
+ * time until it answers, then as many as it says it takes (x-slots): a peer
+ * with a graphics card or several copies of the voice idles on one.
+ */
 export function peerWorker(base, code) {
+  let slots = 1;
   return {
     name: base,
     peer: true,
+    capacity: function () { return slots; },
     render: async function (text, voice) {
       const res = await fetch(base + '/render', {
         method: 'POST',
@@ -305,6 +327,7 @@ export function peerWorker(base, code) {
         signal: AbortSignal.timeout(PEER_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error('answered ' + res.status + ' ' + (await res.text()).slice(0, 200));
+      slots = Math.max(1, Number(res.headers.get('x-slots')) || 1);
       return {
         wav: Buffer.from(await res.arrayBuffer()),
         seconds: Number(res.headers.get('x-seconds')) || 0,
@@ -335,7 +358,7 @@ export function createPool(workers, log) {
   function pump() {
     workers.forEach(function (w) {
       while (w.busy < slotsOf(w) && Date.now() >= w.restUntil) {
-        const i = queue.findIndex(function (j) { return !j.tried.has(w); });
+        const i = queue.findIndex(function (j) { return !j.tried.has(w) && (!w.accepts || w.accepts(j.voice)); });
         if (i < 0) return;
         const job = queue.splice(i, 1)[0];
         w.busy++;
@@ -373,6 +396,13 @@ export function createPool(workers, log) {
   };
 }
 
+async function renderOn(eng, text, voice) {
+  const t0 = Date.now();
+  const out = await eng.generate(text, voice);
+  const pcm = trimSilence(out.pcm, out.rate);
+  return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
+}
+
 /**
  * The server, with its engine passed in so tests can use a fake one.
  * `engine` may be a promise: /status answers "loading" until it resolves.
@@ -406,19 +436,43 @@ export function createVoiceServer(options) {
     slots: Number(options.slots) || 1,
     // An engine that runs several copies says how many are ready; one that
     // does not (a graphics card, a test's fake) takes `slots` at a time.
+    // With Phonon running too, the larger of the two: a book is in one voice.
     capacity: function () {
-      return engine && typeof engine.capacity === 'function' ? engine.capacity() : local.slots;
+      const of = function (e) { return e && typeof e.capacity === 'function' ? e.capacity() : local.slots; };
+      return Math.max(of(engine), phononEngine ? of(phononEngine) : 0);
     },
     render: async function (text, voice) {
-      const eng = engine || await loaded;
-      const t0 = Date.now();
-      const out = await eng.generate(text, voice);
-      const pcm = trimSilence(out.pcm, out.rate);
-      return { wav: encodeWav(pcm, out.rate), seconds: pcm.length / out.rate, ms: Date.now() - t0 };
+      if (isPhononVoice(voice)) return renderOn(await phonon(), text, voice);
+      return renderOn(engine || await loaded, text, voice);
     },
   };
+  // Phonon starts with the first part that asks for it, not with the server:
+  // most books are in a Kokoro voice and need none of its copies.
+  let phononEngine = null, phononLoading = null;
+  function phonon() {
+    if (!options.phonon) return Promise.reject(new Error('this computer has no Phonon voice'));
+    if (!phononLoading) {
+      phononLoading = Promise.resolve(typeof options.phonon === 'function' ? options.phonon({ log: log }) : options.phonon);
+      phononLoading.then(function (e) { phononEngine = e; log('Phonon voice ready'); },
+        function (e) { log('Phonon voice failed to load: ' + (e && e.message)); phononLoading = null; });
+    }
+    return phononLoading;
+  }
+  // A graphics card beside the processor (options.gpu, an engine like
+  // gpuEngine): listed first so it has first pick, the processor's copies
+  // taking what it cannot. If the card's service fails it rests like a peer
+  // and the processor carries on alone.
+  const gpu = options.gpu ? {
+    name: 'this computer’s GPU',
+    peer: true,
+    slots: Number(options.gpuSlots) || 8,
+    accepts: function (voice) { return !isPhononVoice(voice); },   // a Kokoro service
+    render: function (text, voice) { return renderOn(options.gpu, text, voice); },
+  } : null;
+  // What this computer takes at once, said to a main computer in x-slots.
+  const localSlots = function () { return local.capacity() + (gpu ? gpu.slots : 0); };
   const peers = (options.peers || []).map(function (p) { return peerWorker(peerBase(p), code); });
-  const pool = createPool([local].concat(peers), log);
+  const pool = createPool([gpu, local].filter(Boolean).concat(peers), log);
   let rendered = 0;
 
   // Keeping books is optional, so the render-only tests and an app that only
@@ -431,7 +485,9 @@ export function createVoiceServer(options) {
     log: log,
     // One part in hand per computer and one waiting, so no computer idles on
     // a round trip. This used to be the phone's job; it belongs here.
-    width: function () { return 1 + local.capacity() + peers.length; },
+    width: function () {
+      return peers.reduce(function (n, p) { return n + p.capacity(); }, 1 + localSlots());
+    },
   }) : null;
 
   function authorised(req) { return String(req.headers['x-voice-code'] || '') === code; }
@@ -487,8 +543,9 @@ export function createVoiceServer(options) {
       const voice = String(job.voice || '');
       if (!text.trim() || text.length > MAX_TEXT) { sendJson(res, 400, { error: 'text must be 1 to ' + MAX_TEXT + ' characters' }); return; }
       if (!VOICE_RE.test(voice)) { sendJson(res, 400, { error: 'unknown voice' }); return; }
-      if (loadError) { sendJson(res, 503, { error: 'the voice failed to load: ' + loadError.message }); return; }
-      if (!engine) { sendJson(res, 503, { error: 'the voice is still loading' }); return; }
+      // Phonon loads on demand, so only a Kokoro voice waits for Kokoro.
+      if (!isPhononVoice(voice) && loadError) { sendJson(res, 503, { error: 'the voice failed to load: ' + loadError.message }); return; }
+      if (!isPhononVoice(voice) && !engine) { sendJson(res, 503, { error: 'the voice is still loading' }); return; }
 
       try {
         const r = await pool.render(text, voice);
@@ -499,6 +556,7 @@ export function createVoiceServer(options) {
           'content-length': r.wav.length,
           'x-seconds': r.seconds.toFixed(3),
           'x-render-ms': String(r.ms),
+          'x-slots': String(localSlots()),
         });
         res.end(r.wav);
       } catch (e) {
@@ -645,7 +703,8 @@ export function createVoiceServer(options) {
   // The engine's copies are processes of their own: they go when this does.
   srv.on('close', function () { if (engine && typeof engine.close === 'function') engine.close(); });
   srv.stopEngine = function () {
-    return loaded.then(function (e) { if (e && typeof e.close === 'function') e.close(); }, function () {});
+    const close = function (e) { if (e && typeof e.close === 'function') e.close(); };
+    return Promise.all([loaded.then(close, function () {}), (phononLoading || Promise.resolve()).then(close, function () {})]);
   };
   return srv;
 }
@@ -698,13 +757,15 @@ async function main() {
   const port = Number(arg('port', DEFAULT_PORT));
   const code = arg('code', String(randomInt(0, 1000000)).padStart(6, '0'));
   const dtype = arg('dtype', 'fp32');
-  // --gpu http://127.0.0.1:8899 renders on a graphics card instead of here.
+  // --gpu http://127.0.0.1:8899 renders on a graphics card as well as here.
   // Several at once, because that is the only way a card is kept busy.
   const gpu = arg('gpu', '');
   const slots = Number(arg('slots', gpu ? 8 : 1)) || 1;
   // How many copies of the voice run on this computer's processor: a number,
   // or 'auto' to find the fastest by trying. --threads is what each is given.
+  // With --gpu, --workers 0 leaves the processor out.
   const workers = arg('workers', 'auto');
+  const gpuOnly = gpu && workers === '0';
   const threads = Number(arg('threads', 1)) || 1;
   const peers = args('peer');
   const log = function (m) { console.log('voice-server: ' + m); };
@@ -715,12 +776,17 @@ async function main() {
     code: code,
     peers: peers,
     library: library,
-    engine: gpu ? gpuEngine(gpu) : function (ctx) {
+    engine: gpuOnly ? gpuEngine(gpu) : function (ctx) {
       return loadKokoro({
         dtype: dtype, workers: workers, threads: threads, log: ctx.log,
         tuningFile: join(root, 'voice-tuning.json'),
       });
     },
+    gpu: gpu && !gpuOnly ? gpuEngine(gpu) : null,
+    phonon: function (ctx) {
+      return loadPhonon({ workers: workers, log: ctx.log, tuningFile: join(root, 'voice-tuning-phonon.json') });
+    },
+    gpuSlots: slots,
     slots: slots,
     log: log,
   });
@@ -744,9 +810,11 @@ async function main() {
     checkPeers(peers, code);
     if (gpu) {
       console.log('  Voice on the GPU at ' + gpu + ', ' + slots + ' at a time.');
-      console.log('  That service must be running; nothing renders here without it.');
+      console.log(gpuOnly
+        ? '  That service must be running; nothing renders here without it.'
+        : '  The processor takes what the GPU cannot, and all of it if the GPU stops.');
     }
-    if (!gpu) {
+    if (!gpuOnly) {
       console.log(workers === 'auto'
         ? '  Using this computer’s processor: several copies of the voice at once,'
         : '  Using this computer’s processor: ' + workers + ' at once (--workers).');

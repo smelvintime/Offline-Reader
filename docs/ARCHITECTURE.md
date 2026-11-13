@@ -1458,11 +1458,34 @@ The ceiling is the core count or half the memory at about 1 GB a copy,
 whichever is lower. On a laptop this tends to stop at the fast cores by
 itself, since a slow core adds less than 5%, which also leaves the machine
 usable. It looks again every twenty minutes and remembers the answer in
-`voice-tuning.json`. `--workers N` fixes the number; `--gpu` is unaffected,
-since that engine is a service of its own. The pool reads a worker's
+`voice-tuning.json`. `--workers N` fixes the number. `--gpu` adds the card
+as a second worker on this computer, listed first so it has first pick, and
+resting like a peer when its service fails; `--workers 0` leaves the
+processor out. A server's `/render` answer carries `x-slots`, what it takes
+at once, and a main computer sends a peer that many. The pool reads a worker's
 `capacity()` rather than a fixed `slots`, and the job queue's width follows it.
 `npm run bench` prints the speed of each arrangement on the machine it is run
 on, and the real-model CI job runs it so the numbers are on record.
+
+**A second model, on the computer only.** `pn_` voices (today `pn_trevor`)
+are Phonon, `voice-server/phonon.mjs`: the npm package's single-threaded
+WebAssembly build in its own farm (`phonon-worker.mjs`, the same IPC as
+`engine-worker.mjs`), started by the first `pn_` part and closed with the
+server. The model and voice files are fetched once from pinned Hugging Face
+revisions; temperature (0.8, the config's own) and seed are constants.
+Pace is a load-time condition (`duration_delta`), spoken into the audio, so
+it is part of the voice id (`pn_trevor_13` is 1.3x) and a copy keeps one
+loaded model per pace in use. Making pace a voice means the app's narrator
+machinery (separate prepared books per voice, the computer handed the new
+one mid-book, the old one kept) covers changing it, and a half-prepared book
+never changes speed partway. The sheet's "Trevor's pace" stepper (1.0x to
+1.4x; past -0.6 the model slows again) sets `voice.phononPace` and switches
+`voice.neuralVoice` to that id. The pool routes by voice: a worker may declare
+`accepts(voice)`, which the `--gpu` worker uses to refuse Phonon parts, and
+the local worker sends `pn_` parts to the Phonon farm and the rest to Kokoro.
+The app marks the voice `computer: true`; `preparer.request`/`start` refuse it
+without a remote and the preview asks the computer's `/render`. Nothing else
+in the app changes, since prepared-only playback already never renders live.
 
 **Graphics chip on a Mac.** `voice-server --gpu URL` talks to any service with
 two routes: `POST /render {text, voice}` answering raw little-endian float32
@@ -1703,7 +1726,8 @@ renders after the series is gone. A deliberate non-cascade.
 | `voice.deviceVoice` | `speechSynthesis` voiceURI string; `''` (default) = auto — the top-ranked voice for the page language | novel-voice |
 | `voice.rate` | number `0.6..1.6` (default `1`) — utterance rate / audio playbackRate | novel-voice |
 | `voice.pitch` | number `0.8..1.2` (default `1`; device engine only) | novel-voice |
-| `voice.neuralVoice` | one of the curated Kokoro narrator ids (default `af_heart`; unknown → default) | novel-voice |
+| `voice.neuralVoice` | a curated Kokoro narrator id, or a computer-only Phonon id with its pace (`pn_trevor_10`..`pn_trevor_14`). Default `pn_trevor_13`; unknown → default. Trevor cannot be prepared on the phone, so a reader with no computer picks a Kokoro voice | novel-voice |
+| `voice.phononPace` | number `1.0..1.4` (default `1.3`): the pace Trevor's chip picks | novel-voice |
 | `voice.gpu` | boolean (default `false`): run the natural voice on WebGPU with the fp32 weights, a ~330 MB download. Offered only on a desktop with WebGPU (a phone's browser build was tried and crashed); switched off automatically after a crash attributed to the GPU (§2.14) | novel-voice |
 | `voice.follow` | boolean (default `true`) — narration turns pages / scrolls, persisting progress | novel-voice |
 | `voice.autoNext` | boolean (default `true`) — keep reading into the next chapter | novel-voice |

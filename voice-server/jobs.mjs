@@ -19,8 +19,8 @@ export function createJobs(options) {
   const width = options.width || function () { return 2; };
   const runs = new Map();   // book → run
 
-  function stateOf(m, run) {
-    const s = summary(m);
+  /** A book's summary with what its run, if it has one, is doing. */
+  function withRun(s, run) {
     s.running = !!(run && run.running);
     s.startedAt = run ? run.startedAt : null;
     s.finishedAt = run ? run.finishedAt : null;
@@ -29,8 +29,14 @@ export function createJobs(options) {
     s.lastError = run ? run.lastError : '';
     // Measured here, not guessed: what the app's time-left estimate runs on.
     s.msPerPart = run && run.rendered ? Math.round(run.renderMs / run.rendered) : 0;
+    // For the monitor page: when the last part landed, and how much audio
+    // this run has made, which against the clock is its speed.
+    s.lastAt = run ? run.lastAt : null;
+    s.renderedSeconds = run ? Math.round(run.audioSeconds) : 0;
     return s;
   }
+
+  function stateOf(m, run) { return withRun(summary(m), run); }
 
   /**
    * One part's audio. A part that says where its sentences begin is rendered
@@ -85,9 +91,11 @@ export function createJobs(options) {
           run.taken.add(part);
           renderPart(part, manifest.voice)
             .then(function (r) { return library.put(manifest, part, r.wav, r.seconds, r.marks); })
-            .then(function () {
+            .then(function (stored) {
               run.rendered++;
               run.renderMs += Date.now() - started;
+              run.lastAt = Date.now();
+              run.audioSeconds += (stored && stored.seconds) || 0;
             }, function (e) {
               run.failed++;
               run.lastError = String((e && e.message) || e);
@@ -116,6 +124,18 @@ export function createJobs(options) {
         ? library.partsFor(manifest, (job.parts || []).map(function (p) { return p.key; }))
             .filter(function (p) { return !p.file && p.text; })
         : [];
+      // One voice of a book at a time. The app sends each voice as its own
+      // book, so trying another narrator does not wipe the first one's audio,
+      // and names the book they both are as `family`. The voice just asked
+      // for is the one someone wants to hear; the other stops where it is and
+      // keeps what it made.
+      if (manifest.family) {
+        runs.forEach(function (r, id) {
+          if (id === manifest.book || !r.running || r.cancelled || r.family !== manifest.family) return;
+          r.cancelled = true;
+          log('pausing another voice of "' + (manifest.title || manifest.book) + '" while this one renders');
+        });
+      }
       const existing = runs.get(manifest.book);
       if (existing && existing.running) {
         // Already working on this book. The parts just posted were merged into
@@ -131,10 +151,16 @@ export function createJobs(options) {
         running: true, cancelled: false, again: false,
         startedAt: Date.now(), finishedAt: null,
         rendered: 0, renderMs: 0, failed: 0, lastError: '',
+        lastAt: null, audioSeconds: 0,
+        family: manifest.family || null,
         urgent: wanted,
         taken: new Set(),   // handed to the pool this pass, so never twice
       };
       runs.set(manifest.book, run);
+      if (accepted.pending.length) {
+        log('book "' + (manifest.title || manifest.book) + '": rendering ' + accepted.pending.length
+            + ' of ' + manifest.parts.length + ' parts');
+      }
 
       (async function () {
         try {
@@ -165,6 +191,12 @@ export function createJobs(options) {
       })();
 
       return stateOf(manifest, run);
+    },
+
+    /** Every book this computer holds, each with what its run is doing. */
+    overview: async function () {
+      const books = await library.list();
+      return books.map(function (s) { return withRun(s, runs.get(s.book) || null); });
     },
 
     /** → state | null */
@@ -201,12 +233,23 @@ export function createJobs(options) {
     resumeAll: async function () {
       const books = await library.list();
       const unfinished = books.filter(function (b) { return b.total && b.done < b.total; });
-      let started = 0;
+      // Of a book held in several voices, only the one asked for most
+      // recently carries on: that is the one being listened to. The others
+      // wait until the app asks for them again.
+      const latest = new Map();
+      const wanted = [];
       for (const b of unfinished) {
         const m = await library.find(b.book);
         if (!m || !m.parts.some(function (p) { return !p.file && p.text; })) continue;
-        log('carrying on with "' + (m.title || m.book) + '": ' + (m.parts.length - b.done) + ' parts left');
-        await jobs.start({ book: m.book, voice: m.voice, title: m.title, parts: [] });
+        if (!m.family) { wanted.push(m); continue; }
+        const had = latest.get(m.family);
+        if (!had || (m.touched || 0) > (had.touched || 0)) latest.set(m.family, m);
+      }
+      latest.forEach(function (m) { wanted.push(m); });
+      let started = 0;
+      for (const m of wanted) {
+        log('carrying on with "' + (m.title || m.book) + '": ' + (m.parts.length - summary(m).done) + ' parts left');
+        await jobs.start({ book: m.book, voice: m.voice, title: m.title, family: m.family, parts: [] });
         started++;
       }
       return started;

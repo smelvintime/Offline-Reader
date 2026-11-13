@@ -695,3 +695,104 @@ test('asking first for a book nobody is rendering starts it there', async () => 
     assert.equal(rendered.length, 5);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+// ── One voice of a book at a time, and the monitor page ─────────────────────
+
+test('another voice of the same book is its own book, and pauses the first', async () => {
+  const root = await tempRoot();
+  try {
+    const lib = createLibrary({ root, compress: false });
+    const rendered = [];
+    const jobs = createJobs({ library: lib, pool: fakePool(rendered), width: () => 1 });
+    const heart = job({ book: 'test-book@af_heart', family: 'test-book', voice: 'af_heart', parts: parts(40, 'h') });
+    const michael = job({ book: 'test-book@am_michael', family: 'test-book', voice: 'am_michael', title: 'A Test Book (Michael)', parts: parts(3, 'm') });
+
+    await jobs.start(heart);
+    await until(async () => (await jobs.state('test-book@af_heart')).done >= 2, 'the first voice to get going');
+    await jobs.start(michael);
+    const done = await until(async () => {
+      const s = await jobs.state('test-book@am_michael');
+      return s.ready ? s : null;
+    }, 'the second voice to finish');
+    assert.equal(done.done, 3);
+
+    const first = await until(async () => {
+      const s = await jobs.state('test-book@af_heart');
+      return s.running ? null : s;
+    }, 'the first voice to pause');
+    assert.ok(first.done >= 2 && first.done < 40, 'the first voice stopped where it was: ' + first.done);
+    assert.equal((await lib.list()).length, 2, 'and both are kept, side by side');
+
+    // Asking for the first voice again carries it on from there.
+    await jobs.start(Object.assign({}, heart, { parts: [] }));
+    const back = await until(async () => {
+      const s = await jobs.state('test-book@af_heart');
+      return s.ready ? s : null;
+    }, 'the first voice to finish');
+    assert.equal(back.done, 40);
+    assert.equal(rendered.length, 43, 'nothing was rendered twice');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('after a restart only the voice asked for last carries on', async () => {
+  const root = await tempRoot();
+  try {
+    const stopAll = async (lib, jobs, ids) => {
+      for (const id of ids) jobs.cancel(id);
+      for (const id of ids) await until(async () => !(await jobs.state(id)).running, id + ' to stop');
+    };
+    {
+      const lib = createLibrary({ root, compress: false });
+      const jobs = createJobs({ library: lib, pool: fakePool([], () => true), width: () => 1 });   // nothing ever renders
+      await jobs.start(job({ book: 'b@af_heart', family: 'b', voice: 'af_heart', parts: parts(2, 'h') }));
+      await new Promise(r => setTimeout(r, 15));
+      await jobs.start(job({ book: 'b@am_michael', family: 'b', voice: 'am_michael', parts: parts(2, 'm') }));
+      await jobs.start(job({ book: 'other', voice: 'af_heart', parts: parts(2, 'o') }));
+      await until(async () => !(await jobs.state('b@am_michael')).running && !(await jobs.state('other')).running, 'the failing runs to end');
+      await stopAll(lib, jobs, ['b@af_heart']);
+    }
+    const lib = createLibrary({ root, compress: false });
+    const rendered = [];
+    const jobs = createJobs({ library: lib, pool: fakePool(rendered), width: () => 1 });
+    assert.equal(await jobs.resumeAll(), 2, 'the latest voice, and the book that has only one');
+    await until(async () => (await jobs.state('b@am_michael')).ready && (await jobs.state('other')).ready, 'them to finish');
+    assert.equal((await jobs.state('b@af_heart')).done, 0, 'the voice left behind waits to be asked for');
+    assert.equal(rendered.length, 4);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('the monitor page opens without the code and shows nothing without it', async () => {
+  const root = await tempRoot();
+  const { server, base } = await serve(root, fakeEngine([], 20));
+  try {
+    const page = await fetch(base + '/');
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    const html = await page.text();
+    assert.match(html, /Offline Reader voice server/);
+    assert.ok(!html.includes('123456'), 'the page itself carries no code');
+    assert.equal((await fetch(base + '/monitor')).status, 200);
+
+    assert.equal((await fetch(base + '/activity')).status, 401, 'what it shows needs the code');
+
+    await post(base, '/job', job({ parts: parts(6) }));
+    const busy = await until(async () => {
+      const a = await (await ask(base, '/activity')).json();
+      return a.books.length && a.books[0].rendered >= 1 && a.books[0].running ? a : null;
+    }, 'the book to be seen rendering');
+    assert.equal(busy.ready, true);
+    assert.equal(busy.books[0].title, 'A Test Book');
+    assert.equal(busy.books[0].total, 6);
+    assert.ok(busy.books[0].lastAt >= busy.startedAt, 'it says when the last part landed');
+    assert.ok(busy.load.slots >= 1 && busy.load.busy >= 0 && 'queued' in busy.load, 'and how busy it is');
+    assert.ok(!JSON.stringify(busy).includes('Part 0.'), 'no book text leaves in it');
+
+    const end = await until(async () => {
+      const a = await (await ask(base, '/activity')).json();
+      return a.books[0].ready ? a : null;
+    }, 'the book to finish');
+    assert.equal(end.books[0].done, 6);
+    assert.equal(end.books[0].running, false);
+    assert.ok(end.log.some(l => /6 of 6 parts ready/.test(l.text)), 'what the terminal said is on the page too');
+  } finally { server.close(); await rm(root, { recursive: true, force: true }); }
+});

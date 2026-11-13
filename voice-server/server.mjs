@@ -26,6 +26,7 @@
 // simply takes more of the book.
 
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { networkInterfaces, cpus } from 'node:os';
 import { randomInt } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +50,15 @@ const MAX_CUTS = 200;            // sentences in one part; a real one has a hand
 const VOICE_RE = /^[a-z]{2}_[a-z]+$/;
 const PEER_TIMEOUT_MS = 120000;
 const PEER_REST_MS = 30000;      // a computer that failed is left alone this long
+const LOG_KEEP = 200;            // lines of this server's own log kept in memory
+const LOG_SHOW = 40;             // and how many of them the monitor page is sent
+
+// Read once, when first asked for: tests that never open it never touch disk.
+let monitorHtml = null;
+function monitorPage() {
+  if (monitorHtml === null) monitorHtml = readFileSync(new URL('./monitor.html', import.meta.url), 'utf8');
+  return monitorHtml;
+}
 
 // ── Same as js/novel-voice-worker.js ────────────────────────────────────────
 
@@ -157,6 +167,7 @@ function jobProblem(job) {
   if (typeof job.book !== 'string' || !job.book.trim() || job.book.length > MAX_KEY) return 'book must be an id';
   if (!VOICE_RE.test(String(job.voice || ''))) return 'unknown voice';
   if (job.title !== undefined && typeof job.title !== 'string') return 'title must be text';
+  if (job.family !== undefined && (typeof job.family !== 'string' || !job.family.trim() || job.family.length > MAX_KEY)) return 'family must be an id';
   const parts = job.parts === undefined ? [] : job.parts;
   if (!Array.isArray(parts)) return 'parts must be a list';
   if (parts.length > MAX_PARTS) return 'a book may have at most ' + MAX_PARTS + ' parts';
@@ -274,6 +285,12 @@ export function createPool(workers, log) {
     shares: function () {
       return workers.map(function (w) { return { name: w.name, rendered: w.rendered, resting: Date.now() < w.restUntil }; });
     },
+    /** How busy the computers are right now, for the monitor page. */
+    load: function () {
+      let busy = 0, slots = 0;
+      workers.forEach(function (w) { busy += w.busy; slots += w.slots; });
+      return { busy: busy, slots: slots, queued: queue.length };
+    },
   };
 }
 
@@ -283,7 +300,16 @@ export function createPool(workers, log) {
  */
 export function createVoiceServer(options) {
   const code = String(options.code);
-  const log = options.log || function () {};
+  // What the terminal shows is also kept, a screenful of it, for the monitor
+  // page: the window this runs in is often not the one being looked at.
+  const said = [];
+  const tell = options.log || function () {};
+  const log = function (m) {
+    said.push({ at: Date.now(), text: String(m) });
+    if (said.length > LOG_KEEP) said.shift();
+    tell(m);
+  };
+  const startedAt = Date.now();
   let engine = null;
   let loadError = null;
   const loaded = Promise.resolve(options.engine).then(
@@ -327,7 +353,32 @@ export function createVoiceServer(options) {
   const srv = createServer(async function (req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); res.end(); return; }
+
+    // The monitor page. Served without the code because it holds nothing: it
+    // is an empty frame that asks /activity for everything it shows, and that
+    // needs the code like every other route.
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/monitor')) {
+      cors(res);
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(monitorPage());
+      return;
+    }
+
     if (!authorised(req)) { sendJson(res, 401, { error: 'wrong code' }); return; }
+
+    // Everything the monitor page shows, in one answer.
+    if (req.method === 'GET' && url.pathname === '/activity') {
+      sendJson(res, 200, {
+        ok: true, now: Date.now(), startedAt: startedAt,
+        ready: !!engine, error: loadError ? String(loadError.message || loadError) : null,
+        info: engine ? engine.info : null, rendered: rendered,
+        workers: 1 + peers.length, shares: pool.shares(), load: pool.load(),
+        library: library ? { root: library.root, compress: library.compress } : null,
+        books: jobs ? await jobs.overview() : [],
+        log: said.slice(-LOG_SHOW),
+      });
+      return;
+    }
 
     if (req.method === 'GET' && url.pathname === '/status') {
       sendJson(res, 200, {
@@ -582,6 +633,8 @@ async function main() {
     addrs.forEach(function (a) { console.log('    Address:  ' + a + ':' + port); });
     if (!addrs.length) console.log('    Address:  (no network found; connect this computer to Wi-Fi)');
     console.log('    Code:     ' + code);
+    console.log('    Monitor:  http://localhost:' + port + '/?code=' + code);
+    console.log('              open that in a browser on this computer to watch it work');
     console.log('    Books:    ' + root);
     if (!compress) {
       console.log('              storing WAV, about 170 MB an hour. Install ffmpeg');

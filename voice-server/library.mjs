@@ -112,7 +112,7 @@ export function summary(m) {
     seconds += p.seconds || 0;
   }
   return {
-    book: m.book, title: m.title, voice: m.voice, dir: m.dir, created: m.created,
+    book: m.book, title: m.title, voice: m.voice, family: m.family || null, dir: m.dir, created: m.created,
     total: m.parts.length, done: done, bytes: bytes, seconds: Math.round(seconds),
     ready: m.parts.length > 0 && done === m.parts.length,
   };
@@ -129,6 +129,10 @@ export function createLibrary(options) {
   const log = o.log || function () {};
   const ext = compress ? 'm4a' : 'wav';
   const open = new Map();   // book → manifest, while a job holds it
+  // dir → { mtimeMs, summary }. A long serial's book.json runs to tens of
+  // megabytes, and the monitor page lists the library every couple of
+  // seconds: an unchanged file is not read and parsed again.
+  const listed = new Map();
 
   function dirOf(m) { return join(root, m.dir); }
   function manifestPath(m) { return join(dirOf(m), 'book.json'); }
@@ -220,7 +224,14 @@ export function createLibrary(options) {
         if (!d.isDirectory()) continue;
         const held = Array.from(open.values()).find(function (m) { return m.dir === d.name; });
         if (held) { out.push(summary(held)); continue; }
-        try { out.push(summary(await read(d.name))); }
+        try {
+          const at = (await stat(join(root, d.name, 'book.json'))).mtimeMs;
+          const had = listed.get(d.name);
+          if (had && had.mtimeMs === at) { out.push(Object.assign({}, had.summary)); continue; }
+          const s = summary(await read(d.name));
+          listed.set(d.name, { mtimeMs: at, summary: s });
+          out.push(Object.assign({}, s));
+        }
         catch (e) { /* not one of ours, or half-written: skip it */ }
       }
       return out.sort(function (a, b) { return b.created - a.created; });
@@ -261,7 +272,11 @@ export function createLibrary(options) {
           book: job.book,
           title: job.title || '',
           voice: job.voice,
-          dir: bookDir(job.book, job.title),
+          // A book kept in several voices gets the voice in its folder name,
+          // or Finder shows two folders nobody can tell apart.
+          dir: bookDir(job.book, job.family
+            ? (job.title || '') + ' ' + String(job.voice || '').replace(/^[a-z]{2}_/, '')
+            : job.title),
           created: Date.now(),
           // Counts parts as they are stored, so a phone collecting a book in
           // several passes can say what it already has. A position in the
@@ -280,6 +295,10 @@ export function createLibrary(options) {
         await rm(join(dirOf(m), 'parts'), { recursive: true, force: true });
       }
       if (job.title && !m.title) m.title = job.title;
+      // The book this is one voice of, and when it was last asked for: see
+      // jobs.mjs, which renders one voice of a book at a time.
+      if (job.family) m.family = job.family;
+      if ((job.parts || []).length) m.touched = Date.now();
 
       const known = indexOf(m);
       const added = [];

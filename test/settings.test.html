@@ -27,6 +27,21 @@
   <script src="../js/config.js"></script>
   <script src="../js/platform.js"></script>
   <script src="../js/store.js"></script>
+  <script>
+    // Stand-ins for the two modules the Prepared audio row reads. index.html
+    // loads novel-voice.js and catalogue.js around settings.js; here they are
+    // just the surface that row uses.
+    window.__prepared = [
+      { book: 'user:a', title: '', chapters: 12, bytes: 260e6, seconds: 40000 },
+      { book: 'user:gone', title: 'An Old Book', chapters: 3, bytes: 50e6, seconds: 9000 },
+    ];
+    window.__removed = [];
+    window.NovelVoice = { preparedLibrary: {
+      list: () => Promise.resolve(window.__prepared.slice()),
+      remove: id => { window.__removed.push(id); window.__prepared = window.__prepared.filter(b => b.book !== id); return Promise.resolve(); },
+    } };
+    window.Catalogue = { getSeries: id => id === 'user:a' ? { id, title: 'The Quiet Ledger', chapters: new Array(12) } : null };
+  </script>
   <script src="../js/settings.js"></script>
   <script>
     'use strict';
@@ -90,6 +105,31 @@
 
       AppSettings.maybeOfferFocus();
       assertEq(sheet.hidden, true, 'the sheet never offers itself twice');
+
+      // Prepared audio: every book with stored narration, its size, Delete.
+      AppSettings.openScreen();
+      const until = async (fn) => { for (let i = 0; i < 100 && !fn(); i++) await new Promise(r => setTimeout(r, 10)); return fn(); };
+      await until(() => document.querySelectorAll('.set-prep-row').length === 2);
+      const rows = Array.from(document.querySelectorAll('.set-prep-row'));
+      assertEq(rows.length, 2, 'one row per book with stored audio');
+      assert(/The Quiet Ledger/.test(rows[0].textContent) && /260 MB/.test(rows[0].textContent) && /ready to listen/.test(rows[0].textContent),
+        'the library title, size and status come through', rows[0].textContent);
+      assert(/An Old Book/.test(rows[1].textContent) && /no longer in your library/.test(rows[1].textContent),
+        'audio left by a removed book is listed and says so', rows[1].textContent);
+      const note = document.querySelector('.set-prep-list + .set-note');
+      assert(note && /Total 310 MB/.test(note.textContent), 'the total is shown', note && note.textContent);
+
+      let asked = 0;
+      window.confirm = () => { asked++; return false; };
+      rows[1].querySelector('.set-prep-delete').click();
+      await new Promise(r => setTimeout(r, 30));
+      assertEq(window.__removed.length, 0, 'Cancel deletes nothing');
+      window.confirm = () => { asked++; return true; };
+      rows[1].querySelector('.set-prep-delete').click();
+      await until(() => document.querySelectorAll('.set-prep-row').length === 1);
+      assertEq(asked, 2, 'Delete asks first, every time');
+      assertEq(window.__removed.join(), 'user:gone', 'Delete removes that book only');
+      assertEq(document.querySelectorAll('.set-prep-row').length, 1, 'the list re-renders without it');
 
       const summary = document.getElementById('summary');
       summary.textContent = results.failed === 0

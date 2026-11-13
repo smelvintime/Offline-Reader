@@ -1300,6 +1300,17 @@ thousand-chapter serial wait hours to hear its first page. The live engine
 remains as the thing preparing runs on, and the test page switches
 `preparedOnly` off to exercise it.
 
+Stored audio is managed library-wide through
+`NovelVoice.preparedLibrary`: `list()` sums every book's clips (all voices and
+versions, so half-prepared and stale audio count) with the title kept on its
+chapter records, and `remove(seriesId)` deletes a book's IndexedDB records and
+its native AAC folder whether or not it is open. Settings lists it under
+**Prepared audio** (read when the screen opens, not at boot), including books
+no longer in the library, and removing a book from the library
+(`catalogue.confirmDelete`) removes its audio too. The audio kept on a
+computer by `voice-server` is not touched by either: that is deleted there
+(`DELETE /book`), or by removing its folder.
+
 Preparing on the phone: off the charger (or when `Platform.charging()` cannot
 tell, as in Safari) the Prepare tap asks first, since preparing heats the phone
 and drains it. It never runs under a listening session (Play stops it), pauses

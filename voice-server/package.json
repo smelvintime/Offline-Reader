@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.mjs",
     "bench": "node bench.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:gpu": "python3 -m unittest discover -s gpu"
   },
   "engines": {
     "node": ">=20"

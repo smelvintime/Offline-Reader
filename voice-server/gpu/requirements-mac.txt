@@ -1,0 +1,14 @@
+# For mac_voice.py, on Apple Silicon. Python 3.10 or newer (MLX needs it):
+#   brew install python@3.12 espeak-ng
+#   /opt/homebrew/bin/python3.12 -m venv .venv && . .venv/bin/activate
+#   pip install -r requirements-mac.txt
+#
+# mlx-audio is pinned to the version whose Kokoro API was read when this was
+# written (Model.generate(text, voice, speed, lang_code) yielding results with
+# .audio and .sample_rate). A newer one probably works; check with
+# `python mac_voice.py --check` before leaving a book on it.
+mlx-audio==0.6.5
+
+# Turns text into sounds. mlx-audio asks for it by name but does not install
+# it. The first start also downloads a small English language model for it.
+misaki[en]==0.7.4

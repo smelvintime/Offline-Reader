@@ -49,6 +49,12 @@ jobs:
         working-directory: voice-server
         run: npm test
 
+      # The Mac graphics service is Python, and its tests use a fake voice:
+      # no MLX, no model, only the standard library.
+      - name: Mac graphics service tests
+        working-directory: voice-server
+        run: npm run test:gpu
+
       # The scraper does need its one: the boilerplate tests import
       # sources/gutenberg.js, which reaches lib/http.js and axios.
       - name: Install scraper dependencies

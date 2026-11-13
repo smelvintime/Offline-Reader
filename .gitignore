@@ -25,3 +25,8 @@ assets/splash-dark.png
 # the fetch still works: the runtime falls back to downloading on first use.
 /vendor/tts/models/
 /vendor/tts/voices/
+
+# Python
+__pycache__/
+*.pyc
+voice-server/gpu/.venv/

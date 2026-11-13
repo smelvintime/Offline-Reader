@@ -1464,6 +1464,22 @@ since that engine is a service of its own. The pool reads a worker's
 `npm run bench` prints the speed of each arrangement on the machine it is run
 on, and the real-model CI job runs it so the numbers are on record.
 
+**Graphics chip on a Mac.** `voice-server --gpu URL` talks to any service with
+two routes: `POST /render {text, voice}` answering raw little-endian float32
+mono with `x-rate`, and `GET /status`. `voice-server/gpu/mac_voice.py` is one
+for Apple Silicon over MLX (`mlx-audio`, pinned to the version whose Kokoro API
+was read). Everything that touches MLX runs on the one thread that loaded the
+model, behind a queue, because MLX streams belong to the thread that made them;
+that queue is also all the locking the GPU needs, and `--slots` is how many
+requests voice-server keeps waiting so it is never idle between them
+(`node bench.mjs --gpu URL` finds it). The risks that are not the engine's
+speed: `misaki` looks for espeak at one hard-coded Homebrew path and, when it
+is missing, silently drops every word its dictionary lacks (`find_espeak`
+looks properly and `--check` measures it), and bf16 weights plus a different
+text-to-sound program mean the same words can sound slightly different from
+the processor path. Written without a Mac to run it on: the status is in
+`voice-server/README.md`, and the first measurement is the user's.
+
 **Watching the computer work.** `voice-server` serves a monitor page at `/`
 (`voice-server/monitor.html`; the server prints the link with its code). It is
 an empty frame served without the code, and everything it shows comes from

@@ -3,6 +3,7 @@
 //
 //   node bench.mjs                 # fp32, the default voice
 //   node bench.mjs --dtype q8
+//   node bench.mjs --gpu http://127.0.0.1:8899   # a graphics service, see gpu/
 //
 // Renders the same sentences with one copy using every core (how the server
 // worked before it ran several) and then with 1, 2, 4… copies on one thread
@@ -14,7 +15,7 @@ import { cpus, totalmem } from 'node:os';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { createFarm } from './farm.mjs';
-import { copyCeiling } from './server.mjs';
+import { copyCeiling, gpuEngine } from './server.mjs';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name);
@@ -75,7 +76,49 @@ async function measure(dtype, copies, threads, rounds) {
   } finally { farm.close(); }
 }
 
+/**
+ * The same sentences through a graphics service, with 1, 2, 3… requests in
+ * flight. The service renders one sentence at a time, so what more requests
+ * buy is only that it is never left waiting for the next one to arrive;
+ * where that stops helping is the number for --slots.
+ */
+async function benchGpu(base, rounds) {
+  const engine = gpuEngine(base);
+  const status = await fetch(base.replace(/\/+$/, '') + '/status').then(function (r) { return r.json(); }).catch(function () { return null; });
+  if (!status) { console.log('\n  Nothing answers at ' + base + '. Start the service first.\n'); return; }
+  console.log('');
+  console.log('  Graphics service at ' + base + ' (' + (status.backend || 'unknown') + (status.model ? ', ' + status.model : '') + ')');
+  console.log('');
+  console.log('  Getting it warm…');
+  for (let i = 0; i < 3; i++) await engine.generate(SENTENCES[i % SENTENCES.length], 'af_heart');
+  let first = 0, best = null;
+  for (const slots of [1, 2, 3, 4, 6, 8]) {
+    const count = Math.max(rounds * SENTENCES.length, slots * 4);
+    let next = 0, seconds = 0;
+    const t0 = Date.now();
+    await Promise.all(Array.from({ length: slots }, async function () {
+      while (next < count) {
+        const r = await engine.generate(SENTENCES[next++ % SENTENCES.length], 'af_heart');
+        seconds += r.pcm.length / r.rate;
+      }
+    }));
+    const speed = seconds / ((Date.now() - t0) / 1000);
+    if (!first) first = speed;
+    if (!best || speed > best.speed * 1.03) best = { slots: slots, speed: speed };
+    console.log('  ' + (slots + (slots === 1 ? ' request ' : ' requests') + ' at a time').padEnd(26)
+      + speed.toFixed(1).padStart(6) + '× as fast as listening   ' + (speed / first).toFixed(2) + '× one at a time');
+  }
+  console.log('');
+  console.log('  Enough: ' + best.slots + ' at a time, ' + best.speed.toFixed(1) + '× as fast as listening.');
+  console.log('  Start the server with:   npm start -- --gpu ' + base + ' --slots ' + best.slots);
+  console.log('');
+}
+
 const dtype = arg('dtype', 'fp32');
+if (arg('gpu', '')) {
+  await benchGpu(arg('gpu', ''), Number(arg('rounds', 2)) || 2);
+  process.exit(0);
+}
 const cores = cpus().length;
 const ceiling = copyCeiling(dtype, cores, totalmem());
 const rounds = Number(arg('rounds', 2)) || 2;

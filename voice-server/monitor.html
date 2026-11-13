@@ -178,6 +178,17 @@
     return 'this computer’s processor' + (info.cores ? ', ' + info.cores + ' cores' : '');
   }
 
+  // How many copies of the voice are running, and whether that number is
+  // still being worked out.
+  function copiesText(info) {
+    var t = info.tuning;
+    var s = String(info.copies);
+    if (!t) return s + ' (fixed)';
+    if (t.phase === 'trying') return s + ', trying ' + (t.copies + 1);
+    if (t.phase === 'measuring') return s + ', measuring';
+    return s + ', the fastest found';
+  }
+
   /** One book: a bar, how far, how fast, how long. */
   function bookCard(b, now) {
     var card = el('section', 'card');
@@ -253,6 +264,10 @@
       fact('Rendering now', load.busy + ' of ' + load.slots + (load.queued ? ', ' + load.queued + ' waiting' : '')),
       fact('Running for', span(now - (a.startedAt || now)))
     );
+    if (a.info && a.info.copies) {
+      facts.append(fact('Copies of the voice', copiesText(a.info)));
+      if (a.info.tuning && a.info.tuning.speed) facts.append(fact('Speed', a.info.tuning.speed + '× as fast as listening'));
+    }
     if (a.library) facts.append(fact('Stored as', a.library.compress ? 'AAC (small)' : 'WAV (large, install ffmpeg)'));
     facts.hidden = false;
 

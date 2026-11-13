@@ -63,7 +63,8 @@ server and starting it again picks every unfinished book up where it stopped.
    starting it again carries on by itself.
 
 The first start downloads the voice (about 330 MB) into a cache inside
-`node_modules`, so later starts are quick. The phone shows "Your computer is
+`node_modules`, so later starts are quick. It then starts several copies of
+the voice, which takes a few seconds each. The phone shows "Your computer is
 loading the voice" while that happens.
 
 ## Watching it work
@@ -84,6 +85,42 @@ says so if the server stops answering.
 
 From another device on the same Wi-Fi, use the server's **Address** in place
 of `localhost`, with the same `?code=`.
+
+## Using the whole computer
+
+The server runs several copies of the voice at once, each in a process of its
+own on one processor thread, so every core renders a sentence instead of most
+of them waiting on one. It starts with half as many copies as the computer has
+cores, and then finds the fastest number by trying, while it works:
+
+1. it measures how fast it is going (seconds of audio made per second);
+2. it adds one copy and measures again;
+3. if that was at least 5% faster it keeps the copy and tries one more;
+4. if not, it takes the copy away again and stays there.
+
+It never starts more copies than the computer has cores, or than fit in half
+its memory (about 1 GB a copy). After settling it looks again every twenty
+minutes, since the answer changes when another program stops or starts. The
+number it found is remembered in `voice-tuning.json` in the books folder, so
+the next start begins there. The monitor page shows how many copies are
+running and how fast it is going.
+
+A long book will use most of the computer while it renders. To keep some for
+yourself, fix the number:
+
+```bash
+caffeinate -i npm start -- --workers 4
+```
+
+To see what this computer can do before leaving a book on it:
+
+```bash
+npm run bench
+```
+
+It renders the same few sentences with one copy using every core, which is
+how the server used to work, and then with 1, 2, 3… copies, and prints the
+speed of each.
 
 ## More than one computer
 
@@ -160,6 +197,12 @@ stick, if you would rather move a book by hand than over Wi-Fi.
 - `--dtype`: `fp32` (default, matches the iPhone's own build) or `q8`
   (smaller download, slightly different sound). Use the same on every
   computer sharing a book.
+- `--workers`: how many copies of the voice run at once on this computer's
+  processor. Default `auto`: it finds the fastest number by trying (see
+  "Using the whole computer"). A number fixes it, for example `--workers 4`
+  to leave room for other work.
+- `--threads`: threads given to each copy. Default 1, which is what makes
+  many copies fast; raise it only with a small `--workers`.
 - `--peer`: another computer running voice-server with the same code, to
   share the work with. Repeat it, or separate addresses with commas.
 - `--gpu`: render on a graphics card instead of this computer's CPU, through

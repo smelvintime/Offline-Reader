@@ -1427,6 +1427,32 @@ computer is working hands it the new voice (`voiceChanged` stops the phone's
 watching and starts a run in the new voice), and with a session playing, Play
 carries on in it as its clips arrive.
 
+**Using the whole computer.** `onnxruntime-node` runs a forward pass
+synchronously on the thread that asks for it. Inside the server that was the
+only thread, so nothing else happened while a sentence rendered (no reply to
+the phone, no monitor page), `--slots` above 1 rendered sentences one after
+another, and one pass spread over sixteen cores measured six times realtime
+with most of them waiting, because the model's graph is mostly a chain. The
+voice now runs as copies in processes of their own (`engine-worker.mjs`,
+managed by `farm.mjs`), one thread each: the thread count is set by building
+kokoro-js's model and tokenizer by hand with `session_options`, since its own
+`from_pretrained` passes none. The first copy loads alone, since on a first
+run it is the one downloading the model, and a copy that dies is replaced and
+its sentence rendered on another, once.
+
+How many copies is measured, not guessed (`tuner.mjs`): start at half the
+cores, measure seconds of audio per second of clock over a window in which the
+copies were at least 85% busy, add one, and keep it only if that was 5% faster.
+The ceiling is the core count or half the memory at about 1 GB a copy,
+whichever is lower. On a laptop this tends to stop at the fast cores by
+itself, since a slow core adds less than 5%, which also leaves the machine
+usable. It looks again every twenty minutes and remembers the answer in
+`voice-tuning.json`. `--workers N` fixes the number; `--gpu` is unaffected,
+since that engine is a service of its own. The pool reads a worker's
+`capacity()` rather than a fixed `slots`, and the job queue's width follows it.
+`npm run bench` prints the speed of each arrangement on the machine it is run
+on, and the real-model CI job runs it so the numbers are on record.
+
 **Watching the computer work.** `voice-server` serves a monitor page at `/`
 (`voice-server/monitor.html`; the server prints the link with its code). It is
 an empty frame served without the code, and everything it shows comes from

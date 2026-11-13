@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: voice-server/node_modules/@huggingface/transformers/.cache
-          key: kokoro-q8-${{ hashFiles('voice-server/package-lock.json') }}
+          key: kokoro-q8-fp32-${{ hashFiles('voice-server/package-lock.json') }}
 
       - name: Start the server
         run: |
@@ -69,6 +69,16 @@ jobs:
             ok(secs >= 0.5 && secs <= 10, 'between 0.5 and 10 seconds: ' + secs.toFixed(2));
           "
 
+      # The voice runs as copies in processes of their own, one thread each.
+      # If the thread count were not honoured every copy would take every
+      # core and they would fight, which is slower than one copy.
+      - name: The copies are given one thread each
+        run: |
+          s=$(curl -s -H 'x-voice-code: 123456' http://127.0.0.1:8787/status)
+          echo "$s"
+          echo "$s" | grep -q '"threads":1'
+          echo "$s" | grep -q '"copies":[1-9]'
+
       - name: Wrong code is refused
         run: |
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-voice-code: 000000' http://127.0.0.1:8787/status)" = 401
@@ -76,3 +86,14 @@ jobs:
       - name: Server log
         if: always()
         run: cat server.log || true
+
+      # Not a pass or fail: the numbers are the point. One copy using every
+      # core, the way the server used to work, against several copies on one
+      # thread each, on this runner's four cores. Read it in the job log.
+      - name: How fast, and with how many copies (q8)
+        run: |
+          pkill -f 'server.mjs' || true
+          node bench.mjs --dtype q8
+
+      - name: How fast, and with how many copies (fp32, what a Mac runs)
+        run: node bench.mjs --dtype fp32

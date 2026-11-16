@@ -71,6 +71,13 @@ The JavaScript slice, which runs in both builds and needs no new native code:
   draft", done the one way that is exact. Clips made before it still play,
   with their group lit.
 
+- Listening straight away in a computer's browser. Play on a book with no
+  audio goes to voice-server on that same computer (an empty address means
+  `localhost`), which renders just ahead of the reader and prepares the rest
+  of the book behind them, keeping it for a phone. A phone's Play collects a
+  book its computer already holds, without the Prepare button. The server's
+  code now survives a restart. `docs/ARCHITECTURE.md` §2.14 has the detail.
+
 Still to do from the phases below: the overnight `BGProcessingTask`, a native
 player, and the side-by-side battery measurement.
 

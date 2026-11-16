@@ -39,7 +39,9 @@ server and starting it again picks every unfinished book up where it stopped.
    ```
 
    It prints an **Address** (one per network; use the Wi-Fi one, usually
-   `192.168…`) and a six-digit **Code**.
+   `192.168…`) and a six-digit **Code**. The code stays the same every start
+   (it is kept in `voice-code.txt` in the books folder), so the phone and the
+   browser only need it typed once. Delete that file for a new one.
 
 2. If macOS asks whether `node` may accept incoming connections, choose
    **Allow**.
@@ -58,6 +60,15 @@ server and starting it again picks every unfinished book up where it stopped.
    it. If you jump to a chapter that is not ready, playback waits and this
    computer makes that chapter next. Later, with the app reopened, **Play**
    goes back to this computer by itself and collects what is waiting.
+
+   Reading on this computer instead, in a browser? Open the book, open the
+   voice sheet, leave **Computer address** blank (it means this computer),
+   type the code, and press **Play**. Nothing needs preparing first: this
+   computer makes the audio a few seconds ahead of you and goes on to prepare
+   the whole book behind it, into the books folder. Close the tab and it keeps
+   going. Later, on the phone, Play on the same book (with this computer's
+   address and code under **Prepare on my computer**) collects that audio
+   instead of rendering it again.
 
 4. Leave this window open while it works. Ctrl+C stops the server, and
    starting it again carries on by itself.
@@ -221,7 +232,8 @@ is the voice marked "Your computer", and the narrator a new reader starts with.
 
 - `--port`: default 8787, which is what the app assumes when you type an
   address without one.
-- `--code`: fix the code instead of a new random one each start.
+- `--code`: set the code. Without it the last one is kept (`voice-code.txt`
+  in the books folder), and the first start makes a random one.
 - `--library`: where books are kept. Default `~/OfflineReaderBooks`, or the
   `OFFLINE_READER_LIBRARY` environment variable.
 - `--dtype`: `fp32` (default, matches the iPhone's own build) or `q8`

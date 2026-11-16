@@ -1417,6 +1417,31 @@ card), so the book can be heard while the rest of it is made:
 Only a computer can do this. The phone renders slower than speech, and it is
 the heat, so its own preparing still gives way to listening.
 
+**Play goes to the computer by itself** (`playFromComputer`), when Play finds
+nothing stored for the chapter and no computer already working on the book:
+
+- In a computer's browser (`desktopBrowser()`: the web build with the desktop
+  tuning flag), voice-server on that computer is the engine. An empty address
+  means `localhost:8787`, the computer form shows even on the https build
+  (browsers treat `http://localhost` as secure, and the server answers the
+  private-network preflight), and Play checks `/status` and starts the remote
+  run with no Prepare tap: the reader hears the book a few seconds after
+  pressing Play while the whole book is prepared behind them and kept in the
+  computer's library. Without a code, or with the server not running, the
+  sheet opens saying so.
+- On a phone with a computer typed in, Play asks `GET /job` (3 s timeout)
+  whether the computer already holds this book in this voice, under
+  `id@voice` or the bare id. If it does (listened to in that computer's
+  browser, say) it is collected and played like a book this phone sent; the
+  same keys mean nothing is rendered again. If not, or if the computer is out
+  of reach, Play opens the sheet on Prepare as before. It only asks; a phone
+  never sends a whole book to a computer without a tap. This replaces the
+  earlier rule that a book no computer was given never goes looking for one.
+
+voice-server keeps its code between starts (`voice-code.txt` in the library,
+`--code` overrides and is written down), so the phone and the browser type
+it once.
+
 **Changing narrator.** Stored audio is per voice: the voice is part of every
 clip key, and `state.preparedIndex` is read per voice. `voiceChanged()` (the
 chip's handler) therefore asks everything again for the new voice, and holds

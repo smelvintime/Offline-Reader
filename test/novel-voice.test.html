@@ -833,134 +833,43 @@ const T = {
     return { name: 'init stall', pass };
   },
 
-  // The iPhone narrator. Added back after being removed, because the reason it
-  // was removed was that it spoke through iOS's compact voice and nobody had
-  // ever asked for a better one.
+  // The device's own system voice is never used. Narration is Kokoro or
+  // Trevor and nothing else, even on a device that offers a system voice,
+  // with it stored as the choice, and with the live engine running.
   async testSystemNarrator() {
     let pass = true;
-    const V_ = V(), T = VT();
+    const V_ = V();
     const held = window.Platform ? window.Platform.speech : undefined;
-    const spoken = [];
-    let resolveNext = null;
-    let readyCalls = 0;
-    let origEnsureReady = null;
+    let systemSpoke = 0;
     try {
       window.Platform = window.Platform || {};
       window.Platform.speech = {
         available: function () { return true; },
-        voices: function () {
-          return Promise.resolve([
-            { id: 'compact.en', name: 'Samantha', lang: 'en-US', quality: 'default' },
-            { id: 'prem.en',    name: 'Ava',      lang: 'en-US', quality: 'premium' },
-            { id: 'enh.en',     name: 'Evan',     lang: 'en-US', quality: 'enhanced' },
-          ]);
-        },
-        speak: function (text, o) {
-          spoken.push({ text: text, voiceId: o.voiceId, rate: o.rate });
-          return new Promise(function (r) { resolveNext = function () { r(true); }; });
-        },
+        voices: function () { return Promise.resolve([{ id: 'prem.en', name: 'Ava', lang: 'en-US', quality: 'premium' }]); },
+        speak: function () { systemSpoke++; return Promise.resolve(true); },
         stop: function () { return Promise.resolve(); },
         pause: function () { return Promise.resolve(); },
         resume: function () { return Promise.resolve(); },
       };
-
-      // Ranked best-first, so the good voices are not buried.
-      // Count every attempt to load the model, not just every generation.
-      readyCalls = 0;
-      const ne0 = T.neuralEngine;
-      origEnsureReady = ne0.ensureReady;
-      ne0.ensureReady = function () { readyCalls++; return origEnsureReady.apply(this, arguments); };
-
-      const ranked = T.rankSystemVoices(await window.Platform.speech.voices());
-      pass = ok(ranked[0].quality === 'premium' && ranked[1].quality === 'enhanced'
-                && ranked[2].quality === 'default',
-        'voices sort premium, then enhanced, then compact',
-        ranked.map(function (v) { return v.quality; }).join(',')) && pass;
-
       Store.prefs.set('voice.narrator', 'iphone');
       Store.prefs.set('voice.systemVoice', 'prem.en');
       await freshOpen();
+      pass = ok(VT().state.prefs.narrator === 'natural', 'the narrator is the natural voice even when the system one was stored',
+        VT().state.prefs.narrator) && pass;
+      neuralStub.spoken = [];
       V_.toggle();
-      await waitFor(() => spoken.length > 0, 4000, 'the OS narrator was asked to speak');
-      pass = ok(spoken.length === 1, 'exactly one utterance is in flight at a time',
-        spoken.length + ' spoken') && pass;
-      pass = ok(spoken[0].voiceId === 'prem.en', 'through the chosen voice, not the default',
-        spoken[0].voiceId) && pass;
-
-      // Whole paragraphs, not sentences. Every utterance is a bridge round
-      // trip the reader has to wait out, so the unit of speech is also the
-      // unit of silence: one sentence at a time meant a gap after every
-      // sentence, for a whole chapter.
-      const firstSentence = V_.state().sentences
-        ? V_.state().sentences[0] : null;
-      pass = ok(spoken[0].text.length > 0, 'something was actually sent', String(spoken[0].text.length)) && pass;
-      if (firstSentence) {
-        pass = ok(spoken[0].text.length >= firstSentence.text.length,
-          'and it is at least a whole sentence, never a fragment',
-          spoken[0].text.length + ' vs sentence ' + firstSentence.text.length) && pass;
-      }
-      pass = ok(spoken[0].text.length <= 1600,
-        'while still bounded, so one runaway paragraph cannot become the chapter',
-        String(spoken[0].text.length)) && pass;
-
-      // The first block is the chapter title, which is one short sentence, so
-      // prove the merging directly on a paragraph shaped like real prose.
-      const para = [];
-      for (let i = 0; i < 6; i++) {
-        para.push({ text: 'Sentence number ' + i + ' of an ordinary paragraph.',
-                    blockIdx: 4, kind: 'p', start: i * 50, end: i * 50 + 49 });
-      }
-      para.push({ text: 'A sentence in the NEXT paragraph.',
-                  blockIdx: 5, kind: 'p', start: 400, end: 433 });
-      const sysG = T.groupSentences(para, 0, { target: 900, max: 1400, contMax: 1600 });
-      pass = ok(sysG.to === 5, 'a whole paragraph goes out as one utterance',
-        'merged ' + (sysG.to + 1) + ' of 6 sentences') && pass;
-      pass = ok(sysG.blockIdx === 4 && sysG.text.indexOf('NEXT paragraph') === -1,
-        'and it stops at the paragraph, so the pauses land where prose pauses') && pass;
-      // The neural caps would have chopped the same paragraph into pieces.
-      const neuG = T.groupSentences(para, 0, { target: 160, max: 300, contMax: 700 });
-      pass = ok(neuG.to < sysG.to, 'which the generation-bound caps would not have done',
-        'neural merged ' + (neuG.to + 1) + ', system merged ' + (sysG.to + 1)) && pass;
-      pass = ok(!V_.state().preparing, 'and nothing is "preparing" — there is nothing to prepare') && pass;
-      pass = ok(neuralStub.spoken.length === 0, 'the neural engine is never generating') && pass;
-      // The bug this exists for: play() used to route every narrator through
-      // ensureNeuralThenSpeak, so picking the instant voice still waited on
-      // 88 MB of weights and still ended the session when the natural voice
-      // could not run here. Counting generate() was not enough to see it —
-      // the load is the cost, and the stub made the load free.
-      pass = ok(readyCalls === 0,
-        'and its 88 MB load is never even started', readyCalls + ' ensureReady calls') && pass;
-
-      // The selected chip has to actually look selected. css/voice.css styles
-      // `.vc-chip.vc-on`, and a plain `.on` would have been invisible.
-      // Open the sheet the way a reader does. Relying on some other code path
-      // to have called syncSheet() is how the previous version of this passed
-      // while the panels were never synced on this narrator at all.
+      await waitFor(() => neuralStub.spoken.length > 0, 8000, 'the natural voice to speak');
+      await pause(200);
+      pass = ok(systemSpoke === 0, 'the system voice is never asked to speak', systemSpoke + ' utterances') && pass;
       const voiceBtn = document.querySelector('.vc-bar [aria-label="Voice settings"]');
-      pass = ok(!!voiceBtn, 'the listen bar has a voice button to open') && pass;
       if (voiceBtn) voiceBtn.click();
       await pause(300);
-      const narOn = document.querySelector('.vc-narrator-row .vc-chip.vc-on');
-      pass = ok(!!narOn, 'the chosen narrator chip carries the class the CSS styles',
-        narOn && narOn.textContent) && pass;
-      pass = ok(narOn && narOn.dataset.narrator === 'iphone',
-        'and it is the one actually selected', narOn && narOn.dataset.narrator) && pass;
+      const narRowEl = document.querySelector('.vc-narrator-row');
       const sysRowEl = document.querySelector('.vc-system-row');
-      pass = ok(sysRowEl && !sysRowEl.hidden, 'the iPhone voice panel is shown') && pass;
-      const natRowEl = document.querySelector('.vc-neural-row');
-      pass = ok(natRowEl && natRowEl.hidden,
-        'and the natural-voice panel is out of the way') && pass;
-
-      // The queue advances only when the utterance FINISHES, not when it starts.
-      const before = V_.state().index;
-      await pause(150);
-      pass = ok(V_.state().index === before, 'the cursor waits for the voice to finish') && pass;
-      resolveNext();
-      await waitFor(() => spoken.length > 1, 4000, 'the next sentence follows');
-      pass = ok(V_.state().index > before, 'and moves on once it has', String(V_.state().index)) && pass;
+      pass = ok((!narRowEl || narRowEl.hidden) && (!sysRowEl || sysRowEl.hidden),
+        'and the sheet offers no way to pick it') && pass;
       endSession();
     } finally {
-      if (origEnsureReady) VT().neuralEngine.ensureReady = origEnsureReady;
       if (held === undefined) { try { delete window.Platform.speech; } catch (e) {} }
       else window.Platform.speech = held;
       Store.prefs.set('voice.narrator', 'natural');
@@ -3465,12 +3374,14 @@ const T = {
         pass = ok(server.seq === rendered, 'and the computer rendered nothing again', server.seq - rendered) && pass;
       }
 
-      // 20. A computer's browser: Play on a book with nothing prepared goes
-      //     straight to voice-server on that computer, with no address typed,
-      //     and the whole book is prepared there behind the listening.
+      // 20. A computer's browser with "Keep audio for my phone" on: Play on
+      //     a book with nothing prepared goes straight to voice-server on that
+      //     computer, with no address typed, and the whole book is prepared
+      //     there behind the listening.
       await reset();
       endSession();
       window.Platform.tuning = () => ({ desktop: true });
+      Store.prefs.set('voice.keepForPhone', true);
       Store.prefs.set('voice.remoteUrl', '');
       Store.prefs.set('voice.remoteCode', '');
       Store.prefs.set('voice.remoteBooks', []);
@@ -3521,6 +3432,41 @@ const T = {
         pass = ok(/Could not reach voice-server on this computer/.test(status()), 'a server that is not running is named', status()) && pass;
         server.fail = false;
         V().closeSheet();
+      }
+
+      // 21. A computer's browser with "Keep audio for my phone" off (the
+      //     default): it reads aloud by itself. No server is called, nothing
+      //     needs preparing, and Trevor, who only voice-server makes, steps
+      //     aside for one of the browser's own voices.
+      await reset();
+      endSession();
+      Store.prefs.set('voice.keepForPhone', false);
+      Store.prefs.set('voice.remoteBooks', []);
+      await freshOpen({ preparedOnly: true, voice: 'pn_trevor_13' });
+      await VT().loadPreparedIndex();
+      {
+        pass = ok(VT().state.prefs.neuralVoice === 'af_heart', 'Trevor gives way to a browser voice',
+                  VT().state.prefs.neuralVoice) && pass;
+        pass = ok(Store.prefs.get('voice.neuralVoice') === 'pn_trevor_13', 'without forgetting he was chosen') && pass;
+        server.calls = [];
+        neuralStub.spoken = [];
+        V().toggle();
+        await waitFor(() => neuralStub.spoken.length > 0, 20000, 'the browser to start reading aloud');
+        pass = ok(V().state().playing, 'Play reads aloud straight away, with nothing prepared') && pass;
+        pass = ok(server.calls.length === 0 && server.posts.length === 0 && !P.running,
+                  'and no server is asked anything', server.calls.length) && pass;
+        VT().syncSheet();
+        const keep = document.querySelector('#novel-screen .vc-keep-row');
+        const trevor = document.querySelector('#novel-screen .vc-chip[data-voice="pn_trevor"]');
+        const remoteForm = document.querySelector('#novel-screen .vc-remote');
+        pass = ok(keep && !keep.hidden, 'the sheet offers Keep audio for my phone') && pass;
+        pass = ok(trevor.hidden && remoteForm.hidden, 'and hides Trevor and the server form while it is off') && pass;
+        VT().pause();
+        keep.querySelector('.vc-toggle').click();
+        pass = ok(Store.prefs.get('voice.keepForPhone') === true && VT().state.prefs.neuralVoice === 'pn_trevor_13',
+                  'turning it on brings Trevor back', VT().state.prefs.neuralVoice) && pass;
+        pass = ok(!trevor.hidden && !remoteForm.hidden, 'and shows the server form') && pass;
+        V().closeSheet();
         delete window.Platform.tuning;
       }
     } finally {
@@ -3531,6 +3477,7 @@ const T = {
       Store.prefs.set('voice.remoteUrl', '');
       Store.prefs.set('voice.remoteCode', '');
       Store.prefs.set('voice.remoteBooks', []);
+      Store.prefs.set('voice.keepForPhone', false);
       Store.prefs.set('voice.neuralVoice', 'af_heart');
       await VT().deletePrepared();
       endSession();

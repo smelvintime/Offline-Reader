@@ -1730,6 +1730,21 @@ const T = {
       pass = ok(full < capped, 'and a short chapter never waits longer than a long one',
         full.toFixed(1) + 's < ' + capped.toFixed(1) + 's') && pass;
 
+      // A computer never holds the first word back: it starts on the first
+      // clip and keeps generating behind it. The wait was 45 s on a slow one.
+      {
+        const heldP = window.Platform;
+        window.Platform = { tuning: function () { return { desktop: true }; } };
+        try {
+          st.sentences = list;
+          pass = ok(VT().prebufferTargetSeconds() === 0,
+            'a computer starts speaking on the first clip, even when slower than speech',
+            VT().prebufferTargetSeconds().toFixed(1) + 's') && pass;
+          pass = ok(VT().lookaheadSeconds() > 0, 'and keeps generating ahead while it plays',
+            VT().lookaheadSeconds() + 's') && pass;
+        } finally { window.Platform = heldP; st.sentences = list.slice(0, 10); }
+      }
+
       // The startup heat budget starts before the first clip renders.
       // Advancing a fake clock through that first render must not buy a fresh
       // budget for speculative clips behind it.

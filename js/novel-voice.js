@@ -239,6 +239,9 @@
   // gigabyte of idle model on a 3 GB phone is how "the reader crashed" bug
   // reports happen.
   const NEURAL_IDLE_BY_CLASS = { high: 30000, mid: 15000, low: 0 };
+  // A computer has the memory to keep the voice loaded through a pause.
+  // Unloading after 30 s meant the next Play loaded the model again first.
+  const DESKTOP_IDLE_MS = 15 * 60 * 1000;
   const WAV_CACHE_BYTES = 16 * 1024 * 1024;
   const MAX_PENDING_GENERATIONS = 4;
 
@@ -1605,7 +1608,7 @@
       const self = this;
       clearTimeout(this.idleTimer);
       if (!this.worker) return;
-      const idle = NEURAL_IDLE_BY_CLASS[memoryClass()] || 0;
+      const idle = isDesktop() ? DESKTOP_IDLE_MS : (NEURAL_IDLE_BY_CLASS[memoryClass()] || 0);
       if (idle <= 0) { this.dispose(); return; }   // low memory: free it NOW
       this.idleTimer = setTimeout(function () {
         self.idleTimer = 0;
@@ -2217,6 +2220,12 @@
    * of it as the cap allows, and the gaps that remain come later and fewer.
    */
   function prebufferTargetSeconds() {
+    // A computer starts speaking on the first clip and keeps generating
+    // behind it (lookaheadSeconds). Holding the first word until 45 s of audio
+    // was banked is what made Play on a computer take most of a minute; a
+    // short gap later beats a long silence now. The wait was raised from 15 s
+    // for phones, which no longer narrate live at all.
+    if (isDesktop()) return 0;
     // The startup burst is the single hottest thing the voice does. While the
     // phone is already hot, skip it and start speaking on the first group.
     if (thermalHot() || resources.lowPower) return 0;

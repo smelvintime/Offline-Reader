@@ -1111,6 +1111,15 @@ will sit through, so the gaps that remain come later and fewer. Only the group a
 reader tapped for waits; `bufferedAhead` counts an *unbroken* run, because audio
 past a hole cannot be played through it.
 
+**Not on a computer.** A computer (`isDesktop()`) skips the startup wait
+entirely and speaks the first clip as soon as it exists, generating ahead
+behind it (`lookaheadSeconds`). The cap was raised from 15 s to 45 s for
+phones, which raised it for computers too, and since computers became the only
+place the voice runs live (phones play stored audio), Play on a slow computer
+meant most of a minute of silence. A computer also keeps the voice loaded for
+15 minutes after a pause (`DESKTOP_IDLE_MS`), instead of the 30 s that made the
+next Play load the model again.
+
 **Clips are trimmed of Kokoro's padding at generation.** Every clip comes back
 with near-silence at each end; played back to back that is two paddings nose to
 tail at every group boundary, which is the seam a reader hears as a breath and

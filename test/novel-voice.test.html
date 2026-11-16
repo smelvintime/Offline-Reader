@@ -2997,8 +2997,9 @@ const T = {
       charging: () => Promise.resolve(false),
       confirm: () => { asked++; return Promise.resolve(true); },
       localHttp: async (url, o) => {
-        const path = url.slice(remote.base.length);
-        server.calls.push({ path, code: o.headers['x-voice-code'] });
+        const host = /^https?:\/\/([^/]+)/.exec(url)[1];
+        const path = url.slice(url.indexOf(host) + host.length);
+        server.calls.push({ path, host, code: o.headers['x-voice-code'] });
         if (server.fail) throw new Error('network down');
         if (server.status !== 200) return { status: server.status, headers: {}, data: { error: 'nope' } };
         if (path === '/status') {
@@ -3309,7 +3310,8 @@ const T = {
       server.fail = false;
       V().closeSheet();
 
-      // 15. A book no computer was ever given does not go looking for one.
+      // 15. A book this phone never sent, which the computer does not have
+      //     either: Play only asks, sends nothing, and opens on Prepare.
       await reset();
       Store.prefs.set('voice.remoteBooks', []);
       endSession();
@@ -3318,7 +3320,15 @@ const T = {
       server.calls = [];
       V().toggle();
       await waitFor(() => !V().isActive(), 5000, 'session ended');
-      pass = ok(server.calls.length === 0 && !P.running, 'Play on a book no computer has does not call one', server.calls.length) && pass;
+      pass = ok(server.posts.length === 0 && !P.running && server.calls.every(c => c.path.startsWith('/job?')),
+                'Play on a book no computer has only asks, and sends nothing', server.calls.map(c => c.path).join(' ')) && pass;
+      V().closeSheet();
+      // Away from home the computer cannot be reached: the same, quietly.
+      server.fail = true;
+      V().toggle();
+      await waitFor(() => !V().isActive(), 8000, 'session ended away from home');
+      pass = ok(!P.running && !/Could not reach/.test(P.message || ''), 'a computer out of reach is not news on the phone', P.message) && pass;
+      server.fail = false;
       V().closeSheet();
 
       // 16. A book the computer took under the bare id, before voices had
@@ -3420,6 +3430,98 @@ const T = {
         pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'and the book arrives at that pace') && pass;
         Store.prefs.set('voice.neuralVoice', 'af_heart');
         Store.prefs.set('voice.phononPace', 1.3);
+      }
+
+      // 19. A book the computer holds that this phone never sent (it was
+      //     listened to in the computer's browser): Play collects it, and
+      //     the computer renders nothing again.
+      await reset();
+      endSession();
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      server.perPoll = Infinity;
+      {
+        P.start({ remote });                     // standing in for the computer's browser
+        await waitFor(() => !P.running, 20000, 'the computer to hold the book');
+        const rendered = server.seq;
+        await VT().deletePrepared();
+        Store.prefs.set('voice.remoteBooks', []);
+        endSession();
+        await freshOpen({ preparedOnly: true });
+        await VT().loadPreparedIndex();
+        pass = ok(VT().preparedSummary().ready === 0, 'nothing of it is on this phone') && pass;
+        server.posts = []; server.calls = []; server.bundles = [];
+        const ch = VT().channel, playReal = ch.play;
+        let heard = 0;
+        ch.play = function (u, o) { if (!(o && o.loop)) heard++; return playReal.apply(ch, arguments); };
+        V().toggle();
+        await waitFor(() => heard > 0, 20000, 'Play to collect the computer’s book and start');
+        pass = ok(V().state().playing && server.bundles.length > 0, 'Play collects a book the computer already holds') && pass;
+        VT().pause();
+        ch.play = playReal;
+        await waitFor(() => !P.running, 30000, 'collected');
+        pass = ok(VT().preparedSummary().ready === CHAPTERS.length, 'the whole book is now on the phone',
+                  VT().preparedSummary().ready + ' ' + P.message) && pass;
+        pass = ok(server.seq === rendered, 'and the computer rendered nothing again', server.seq - rendered) && pass;
+      }
+
+      // 20. A computer's browser: Play on a book with nothing prepared goes
+      //     straight to voice-server on that computer, with no address typed,
+      //     and the whole book is prepared there behind the listening.
+      await reset();
+      endSession();
+      window.Platform.tuning = () => ({ desktop: true });
+      Store.prefs.set('voice.remoteUrl', '');
+      Store.prefs.set('voice.remoteCode', '');
+      Store.prefs.set('voice.remoteBooks', []);
+      await freshOpen({ preparedOnly: true });
+      await VT().loadPreparedIndex();
+      {
+        pass = ok(VT().remoteFromPrefs().base === 'http://localhost:8787', 'an empty address means this computer',
+                  VT().remoteFromPrefs().base) && pass;
+        // No code yet: nothing is called, and the sheet says what to do.
+        server.calls = [];
+        V().toggle();
+        await waitFor(() => !V().isActive(), 5000, 'no code: session ended');
+        const status = () => document.querySelector('#novel-screen .vc-prepared-status').textContent;
+        pass = ok(server.calls.length === 0, 'without a code nothing is called', server.calls.length) && pass;
+        pass = ok(/start voice-server on this computer/.test(status()), 'the sheet says to start voice-server', status()) && pass;
+        const remoteForm = document.querySelector('#novel-screen .vc-remote');
+        pass = ok(remoteForm && !remoteForm.hidden && /localhost/.test(remoteForm.querySelector('input').placeholder),
+                  'the form is there, its address defaulting to this computer') && pass;
+        V().closeSheet();
+
+        Store.prefs.set('voice.remoteCode', '424242');
+        server.perPoll = 2;
+        const ch = VT().channel, playReal = ch.play;
+        const heard = [];
+        ch.play = function (u, o) { if (!(o && o.loop)) heard.push(VT().preparedSummary().ready); return playReal.apply(ch, arguments); };
+        V().toggle();
+        await waitFor(() => heard.length > 0, 20000, 'heard straight away');
+        pass = ok(server.calls.length > 0 && server.calls.every(c => c.host === 'localhost:8787'), 'it used this computer',
+                  [...new Set(server.calls.map(c => c.host))].join(',')) && pass;
+        pass = ok(server.posts.length > 0, 'the book was handed to it on Play, with no Prepare tap') && pass;
+        pass = ok(heard[0] < CHAPTERS.length, 'and it is heard before the book is finished', heard[0] + ' chapters ready') && pass;
+        pass = ok(/^On this computer: /.test(VT().preparerLine()), 'the line says this computer', VT().preparerLine()) && pass;
+        pass = ok(loads === 0 && neuralStub.spoken.length === 0, 'the browser’s own engine was never used', loads) && pass;
+        VT().pause();
+        ch.play = playReal;
+        await waitFor(() => !P.running, 40000, 'the rest of the book behind the listening');
+        pass = ok(server.pending.length === 0 && server.done.size > 0 && VT().preparedSummary().ready === CHAPTERS.length,
+                  'the whole book was prepared on the computer, for a phone to collect') && pass;
+
+        // voice-server not running: said plainly, in terms of this computer.
+        await reset();
+        endSession();
+        await freshOpen({ preparedOnly: true });
+        await VT().loadPreparedIndex();
+        server.fail = true;
+        V().toggle();
+        await waitFor(() => !V().isActive(), 15000, 'unreachable: session ended');
+        pass = ok(/Could not reach voice-server on this computer/.test(status()), 'a server that is not running is named', status()) && pass;
+        server.fail = false;
+        V().closeSheet();
+        delete window.Platform.tuning;
       }
     } finally {
       if (P.running) P.stop(null);

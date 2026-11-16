@@ -753,9 +753,31 @@ async function checkPeers(peers, code) {
   }
 }
 
+/**
+ * The code this computer answers to. Kept in the books folder, so it is the
+ * same every start: a phone, or the browser on this computer, typed it once
+ * and can come back for its books without asking for a new one. --code sets
+ * it (and is written down, so the next plain start keeps it); deleting the
+ * file makes a new one.
+ */
+export async function rememberedCode(root, given) {
+  const file = join(root, 'voice-code.txt');
+  if (given) {
+    const fixed = String(given).trim();
+    try { await mkdir(root, { recursive: true }); await writeFile(file, fixed + '\n'); } catch (e) { /* still usable */ }
+    return fixed;
+  }
+  try {
+    const kept = (await readFile(file, 'utf8')).trim();
+    if (/^\d{6}$/.test(kept)) return kept;
+  } catch (e) { /* first start */ }
+  const fresh = String(randomInt(0, 1000000)).padStart(6, '0');
+  try { await mkdir(root, { recursive: true }); await writeFile(file, fresh + '\n'); } catch (e) { /* a new one next time */ }
+  return fresh;
+}
+
 async function main() {
   const port = Number(arg('port', DEFAULT_PORT));
-  const code = arg('code', String(randomInt(0, 1000000)).padStart(6, '0'));
   const dtype = arg('dtype', 'fp32');
   // --gpu http://127.0.0.1:8899 renders on a graphics card as well as here.
   // Several at once, because that is the only way a card is kept busy.
@@ -770,6 +792,7 @@ async function main() {
   const peers = args('peer');
   const log = function (m) { console.log('voice-server: ' + m); };
   const root = arg('library', defaultLibraryRoot());
+  const code = await rememberedCode(root, arg('code', ''));
   const compress = await haveFfmpeg();
   const library = createLibrary({ root: root, compress: compress, log: log });
   const server = createVoiceServer({
@@ -798,7 +821,12 @@ async function main() {
     console.log('');
     addrs.forEach(function (a) { console.log('    Address:  ' + a + ':' + port); });
     if (!addrs.length) console.log('    Address:  (no network found; connect this computer to Wi-Fi)');
-    console.log('    Code:     ' + code);
+    console.log('    Code:     ' + code + '   (the same every start)');
+    console.log('');
+    console.log('  Reading in a browser on this computer: leave the address blank, type the');
+    console.log('  code, and press Play. This computer makes the audio as you listen, keeps');
+    console.log('  the whole book, and your phone collects it with the address above.');
+    console.log('');
     console.log('    Monitor:  http://localhost:' + port + '/?code=' + code);
     console.log('              open that in a browser on this computer to watch it work');
     console.log('    Books:    ' + root);

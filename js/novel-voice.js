@@ -3036,6 +3036,82 @@
     return chapterPrepared(chapterId) || remoteStreaming() || resumeStreaming();
   }
 
+  const REMOTE_PROBE_TIMEOUT_MS = 3000;   // a phone away from home should not wait long
+  const DESKTOP_NEEDS_SERVER = 'To listen straight away, start voice-server on this computer and type the code it printed '
+    + 'under Prepare on my computer. It makes the audio just ahead of you and keeps the whole book for your phone.';
+
+  /**
+   * Whether a computer already holds this book in this voice, under either
+   * id it may have been given (see preparer.remoteIdFor). Read-only: it asks,
+   * and starts nothing.
+   */
+  async function remoteHolds(remote, book, voice) {
+    for (const id of [book + '@' + voice, book]) {
+      const r = await remoteCall(remote, '/job?book=' + encodeURIComponent(id),
+        { timeoutMs: REMOTE_PROBE_TIMEOUT_MS, alsoOk: 404 });
+      const s = r.status === 200 ? (r.data || {}) : null;
+      if (s && s.voice === voice && Number(s.total) > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Play found nothing stored for this chapter and no computer working on
+   * the book. Before giving up, ask the computer.
+   *
+   * In a computer's browser, voice-server on that computer is the engine:
+   * Play hands it the book, it renders a few seconds ahead of the reader and
+   * goes on to prepare the whole book behind them, and keeps it in its
+   * library. That is what a phone collects later, under the same keys.
+   *
+   * On a phone, a computer it was told about that already holds this book
+   * (prepared from that computer's browser, or by another device) is
+   * collected from, the same as a book this phone sent. A computer that does
+   * not have it, or cannot be reached, changes nothing: the sheet opens on
+   * Prepare, as it always did, rather than a whole book being sent off
+   * without anyone asking.
+   */
+  async function playFromComputer(token) {
+    const still = function () { return state.playing && token === state.speakToken; };
+    const book = preparedBook();
+    const voice = state.prefs.neuralVoice;
+    const remote = remoteFromPrefs();
+    const desk = desktopBrowser();
+    if (!book || !state.bridge || preparer.running || preparer.asking || !neuralSpeaks(docLang())) {
+      notPreparedYet(true);
+      return;
+    }
+    if (!remote.base || !remote.code) {
+      notPreparedYet(true, desk ? DESKTOP_NEEDS_SERVER : undefined);
+      return;
+    }
+    setPreparingSoon();
+    let use = false;
+    try {
+      if (desk) {
+        await remoteCall(remote, '/status', { timeoutMs: REMOTE_STATUS_TIMEOUT_MS });
+        use = true;
+      } else {
+        use = await remoteHolds(remote, book, voice);
+      }
+    } catch (e) {
+      if (!still()) return;
+      // The phone was not asked to use a computer here, so a missing one is
+      // not news. On a computer it is the reason nothing plays, kept on the
+      // sheet as well as toasted.
+      const why = desk && e && e.remote ? e.message : undefined;
+      if (why) preparer.message = why;
+      notPreparedYet(true, why);
+      return;
+    }
+    if (!still()) return;
+    if (!use || state.prefs.neuralVoice !== voice || preparedBook() !== book) { notPreparedYet(true); return; }
+    voiceEvent('play-from-computer', { remote: remote.base, desktop: desk });
+    rememberRemoteBook(book);
+    if (!resumeStreaming()) { notPreparedYet(true, preparer.message || undefined); return; }
+    speakCurrent();
+  }
+
   let streamTimer = 0;
 
   function stopStreamWait() {
@@ -3293,9 +3369,25 @@
     return s;
   }
 
-  /** The computer as typed in the sheet: { base, code }, base '' if unset. */
+  /**
+   * The computer as typed in the sheet: { base, code }, base '' if unset.
+   * In a browser on a computer, voice-server is normally on that same
+   * machine, so an empty address means this one.
+   */
   function remoteFromPrefs() {
-    return { base: remoteBase(prefGet(PREF.remoteUrl, '')), code: String(prefGet(PREF.remoteCode, '') || '').trim() };
+    const typed = String(prefGet(PREF.remoteUrl, '') || '').trim();
+    return {
+      base: remoteBase(typed || (desktopBrowser() ? 'localhost' : '')),
+      code: String(prefGet(PREF.remoteCode, '') || '').trim(),
+    };
+  }
+
+  /** The web app in a computer's browser, as opposed to the app or a phone. */
+  function desktopBrowser() { return !isNativeApp() && isDesktop(); }
+
+  /** voice-server on the machine this page runs on. */
+  function remoteIsThisComputer(base) {
+    return /^https?:\/\/(localhost|127(\.\d+){3}|\[::1\])(:\d+)?$/i.test(String(base || ''));
   }
 
   // Thrown errors carry the sentence the sheet shows as is.
@@ -3319,8 +3411,11 @@
     } catch (e) { res = null; }
     if (res && (res.status === 200 || (o.alsoOk && res.status === o.alsoOk))) return res;
     if (!res) {
-      throw remoteFailure('Could not reach your computer at ' + remote.base
-        + '. Check that voice-server is running and both are on the same Wi-Fi.');
+      throw remoteFailure(remoteIsThisComputer(remote.base)
+        ? 'Could not reach voice-server on this computer at ' + remote.base
+          + '. Start it (npm start in the voice-server folder), then press Play again.'
+        : 'Could not reach your computer at ' + remote.base
+          + '. Check that voice-server is running and both are on the same Wi-Fi.');
     }
     if (res.status === 401) throw remoteFailure('The code does not match. Use the one voice-server printed.');
     const why = remoteErrorText(res.data);
@@ -4102,7 +4197,9 @@
    */
   function preparerLine() {
     const p = preparer;
-    const where = !p.remote ? '' : p.remoteComputers > 1 ? 'On ' + p.remoteComputers + ' computers: ' : 'On your computer: ';
+    const here = !!p.remote && remoteIsThisComputer(p.remote.base);
+    const where = !p.remote ? '' : p.remoteComputers > 1 ? 'On ' + p.remoteComputers + ' computers: '
+      : here ? 'On this computer: ' : 'On your computer: ';
     if (p.remoteLoading) return where + 'Your computer is loading the voice (the first time downloads about 330 MB)… ';
     if (p.remote) {
       if (!p.remoteTotal) return where + (p.sending ? 'Sending the book over. ' : 'Getting ready. ');
@@ -4116,7 +4213,7 @@
       if (p.sending) s += 'Still sending the rest of the book. ';
       if (p.collecting) s += 'Collecting the audio. ';
       // The point of the whole arrangement, said once where it is noticed.
-      else if (p.remoteDone < p.remoteTotal) s += 'You can close the app; it keeps going. ';
+      else if (p.remoteDone < p.remoteTotal) s += here ? 'You can close this tab; voice-server keeps going. ' : 'You can close the app; it keeps going. ';
       return s;
     }
     if (!p.total || !p.chapterAt) return where + 'Getting the voice ready. ';
@@ -4246,7 +4343,7 @@
       if (!state.playing || token !== state.speakToken) return;
       // Prepared: nothing to load, play now.
       if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) { speakCurrent(); return; }
-      if (preparedOnly) { notPreparedYet(true); return; }
+      if (preparedOnly) { playFromComputer(token); return; }
       ensureNeuralThenSpeak();
     });
   }
@@ -4846,8 +4943,11 @@
     //
     // The cool way to listen. Preparing does the hot work once, on the
     // charger; after that the natural voice plays stored audio.
+    // In a computer's browser there is no heat to avoid: the point there is
+    // listening straight away, with this computer's voice-server doing it.
     const prepRow = el('div', 'vc-row vc-prepared-row');
-    prepRow.appendChild(el('span', 'vc-row-label', 'Listen without heat'));
+    const prepLabel = el('span', 'vc-row-label', 'Listen without heat');
+    prepRow.appendChild(prepLabel);
     const prepText = el('div', 'vc-hint vc-prepared-status');
     const prepBar = el('div', 'vc-progress');
     prepBar.appendChild(el('i'));
@@ -4859,8 +4959,10 @@
     prepDelete.textContent = 'Delete prepared audio';
     // Preparing on a computer (voice-server/). Only where the page may call
     // plain http on the home network: the app, or a page served over http.
-    // The https web build would be blocked as mixed content.
-    const remoteCan = isNativeApp() || location.protocol === 'http:';
+    // The https web build would be blocked as mixed content, except towards
+    // this same computer: browsers treat http://localhost as secure, so a
+    // computer's browser can always use the voice-server running on it.
+    const remoteCan = function () { return isNativeApp() || location.protocol === 'http:' || desktopBrowser(); };
     const remoteAction = el('button', 'vc-action vc-action-quiet vc-remote-action', 'Prepare on my computer');
     remoteAction.type = 'button';
     const remoteForm = el('div', 'vc-remote');
@@ -4906,7 +5008,10 @@
       prepAction.textContent = preparer.running ? 'Stop preparing'
         : sum.ready ? (all ? 'Check for new chapters' : 'Prepare the rest of the book') : 'Prepare this book';
       prepDelete.hidden = preparer.running || !sum.ready;
-      remoteAction.hidden = remoteForm.hidden = !remoteCan || preparer.running;
+      remoteAction.hidden = remoteForm.hidden = !remoteCan() || preparer.running;
+      const desk = desktopBrowser();
+      prepLabel.textContent = desk ? 'Listen on this computer' : 'Listen without heat';
+      remoteUrlInput.placeholder = desk ? 'localhost (this computer)' : '192.168.1.20';
       let line;
       if (preparer.running) {
         line = preparer.hot
@@ -4922,6 +5027,10 @@
         else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
         else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
           + (preparedOnly ? 'Listening plays the chapters that are ready and stops at the first that is not.' : 'The rest use the live voice until prepared.');
+        else if (desk && preparedOnly) line = remoteFromPrefs().code
+          ? 'Press Play to listen straight away. voice-server on this computer makes the audio just ahead of you, '
+            + 'prepares the rest of the book behind it and keeps it, so your phone can collect it later.'
+          : DESKTOP_NEEDS_SERVER;
         else line = (preparedOnly ? 'This book is not prepared in this voice, so it cannot be read aloud yet. ' : '')
           + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
         if (preparer.message) line = preparer.message + ' ' + line;
@@ -5723,6 +5832,7 @@
       preparedSummary: preparedSummary,
       preparerLine: preparerLine,
       remoteBase: remoteBase,
+      remoteFromPrefs: remoteFromPrefs,
       setRemoteChunkParts: function (n) { REMOTE_CHUNK_PARTS = n; },
       setPreparedOnly: function (v) { preparedOnly = !!v; state.prefs = readPrefs(); },
       preparedOnly: function () { return preparedOnly; },

@@ -1,7 +1,10 @@
 // node --test, no install: the engine is a fake, so kokoro-js is never loaded.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createVoiceServer, encodeWav, trimSilence } from '../server.mjs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createVoiceServer, encodeWav, trimSilence, rememberedCode } from '../server.mjs';
 
 function fakeEngine(calls) {
   return {
@@ -261,4 +264,21 @@ test('a peer that is gone or has another code never stops the book', async () =>
     const s = await (await fetch(base + '/status', { headers: { 'x-voice-code': '123456' } })).json();
     assert.deepEqual(s.shares.map(x => x.resting), [false, true, true]);
   } finally { server.close(); wrongCode.server.close(); }
+});
+
+test('the code is the same every start, so a phone and a browser type it once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vs-code-'));
+  try {
+    const first = await rememberedCode(join(root, 'books'));
+    assert.match(first, /^\d{6}$/);
+    assert.equal(await rememberedCode(join(root, 'books')), first, 'kept across starts');
+    assert.equal(await rememberedCode(join(root, 'books'), '424242'), '424242', '--code wins');
+    assert.equal(await rememberedCode(join(root, 'books')), '424242', 'and is kept after');
+    await writeFile(join(root, 'books', 'voice-code.txt'), 'garbage\n');
+    const fresh = await rememberedCode(join(root, 'books'));
+    assert.match(fresh, /^\d{6}$/, 'a damaged file gets a new code');
+    assert.equal((await readFile(join(root, 'books', 'voice-code.txt'), 'utf8')).trim(), fresh);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -192,7 +192,10 @@ class CheckTest(unittest.TestCase):
         block = source[source.index("const NEURAL_VOICES = ["):]
         block = block[:block.index("];")]
         import re
-        offered = re.findall(r"id: '([a-z]{2}_[a-z]+)'", block)
+        # Voices marked computer: true (Trevor, Phonon) are rendered by
+        # voice-server itself and never sent to this service.
+        offered = [m.group(1) for m in re.finditer(r"\{ id: '([a-z]{2}_[a-z]+)'[^}]*\}", block)
+                   if "computer: true" not in m.group(0)]
         self.assertEqual(sorted(mac_voice.APP_VOICES), sorted(offered))
 
 

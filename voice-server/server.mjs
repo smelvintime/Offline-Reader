@@ -823,9 +823,10 @@ async function main() {
     if (!addrs.length) console.log('    Address:  (no network found; connect this computer to Wi-Fi)');
     console.log('    Code:     ' + code + '   (the same every start)');
     console.log('');
-    console.log('  Reading in a browser on this computer: leave the address blank, type the');
-    console.log('  code, and press Play. This computer makes the audio as you listen, keeps');
-    console.log('  the whole book, and your phone collects it with the address above.');
+    console.log('  Reading in a browser on this computer: the browser reads aloud by itself.');
+    console.log('  To keep the audio for your phone too, turn on Keep audio for my phone in');
+    console.log('  the voice sheet, type the code, and press Play. Your phone then collects');
+    console.log('  the book with the address above.');
     console.log('');
     console.log('    Monitor:  http://localhost:' + port + '/?code=' + code);
     console.log('              open that in a browser on this computer to watch it work');

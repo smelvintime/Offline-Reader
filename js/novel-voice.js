@@ -460,6 +460,7 @@
     remoteUrl:    'voice.remoteUrl',
     remoteCode:   'voice.remoteCode',
     remoteBooks:  'voice.remoteBooks',
+    keepForPhone: 'voice.keepForPhone',  // a computer's browser listens through voice-server
   };
 
   // 'natural' is Kokoro in a worker; 'iphone' is the OS through Platform.speech.
@@ -521,14 +522,41 @@
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
       pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
       narrator:     defaultNarrator(),
-      neuralVoice:  validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice)),
+      neuralVoice:  voiceHere(validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice))),
       systemVoice:  String(prefGet(PREF.systemVoice, DEFAULTS.systemVoice) || ''),
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
       // Opt-in, and off by default: it is a 330 MB download.
       gpu:          prefGet(PREF.gpu, false) === true,
+      // A computer's browser: off means it just reads aloud by itself.
+      keepForPhone: prefGet(PREF.keepForPhone, false) === true,
     };
+  }
+
+  /**
+   * In a computer's browser, unless "Keep audio for my phone" is on, the
+   * book is read aloud the plain way: the browser runs the voice itself as
+   * it goes, the way the app narrated before prepared books. No server, no
+   * Prepare, no phone. Heat and battery are why a phone plays only stored
+   * audio, and a computer has neither problem.
+   */
+  function liveOnComputer() {
+    return desktopBrowser() && prefGet(PREF.keepForPhone, false) !== true;
+  }
+
+  /** Narration plays stored audio and nothing else (a phone, or "Keep audio for my phone"). */
+  function storedOnly() { return preparedOnly && !liveOnComputer(); }
+
+  /**
+   * The voice to use here. Trevor only exists in voice-server, so a browser
+   * reading by itself uses the first of its own voices instead. The choice is
+   * kept: turning "Keep audio for my phone" on brings Trevor back.
+   */
+  function voiceHere(id) {
+    if (!computerOnlyVoice(id) || !liveOnComputer()) return id;
+    for (let i = 0; i < NEURAL_VOICES.length; i++) if (!NEURAL_VOICES[i].computer) return NEURAL_VOICES[i].id;
+    return id;
   }
 
 
@@ -543,10 +571,9 @@
    * decides what happens before anyone has expressed one.
    */
   function defaultNarrator() {
-    if (preparedOnly) return 'natural';
-    const stored = prefGet(PREF.narrator, null);
-    if (NARRATORS.indexOf(stored) !== -1) return stored;
-    return systemSpeech().available() ? 'iphone' : 'natural';
+    // Always Kokoro or Trevor. The system voice is never used (systemSpeech),
+    // so a stored 'iphone' from an older build is ignored.
+    return 'natural';
   }
 
   /** Platform.kokoro, or a web-shaped stand-in so callers need no guards. */
@@ -562,11 +589,13 @@
     };
   }
 
-  /** Platform.speech, or a web-shaped stand-in so callers need no guards. */
+  /**
+   * The device's own system voice, which is never used. Narration is Kokoro
+   * or Trevor and nothing else, on every build and in every mode, whatever
+   * Platform.speech offers or a stored preference says. The stand-in below is
+   * what every caller gets, so each "iPhone voice" path stays shut.
+   */
   function systemSpeech() {
-    try {
-      if (window.Platform && window.Platform.speech) return window.Platform.speech;
-    } catch (e) { /* fall through */ }
     return {
       available: function () { return false; },
       voices: function () { return Promise.resolve([]); },
@@ -1963,12 +1992,12 @@
     }
     // Prepared audio: playing a stored clip is what keeps the phone cool. A
     // chapter a computer is still making counts: speakPrepared waits for it.
-    if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) {
+    if (storedOnly() ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) {
       speakPrepared(s, token, done, fail);
       return;
     }
     // Not prepared: nothing plays. No live model, no lesser voice.
-    if (preparedOnly) { notPreparedYet(false); return; }
+    if (storedOnly()) { notPreparedYet(false); return; }
     // Playback that began on prepared audio never loaded the model.
     if (!neuralEngine.ready || !neuralEngine.worker) {
       ensureNeuralThenSpeak();
@@ -4342,8 +4371,8 @@
     preparedIndexReady().then(function () {
       if (!state.playing || token !== state.speakToken) return;
       // Prepared: nothing to load, play now.
-      if (preparedOnly ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) { speakCurrent(); return; }
-      if (preparedOnly) { playFromComputer(token); return; }
+      if (storedOnly() ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) { speakCurrent(); return; }
+      if (storedOnly()) { playFromComputer(token); return; }
       ensureNeuralThenSpeak();
     });
   }
@@ -4982,6 +5011,25 @@
     const remoteCodeInput = remoteField('Code', PREF.remoteCode,
       { type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: '6', placeholder: '123456' });
     prepRow.append(prepText, prepBar, prepAction, remoteAction, remoteForm, prepDelete);
+
+    // A computer's browser reads aloud by itself. This is the one switch that
+    // brings a server into it, for a reader who wants the audio kept for
+    // their phone as well.
+    const keepRow = toggleRow('Keep audio for my phone',
+      'Uses voice-server on this computer: it makes the audio as you listen and keeps the whole book, '
+        + 'so your phone can collect it. Off, this browser reads aloud by itself and needs nothing else.',
+      'keepForPhone', PREF.keepForPhone,
+      function () {
+        // Which engine plays, and Trevor's availability, both follow it.
+        if (state.playing) pause();
+        if (preparer.running && preparer.remote) preparer.stop(null, true);
+        state.prefs = readPrefs();
+        loadPreparedIndex();
+        syncSheet();
+      });
+    keepRow.classList.add('vc-keep-row');
+    body.appendChild(keepRow);
+    sheetSync.push(function () { keepRow.hidden = !desktopBrowser(); });
     body.appendChild(prepRow);
 
     remoteAction.addEventListener('click', function () {
@@ -5010,6 +5058,21 @@
       prepDelete.hidden = preparer.running || !sum.ready;
       remoteAction.hidden = remoteForm.hidden = !remoteCan() || preparer.running;
       const desk = desktopBrowser();
+      // Reading by itself: nothing to prepare and no server to set up. The
+      // row stays only to show (and delete) audio stored earlier.
+      const live = liveOnComputer();
+      prepAction.hidden = live && !preparer.running;
+      if (live) {
+        remoteAction.hidden = remoteForm.hidden = true;
+        if (!preparer.running) {
+          prepRow.hidden = !sum.ready;
+          prepBar.hidden = true;
+          prepText.textContent = sum.ready
+            ? sum.ready + ' of ' + sum.total + ' chapters have stored audio (' + formatBytes(sum.bytes) + '), which plays first. The rest is read aloud as you go.'
+            : '';
+          return;
+        }
+      }
       prepLabel.textContent = desk ? 'Listen on this computer' : 'Listen without heat';
       remoteUrlInput.placeholder = desk ? 'localhost (this computer)' : '192.168.1.20';
       let line;
@@ -5126,6 +5189,9 @@
       const chips = natVoices.querySelectorAll('.vc-chip');
       for (let i = 0; i < chips.length; i++) {
         const onV = chips[i].dataset.voice === voiceBase(state.prefs.neuralVoice);
+        // Trevor is made only by voice-server, which a browser reading by
+        // itself does not use.
+        chips[i].hidden = liveOnComputer() && computerOnlyVoice(chips[i].dataset.voice);
         chips[i].classList.toggle('vc-on', onV);
         chips[i].setAttribute('aria-checked', String(onV));
       }
@@ -5408,7 +5474,7 @@
 
   function prewarmNeural() {
     // Playback never uses the live model, so there is nothing to warm.
-    if (preparedOnly) return;
+    if (storedOnly()) return;
     // Memory capacity alone is not permission for speculative computation.
     if ((window.Platform && window.Platform.isNative) || resources.lowPower || thermalHot()) return;
     if (!neuralEngine.available()) return;

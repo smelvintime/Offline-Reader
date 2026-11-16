@@ -61,11 +61,13 @@ server and starting it again picks every unfinished book up where it stopped.
    computer makes that chapter next. Later, with the app reopened, **Play**
    goes back to this computer by itself and collects what is waiting.
 
-   Reading on this computer instead, in a browser? Open the book, open the
-   voice sheet, leave **Computer address** blank (it means this computer),
-   type the code, and press **Play**. Nothing needs preparing first: this
-   computer makes the audio a few seconds ahead of you and goes on to prepare
-   the whole book behind it, into the books folder. Close the tab and it keeps
+   Reading on this computer instead, in a browser? You do not need this
+   server for that: the browser reads aloud by itself. You need it only to
+   keep the audio for your phone as well. Then open the voice sheet, turn on
+   **Keep audio for my phone**, leave **Computer address** blank (it means
+   this computer), type the code, and press **Play**. Nothing needs preparing
+   first: this computer makes the audio a few seconds ahead of you and goes on
+   to prepare the whole book behind it, into the books folder. Close the tab and it keeps
    going. Later, on the phone, Play on the same book (with this computer's
    address and code under **Prepare on my computer**) collects that audio
    instead of rendering it again.

@@ -1005,6 +1005,12 @@ was running (`or.voiceGuard.device`, for loads and first sentences alike), and
 a crash on `webgpu` turns `voice.gpu` off before the paused session comes up,
 so a desktop's retry runs on wasm instead of repeating the crash.
 
+**The system voice is never used.** `systemSpeech()` always returns the
+unavailable stand-in and `defaultNarrator()` always returns `natural`, so
+narration is Kokoro or Trevor on every build, whatever `Platform.speech`
+offers or an older stored preference says. The paragraphs below describe the
+narrator choice as it once was.
+
 **Two narrators, named rather than ranked.** The iPhone's own voice
 (`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
 immediately and costs nothing to run. The natural voice sounds better and has to
@@ -1421,7 +1427,15 @@ the heat, so its own preparing still gives way to listening.
 nothing stored for the chapter and no computer already working on the book:
 
 - In a computer's browser (`desktopBrowser()`: the web build with the desktop
-  tuning flag), voice-server on that computer is the engine. An empty address
+  tuning flag), the browser reads aloud by itself by default
+  (`liveOnComputer()`): `storedOnly()` is false there, so a chapter with no
+  stored audio is narrated by the live in-browser engine as it plays, with no
+  server and nothing to prepare. Heat and battery are why a phone plays only
+  stored audio, and a computer has neither. Trevor exists only in
+  voice-server, so in this mode `voiceHere()` uses the first Kokoro voice
+  instead (the stored choice is kept) and his chip is hidden.
+- With **Keep audio for my phone** on (`voice.keepForPhone`, desktop only),
+  voice-server on that computer is the engine instead. An empty address
   means `localhost:8787`, the computer form shows even on the https build
   (browsers treat `http://localhost` as secure, and the server answers the
   private-network preflight), and Play checks `/status` and starts the remote

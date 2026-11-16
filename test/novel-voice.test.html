@@ -2477,7 +2477,24 @@ const T = {
           'and raises the group and clip caps that would otherwise bound it') && pass;
 
         t.state.prefs.gpu = false;
-        pass = ok(t.neuralDevice() === 'wasm', 'a desktop that did not opt in stays on wasm') && pass;
+        pass = ok(t.neuralDevice() === 'wasm', 'a desktop that turned it off stays on wasm') && pass;
+
+        // Unset, a computer with WebGPU gets the GPU: wasm there is slower
+        // than speech, which is a pause between every sentence. A choice
+        // either way is kept, and a phone is never given it.
+        {
+          const storedBefore = Store.prefs.get('voice.gpu', null);
+          try {
+            Store.prefs.remove ? Store.prefs.remove('voice.gpu') : Store.prefs.set('voice.gpu', null);
+            if (gpuPresent) pass = ok(t.readPrefs().gpu === true, 'a computer with WebGPU uses it unless told not to') && pass;
+            Store.prefs.set('voice.gpu', false);
+            pass = ok(t.readPrefs().gpu === false, 'and turning it off is remembered') && pass;
+            Store.prefs.set('voice.gpu', null);
+            window.Platform = { tuning: function () { return { desktop: false }; } };
+            pass = ok(t.readPrefs().gpu === false, 'a phone is never given it by default') && pass;
+            window.Platform = { tuning: function () { return { desktop: true }; } };
+          } finally { Store.prefs.set('voice.gpu', storedBefore); }
+        }
         t.state.prefs.gpu = true;
         window.Platform = { tuning: function () { return { desktop: false }; } };
         pass = ok(t.neuralDevice() === 'wasm' && !t.gpuCapable(),

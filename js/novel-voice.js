@@ -530,11 +530,21 @@
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
-      // Opt-in, and off by default: it is a 330 MB download.
-      gpu:          prefGet(PREF.gpu, false) === true,
+      // On by default on a computer whose browser has WebGPU: there the wasm
+      // engine is just slower than speech, which is a pause between every
+      // sentence, and the GPU is many times faster. The cost is a one-time
+      // 330 MB download. An explicit choice either way wins, and a crash or a
+      // failed init on the GPU turns it off (gpuInitFailed, the crash guard).
+      gpu:          gpuPref(),
       // A computer's browser: off means it just reads aloud by itself.
       keepForPhone: prefGet(PREF.keepForPhone, false) === true,
     };
+  }
+
+  function gpuPref() {
+    const stored = prefGet(PREF.gpu, null);
+    if (stored === true || stored === false) return stored;
+    return gpuCapable();
   }
 
   /**
@@ -5118,7 +5128,7 @@
     if (typeof navigator !== 'undefined' && navigator.gpu) {
       const gpuRow = toggleRow(
         'Use this computer’s GPU',
-        'Much faster narration. Downloads ~330 MB of full-precision voice once.',
+        'Much faster narration, so no pauses between sentences. On unless you turn it off. Downloads ~330 MB of full-precision voice once.',
         'gpu', PREF.gpu,
         function () {
           // The device is fixed when the engine is built, so the running one

@@ -238,6 +238,9 @@
   // gigabyte of idle model on a 3 GB phone is how "the reader crashed" bug
   // reports happen.
   const NEURAL_IDLE_BY_CLASS = { high: 30000, mid: 15000, low: 0 };
+  // A computer has the memory to keep the voice loaded through a pause.
+  // Unloading after 30 s meant the next Play loaded the model again first.
+  const DESKTOP_IDLE_MS = 15 * 60 * 1000;
   const WAV_CACHE_BYTES = 16 * 1024 * 1024;
   const MAX_PENDING_GENERATIONS = 4;
 
@@ -514,11 +517,21 @@
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
-      // Opt-in, and off by default: it is a 330 MB download.
-      gpu:          prefGet(PREF.gpu, false) === true,
+      // On by default on a computer whose browser has WebGPU: there the wasm
+      // engine is just slower than speech, which is a pause between every
+      // sentence, and the GPU is many times faster. The cost is a one-time
+      // 330 MB download. An explicit choice either way wins, and a crash or a
+      // failed init on the GPU turns it off (gpuInitFailed, the crash guard).
+      gpu:          gpuPref(),
       // A computer's browser: off means it just reads aloud by itself.
       keepForPhone: prefGet(PREF.keepForPhone, false) === true,
     };
+  }
+
+  function gpuPref() {
+    const stored = prefGet(PREF.gpu, null);
+    if (stored === true || stored === false) return stored;
+    return gpuCapable();
   }
 
   /**
@@ -1490,7 +1503,7 @@
       const self = this;
       clearTimeout(this.idleTimer);
       if (!this.worker) return;
-      const idle = NEURAL_IDLE_BY_CLASS[memoryClass()] || 0;
+      const idle = isDesktop() ? DESKTOP_IDLE_MS : (NEURAL_IDLE_BY_CLASS[memoryClass()] || 0);
       if (idle <= 0) { this.dispose(); return; }   // low memory: free it NOW
       this.idleTimer = setTimeout(function () {
         self.idleTimer = 0;
@@ -2045,6 +2058,12 @@
    * of it as the cap allows, and the gaps that remain come later and fewer.
    */
   function prebufferTargetSeconds() {
+    // A computer starts speaking on the first clip and keeps generating
+    // behind it (lookaheadSeconds). Holding the first word until 45 s of audio
+    // was banked is what made Play on a computer take most of a minute; a
+    // short gap later beats a long silence now. The wait was raised from 15 s
+    // for phones, which no longer narrate live at all.
+    if (isDesktop()) return 0;
     // The startup burst is the single hottest thing the voice does. While the
     // phone is already hot, skip it and start speaking on the first group.
     if (thermalHot() || resources.lowPower) return 0;
@@ -4782,14 +4801,12 @@
     });
 
     // Desktop only, where the browser actually has WebGPU, never the native app.
-    // Off by default: the speed comes from full-precision weights, and
-    // downloading 330 MB is the reader's decision to make, not a default to
-    // discover. Re-checked on every sync, so it disappears the moment it
+    // On by default there (gpuPref). Re-checked on every sync, so it disappears the moment it
     // stops applying (a failed GPU init this session, or the native app).
     if (typeof navigator !== 'undefined' && navigator.gpu) {
       const gpuRow = toggleRow(
         'Use this computer’s GPU',
-        'Much faster narration. Downloads ~330 MB of full-precision voice once.',
+        'Faster, with no pauses between sentences. A 330 MB download, once.',
         'gpu', PREF.gpu,
         function () {
           // The device is fixed when the engine is built, so the running one

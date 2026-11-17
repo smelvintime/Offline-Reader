@@ -889,6 +889,7 @@
     [
       ['Next page / scroll down', ['→', 'PgDn', 'Space']],
       ['Previous page / scroll up', ['←', 'PgUp', '⇧ Space']],
+      ['Pause or resume listening', ['Space']],
       ['Previous / next chapter', ['[', ']']],
       ['Smaller / larger text', ['−', '+']],
       ['Reading settings', ['S']],
@@ -1271,7 +1272,6 @@
     else layout();
     settleLayout(anchor);
     settleWhenFontLands(state.prefs.fontFamily);
-    toast('Applied “' + name + '”');
   }
 
   function deleteSavedPreset(idx) {
@@ -1346,7 +1346,6 @@
       writeSavedPresets(list);
       closeForm();
       render();
-      toast('Saved “' + name + '”');
     });
     cancelBtn.addEventListener('click', closeForm);
     nameInput.addEventListener('keydown', function (e) {
@@ -1640,7 +1639,6 @@
     else layout();
     settleLayout(anchor);
     settleWhenFontLands(state.prefs.fontFamily);
-    toast('Reset to your defaults');
   }
 
   function applyPrefsToAll() {
@@ -3180,7 +3178,13 @@
       case 'ArrowLeft': case 'PageUp':
         e.preventDefault(); prevPage(); return;
       case ' ': case 'Spacebar':
-        e.preventDefault(); e.shiftKey ? prevPage() : nextPage(); return;
+        e.preventDefault();
+        // While listening, Space is the play/pause key, as in any player.
+        if (!e.shiftKey && window.NovelVoice && window.NovelVoice.isActive && window.NovelVoice.isActive()) {
+          window.NovelVoice.togglePlay();
+          return;
+        }
+        e.shiftKey ? prevPage() : nextPage(); return;
       case 'ArrowDown':
         if (state.mode === 'paged') { e.preventDefault(); nextPage(); }
         return;

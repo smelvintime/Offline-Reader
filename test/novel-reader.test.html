@@ -604,10 +604,6 @@ const T = {
     ok(Store.prefs.get('novel.fontSize', 'unset') === 'unset',
        'global prefs untouched', Store.prefs.get('novel.fontSize', 'unset'));
 
-    // A toast names the preset.
-    const toastEl = document.querySelector('#novel-screen .nv-toast');
-    ok(!!toastEl && !toastEl.hidden && toastEl.textContent.indexOf('Night scroll') !== -1,
-       'toast names the applied preset', toastEl && toastEl.textContent);
 
     // No "active preset" state is stored anywhere.
     ok(Store.prefs.get('novel.presets', null) === null, 'applying stores no active-preset state');
@@ -735,10 +731,7 @@ const T = {
     ok(chip && chip.textContent === HOSTILE.slice(0, 40), 'name is literal text, clamped to 40',
        chip && chip.textContent);
     ok(strip.querySelectorAll('img, script').length === 0, 'no elements created from the name');
-    // Applying it routes the name through the toast — also textContent-only.
     chip.click();
-    const toastEl = document.querySelector('#novel-screen .nv-toast');
-    ok(toastEl.querySelectorAll('img, script').length === 0, 'toast renders the name inert');
     // And through the save form.
     this.refreshSheet();
     const saveChip = [...strip.querySelectorAll('button')].find(b => b.textContent === '+ Save current');

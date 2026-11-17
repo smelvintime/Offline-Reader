@@ -133,7 +133,6 @@
   const PARAGRAPH_GAP_MS = 420;   // between blocks, where a reader's eye rests
 
   const RATE_MIN = 0.6, RATE_MAX = 1.6, RATE_STEP = 0.05;
-  const PITCH_MIN = 0.8, PITCH_MAX = 1.2, PITCH_STEP = 0.05;
 
   // Sentences longer than this are split at a clause boundary before speaking.
   // Long single utterances are where device engines go flat and where the
@@ -447,12 +446,9 @@
   const COMPUTER_ONLY_TEXT = 'Trevor is made on your computer. Use Prepare on my computer.';
 
   const PREF = {
-    narrator:     'voice.narrator',
     rate:         'voice.rate',
     phononPace:   'voice.phononPace',   // the pace Trevor's chip picks
-    pitch:        'voice.pitch',
     neuralVoice:  'voice.neuralVoice',
-    systemVoice:  'voice.systemVoice',
     follow:       'voice.follow',
     autoNext:     'voice.autoNext',
     highlight:    'voice.highlight',
@@ -463,17 +459,12 @@
     keepForPhone: 'voice.keepForPhone',  // a computer's browser listens through voice-server
   };
 
-  // 'natural' is Kokoro in a worker; 'iphone' is the OS through Platform.speech.
-  const NARRATORS = ['natural', 'iphone'];
-
   const DEFAULTS = {
     rate: 1,
-    pitch: 1,
     // Trevor at his default pace: the narrator chosen by ear. He exists only
     // on a computer, so a reader with none picks a Kokoro voice to prepare
     // on the phone, and the sheet says so when they try.
     neuralVoice: phononVoiceId('pn_trevor', PHONON_PACE_DEFAULT),
-    systemVoice: '',        // '' = whatever iOS picks for the language
     follow: true,
     autoNext: true,
     highlight: true,
@@ -501,7 +492,6 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
-  function oneOf(v, list, fallback) { return list.indexOf(v) === -1 ? fallback : v; }
 
   function prefGet(key, fallback) {
     try {
@@ -520,10 +510,7 @@
   function readPrefs() {
     return {
       rate:         clamp(num(prefGet(PREF.rate, DEFAULTS.rate), DEFAULTS.rate), RATE_MIN, RATE_MAX),
-      pitch:        clamp(num(prefGet(PREF.pitch, DEFAULTS.pitch), DEFAULTS.pitch), PITCH_MIN, PITCH_MAX),
-      narrator:     defaultNarrator(),
       neuralVoice:  voiceHere(validNeuralVoice(prefGet(PREF.neuralVoice, DEFAULTS.neuralVoice))),
-      systemVoice:  String(prefGet(PREF.systemVoice, DEFAULTS.systemVoice) || ''),
       follow:       prefGet(PREF.follow, DEFAULTS.follow) !== false,
       autoNext:     prefGet(PREF.autoNext, DEFAULTS.autoNext) !== false,
       highlight:    prefGet(PREF.highlight, DEFAULTS.highlight) !== false,
@@ -560,22 +547,6 @@
   }
 
 
-  /**
-   * Which narrator to start on.
-   *
-   * On a device with the OS narrator available, that one — because it works.
-   * The natural voice is better and the reader can have it in one tap, but it
-   * generates slower than it speaks on real hardware, and an app whose default
-   * setting is "silence for ten minutes" is not offering a choice, it is
-   * broken with an escape hatch. A stored preference always wins; this only
-   * decides what happens before anyone has expressed one.
-   */
-  function defaultNarrator() {
-    // Always Kokoro or Trevor. The system voice is never used (systemSpeech),
-    // so a stored 'iphone' from an older build is ignored.
-    return 'natural';
-  }
-
   /** Platform.kokoro, or a web-shaped stand-in so callers need no guards. */
   function nativeKokoro() {
     try {
@@ -587,82 +558,6 @@
       infer: function () { return Promise.resolve(null); },
       release: function () { return Promise.resolve(); },
     };
-  }
-
-  /**
-   * The device's own system voice, which is never used. Narration is Kokoro
-   * or Trevor and nothing else, on every build and in every mode, whatever
-   * Platform.speech offers or a stored preference says. The stand-in below is
-   * what every caller gets, so each "iPhone voice" path stays shut.
-   */
-  function systemSpeech() {
-    return {
-      available: function () { return false; },
-      voices: function () { return Promise.resolve([]); },
-      speak: function () { return Promise.resolve(false); },
-      stop: function () { return Promise.resolve(); },
-      pause: function () { return Promise.resolve(); },
-      resume: function () { return Promise.resolve(); },
-    };
-  }
-
-  // Best first. iOS's own tier is the sort key, so a reader opening the picker
-  // sees the voices worth using at the top rather than hunting for them among
-  // a dozen compact ones.
-  const SYSTEM_QUALITY_RANK = { premium: 0, enhanced: 1, default: 2 };
-
-  function rankSystemVoices(list) {
-    return (list || []).slice().sort(function (a, b) {
-      const qa = SYSTEM_QUALITY_RANK[a.quality];
-      const qb = SYSTEM_QUALITY_RANK[b.quality];
-      if (qa !== qb) return (qa == null ? 3 : qa) - (qb == null ? 3 : qb);
-      return String(a.name || '').localeCompare(String(b.name || ''));
-    });
-  }
-
-  function systemVoiceNote(v) {
-    if (v.personal) return 'Personal Voice';
-    if (v.quality === 'premium') return 'Premium';
-    if (v.quality === 'enhanced') return 'Enhanced';
-    return 'Compact';
-  }
-
-  /**
-   * What to say above the voice list.
-   *
-   * When every installed voice is the compact one, that is the whole story and
-   * the reader can fix it in a minute. Saying "this is the robot voice, here is
-   * where the good ones live" is worth more than any amount of tuning on our
-   * side, and it is the thing nobody told them the first time round.
-   */
-  function systemVoiceHint() {
-    const list = state.systemVoices || [];
-    if (!list.length) return 'No voices installed for this language.';
-    const good = list.filter(function (v) {
-      return v.quality === 'premium' || v.quality === 'enhanced' || v.personal;
-    });
-    if (!good.length) {
-      return 'Only the compact voice is installed — that is the robotic one. '
-        + 'Settings → Accessibility → Spoken Content → Voices → English, then '
-        + 'download an Enhanced or Premium voice and it will appear here.';
-    }
-    return good.length + (good.length === 1 ? ' higher-quality voice' : ' higher-quality voices')
-      + ' installed. More under Settings → Accessibility → Spoken Content → Voices.';
-  }
-
-  let systemVoicesInFlight = false;
-  function refreshSystemVoices() {
-    if (systemVoicesInFlight) return;
-    systemVoicesInFlight = true;
-    systemSpeech().voices(docLang()).then(function (list) {
-      systemVoicesInFlight = false;
-      state.systemVoices = rankSystemVoices(list);
-      syncSheetSoon();
-    }).catch(function () {
-      systemVoicesInFlight = false;
-      state.systemVoices = [];
-      syncSheetSoon();
-    });
   }
 
   function validNeuralVoice(id) {
@@ -940,9 +835,8 @@
   // like a dash and is a letter — ラーメン is a word, not ラ, a pause, メン.
   const DASH_CHARS = '\u2014\u2013\u2015\u2500\u2501';
   const DASH_RUN = new RegExp('[' + DASH_CHARS + ']+', 'g');            // the marks alone
-  const DASH_CLAUSE = new RegExp('\\s*[' + DASH_CHARS + ']+\\s*', 'g');   // and the space around them
 
-  function normalizeForSpeech(text, engine) {
+  function normalizeForSpeech(text) {
     let s = String(text);
     // Footnote markers are typography, not prose. "[3]" read aloud is noise.
     s = s.replace(/\[\d+\]/g, ' ');
@@ -964,27 +858,19 @@
     s = s.replace(/・/g, ' ');
 
     s = s.replace(/\s+/g, ' ');
-    if (engine === 'device') {
-      // Device engines mostly ignore dashes and run the clauses together; a
-      // comma buys the pause a narrator would take. The neural engine was
-      // trained on real punctuation and does better with the dash kept.
-      s = s.replace(DASH_CLAUSE, ', ');
-      s = s.replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'");
-    } else {
-      // Neural: keep the dash and the spacing the page had, but reduce a RUN to
-      // one em dash — the shape the model was trained on. "―――" is not a
-      // punctuation mark it has ever seen.
-      s = s.replace(DASH_RUN, '—');
-      // No comma is added after an ellipsis, though it was tried.
-      //
-      // The theory was sound — "…" reaches the tokens but carries almost no
-      // learned duration, where a comma carries the most certain one there is
-      // — and the result was a beat that landed on some ellipses and not
-      // others, because the duration a comma gets is itself contextual. An
-      // inconsistent pause reads as a stumble, which is worse than no pause at
-      // all: a reader stops hearing the prose and starts hearing the engine.
-      // Kokoro's own rendering of "…" is at least always the same.
-    }
+    // Keep the dash and the spacing the page had, but reduce a RUN to one em
+    // dash, the shape the model was trained on. "―――" is not a punctuation
+    // mark it has ever seen.
+    s = s.replace(DASH_RUN, '—');
+    // No comma is added after an ellipsis, though it was tried.
+    //
+    // The theory was sound — "…" reaches the tokens but carries almost no
+    // learned duration, where a comma carries the most certain one there is
+    // — and the result was a beat that landed on some ellipses and not
+    // others, because the duration a comma gets is itself contextual. An
+    // inconsistent pause reads as a stumble, which is worse than no pause at
+    // all: a reader stops hearing the prose and starts hearing the engine.
+    // Kokoro's own rendering of "…" is at least always the same.
     return s.trim();
   }
 
@@ -1038,7 +924,6 @@
     active: false,         // the listen bar is up
     playing: false,
     preparing: false,      // engine warm-up / first neural generation
-    systemVoices: null,    // null = not asked yet; [] = asked, none installed
     chapterId: null,
     sentences: [],
     index: 0,
@@ -1417,7 +1302,7 @@
     resources.lowPower = !!value.lowPower;
     voiceEvent('resources', { thermal: resources.thermal, lowPower: resources.lowPower, memoryWarning: !!value.memoryWarning });
     if (value.memoryWarning) {
-      if (state.playing && state.prefs.narrator === 'natural') pause();
+      if (state.playing) pause();
       neuralEngine.dispose();
       if (state.active) toast('Natural voice paused to free memory. Press play to reload it.');
     }
@@ -1986,10 +1871,6 @@
       advance(1);
     };
 
-    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
-      speakSystem(s, token, done, fail);
-      return;
-    }
     // Prepared audio: playing a stored clip is what keeps the phone cool. A
     // chapter a computer is still making counts: speakPrepared waits for it.
     if (storedOnly() ? canPlayPrepared(state.chapterId) : chapterPrepared(state.chapterId)) {
@@ -2007,31 +1888,6 @@
   }
 
   /**
-   * One sentence through the OS narrator.
-   *
-   * Sentence at a time, not the neural engine's merged groups: grouping exists
-   * to amortise a per-generation cost this path does not pay, and finer units
-   * mean a finer highlight and a faster response to a tap. There is nothing to
-   * prepare and nothing to cache, so the whole of speakNeural's machinery —
-   * lookahead, wav cache, stall watchdog — is simply absent here.
-   */
-  /**
-   * Whole paragraphs, not sentences.
-   *
-   * Every utterance costs a round trip across the Capacitor bridge and a fresh
-   * AVSpeechUtterance, and the reader cannot ask for the next one until the
-   * last has finished — so the unit of speech is also the unit of silence. A
-   * sentence at a time meant a gap after every sentence for a whole chapter.
-   *
-   * The neural engine's caps exist to bound generation cost. This path has no
-   * generation cost, so the only reason to stop growing a group is the one
-   * groupSentences enforces for free: it never crosses a paragraph. These caps
-   * are set high enough that a paragraph is what comes back, which puts the
-   * remaining gaps exactly where prose already pauses.
-   */
-  const SYSTEM_GROUP_CAPS = { target: 900, max: 1400, contMax: 1600 };
-
-  /**
    * How long to wait before the next clip, in ms.
    *
    * Zero when the group does not end a sentence: long sentences are split at a
@@ -2047,34 +1903,6 @@
     const paragraph = !next || next.blockIdx !== group.blockIdx;
     const base = paragraph ? PARAGRAPH_GAP_MS : SENTENCE_GAP_MS;
     return Math.round(base / (state.prefs.rate || 1));
-  }
-
-  function speakSystem(s, token, done, fail) {
-    const group = groupSentences(state.sentences, state.index, SYSTEM_GROUP_CAPS)
-      || { from: state.index, to: state.index, blockIdx: s.blockIdx, start: s.start, end: s.end, text: s.text };
-    highlighter.apply(group);
-    setPreparing(false);
-    const groupDone = function () {
-      if (token !== state.speakToken || !state.playing) return;
-      state.index = group.to;      // land on the group's last sentence…
-      done();                      // …then done() advances past it as usual
-    };
-    systemSpeech().speak(normalizeForSpeech(group.text, 'device'), {
-      voiceId: state.prefs.systemVoice,
-      lang: docLang(),
-      rate: state.prefs.rate,
-      pitch: state.prefs.pitch,
-    }).then(function (spoken) {
-      // A stop or a chapter change bumps the token and clears `playing`; the
-      // utterance resolving false afterwards is that cancellation arriving, not
-      // a failure, and must not be counted as one.
-      if (token !== state.speakToken || !state.playing) return;
-      if (spoken) groupDone(); else fail();
-    }).catch(function () {
-      if (token !== state.speakToken || !state.playing) return;
-      fail();
-    });
-    mediaSessionUpdate();
   }
 
   // A neural group: sentences[from..to] of ONE block, merged for one
@@ -2374,7 +2202,7 @@
     const chapterId = state.chapterId;
     const startupDeadline = state.fastStart ? startupPrebufferDeadline() : 0;
     const groupDone = groupEnd(group, token, done);
-    neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text, 'neural'), state.prefs.neuralVoice)
+    neuralEngine.generate(neuralKey(chapterId, group), normalizeForSpeech(group.text), state.prefs.neuralVoice)
       .then(function (url) {
         if (token !== state.speakToken || !state.playing) return;
         const first = state.fastStart;
@@ -2454,7 +2282,7 @@
       const known = neuralEngine.clipSeconds.get(key);
       if (!neuralEngine.wavCache.has(key) && !neuralEngine.inFlight.has(key)) {
         if (neuralEngine.pending.size >= MAX_PENDING_GENERATIONS) break;
-        neuralEngine.generate(key, normalizeForSpeech(g.text, 'neural'), state.prefs.neuralVoice)
+        neuralEngine.generate(key, normalizeForSpeech(g.text), state.prefs.neuralVoice)
           // Generated is not the same as ready to play. The clip still has to
           // be decoded, and paying for that while the current one plays is the
           // difference between a seam and a breath.
@@ -2475,7 +2303,7 @@
   function startPrefetchPump() {
     if (prefetchTimer) return;
     prefetchTimer = setInterval(function () {
-      if (!state.playing || !state.group || state.prefs.narrator !== 'natural') return;
+      if (!state.playing || !state.group) return;
       prefetchNeural(state.group);
       primeNextClip(state.group);
     }, NEURAL_PUMP_MS);
@@ -2528,7 +2356,6 @@
   // snaps to its start, so a one-sentence step would land back in the group
   // it left: those step by group.
   function preparedSkipDelta(delta) {
-    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return delta;
     if (!chapterPrepared(state.chapterId) && !remoteStreaming()) return delta;
     const plan = currentPreparedPlan();
     const hit = preparedGroupContaining(plan, state.index);
@@ -2620,7 +2447,6 @@
     state.group = null;
     state.prebuffer = null;
     neuralEngine.cancelPending(!!preserveActive, preserveKey);
-    systemSpeech().stop();
     channel.stop();
     setPreparing(false);
   }
@@ -2794,7 +2620,7 @@
     return (h >>> 0).toString(36);
   }
 
-  function preparedText(g) { return normalizeForSpeech(g.text, 'neural'); }
+  function preparedText(g) { return normalizeForSpeech(g.text); }
 
   // On-disk names for the native clip store: [A-Za-z0-9_-] only. 64 bits from
   // two differently seeded hashes, since a long book holds thousands of clips
@@ -2865,7 +2691,7 @@
    */
   function preparedUnits(sentences, g) {
     const out = [];
-    const settle = function (u) { u.text = normalizeForSpeech(u.raw, 'neural'); u.says = SAYS_SOMETHING.test(u.text); };
+    const settle = function (u) { u.text = normalizeForSpeech(u.raw); u.says = SAYS_SOMETHING.test(u.text); };
     for (let i = g.from; i <= g.to; i++) {
       const s = sentences[i];
       if (!s) break;
@@ -3986,7 +3812,7 @@
         await new Promise(function (r) { setTimeout(r, wait); });
       }
       this.message = 'This book is ready to listen to.';
-      toast('Book prepared. Listening now plays stored audio.');
+      toast('Book prepared.');
     },
 
     /**
@@ -4195,7 +4021,7 @@
         syncSheetSoon();
       }
       this.message = 'This book is ready to listen to.';
-      toast('Book prepared. Listening now plays stored audio.');
+      toast('Book prepared.');
     },
   };
 
@@ -4241,8 +4067,6 @@
       s += '). ';
       if (p.sending) s += 'Still sending the rest of the book. ';
       if (p.collecting) s += 'Collecting the audio. ';
-      // The point of the whole arrangement, said once where it is noticed.
-      else if (p.remoteDone < p.remoteTotal) s += here ? 'You can close this tab; voice-server keeps going. ' : 'You can close the app; it keeps going. ';
       return s;
     }
     if (!p.total || !p.chapterAt) return where + 'Getting the voice ready. ';
@@ -4326,7 +4150,7 @@
     if (state.playing) return;
     // Preparing on the phone is the hot part, and never runs under a listening
     // session. A computer's carries on: what it finishes is what plays next.
-    if (preparer.running && !preparer.remote) preparer.stop('Preparing stopped so you can listen. Start it again any time.');
+    if (preparer.running && !preparer.remote) preparer.stop(null);
     state.playing = true;
     syncBarWithReaderChrome();
     state.errors = 0;
@@ -4349,21 +4173,7 @@
     updateBar();
   }
 
-  /**
-   * Get whichever narrator was chosen ready, then speak.
-   *
-   * The OS narrator has nothing to get ready, and routing it through the
-   * neural path would have been the whole point of having it thrown away: that
-   * path blocks on 88 MB of weights loading and ends the session outright when
-   * the natural voice cannot run here. A reader who picked the instant voice
-   * would have waited for the slow one to load before hearing a word, and been
-   * told the natural voice was broken when they were not using it.
-   */
   function ensureEngineThenSpeak() {
-    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
-      speakCurrent();
-      return;
-    }
     // Which chapters are prepared is read once per book; the first Play can
     // arrive before that read finishes, and guessing "not prepared" would load
     // the model for nothing.
@@ -4383,12 +4193,9 @@
    * since that is the one thing that would let this book be heard.
    */
   function notPreparedYet(fromPlay, why) {
-    const partly = bookHasPrepared();
-    const msg = why || (partly
-      ? 'This chapter is not prepared yet, so listening stops here. Prepare the rest of the book to carry on.'
-      : 'This book is not prepared in this voice yet, so it can only be read on screen. Prepare it to listen.');
+    // From Play the sheet opens on Prepare and says it; no toast on top.
     setPreparing(false);
-    finishSession(msg);
+    finishSession(why || (fromPlay ? null : 'The next chapter is not prepared yet.'));
     if (fromPlay) { ensureDom(); openSheet(); syncSheet(); }
   }
 
@@ -4782,125 +4589,6 @@
     const body = el('div', 'vc-sheet-body');
     sheet.appendChild(body);
 
-    // ── Narrator ──────────────────────────────────────────────────────────
-    //
-    // Two genuinely different trades, so the choice is named rather than
-    // hidden behind a quality slider. The iPhone voice starts instantly and
-    // costs nothing to run; the natural voice sounds better and has to build
-    // every sentence before it can say it. Only shown when the device
-    // actually has an OS narrator, which on the web it never does.
-    const narRow = el('div', 'vc-row vc-narrator-row');
-    narRow.appendChild(el('span', 'vc-row-label', 'Narrator'));
-    const narPick = el('div', 'vc-chip-rail');
-    narPick.setAttribute('role', 'radiogroup');
-    narPick.setAttribute('aria-label', 'Narrator');
-    const NARRATOR_CHIPS = [
-      { id: 'iphone',  label: 'iPhone voice',  note: 'Starts instantly' },
-      { id: 'natural', label: 'Natural voice', note: 'Better, but slower to start' },
-    ];
-    for (let i = 0; i < NARRATOR_CHIPS.length; i++) {
-      (function (n) {
-        const chip = el('button', 'vc-chip');
-        chip.type = 'button';
-        chip.dataset.narrator = n.id;
-        chip.append(el('span', 'vc-chip-name', n.label), el('span', 'vc-chip-note', n.note));
-        chip.addEventListener('click', function () {
-          if (state.prefs.narrator === n.id) return;
-          state.prefs.narrator = n.id;
-          prefSet(PREF.narrator, n.id);
-          syncSheet();
-          restartCurrentIfPlaying();
-        });
-        narPick.appendChild(chip);
-      })(NARRATOR_CHIPS[i]);
-    }
-    narRow.appendChild(narPick);
-    body.appendChild(narRow);
-
-    // ── iPhone voice panel ────────────────────────────────────────────────
-    //
-    // The whole reason the old device narrator was written off. iOS speaks
-    // through a small "compact" voice unless told otherwise, and that is what
-    // a reader hears if nobody asks for better. The Enhanced and Premium
-    // voices are downloads, sitting one screen away in Settings, and this
-    // panel's job is to make that visible: lead with the good ones, label the
-    // tier, and say plainly when the only thing installed is the compact one.
-    const sysRow = el('div', 'vc-row vc-system-row');
-    sysRow.appendChild(el('span', 'vc-row-label', 'iPhone voice'));
-    const sysHint = el('div', 'vc-hint');
-    sysRow.appendChild(sysHint);
-    const sysVoices = el('div', 'vc-chip-rail');
-    sysVoices.setAttribute('role', 'radiogroup');
-    sysVoices.setAttribute('aria-label', 'iPhone voice');
-    sysRow.appendChild(sysVoices);
-    const sysTools = el('div', 'vc-nat-tools');
-    const sysPreview = previewBtn();
-    sysPreview.addEventListener('click', function () { previewVoice(); });
-    sysTools.append(sysPreview);
-    sysRow.appendChild(sysTools);
-    body.appendChild(sysRow);
-
-    let sysBuiltFor = null;
-    function buildSystemChips() {
-      const list = state.systemVoices || [];
-      const key = list.map(function (v) { return v.id; }).join('|');
-      if (sysBuiltFor === key) return;
-      sysBuiltFor = key;
-      sysVoices.textContent = '';
-      for (let i = 0; i < list.length; i++) {
-        (function (v) {
-          const chip = el('button', 'vc-chip');
-          chip.type = 'button';
-          chip.dataset.systemVoice = v.id;
-          chip.append(el('span', 'vc-chip-name', v.name),
-                      el('span', 'vc-chip-note', systemVoiceNote(v)));
-          chip.addEventListener('click', function () {
-            state.prefs.systemVoice = v.id;
-            prefSet(PREF.systemVoice, v.id);
-            syncSheet();
-            restartCurrentIfPlaying();
-          });
-          sysVoices.appendChild(chip);
-        })(list[i]);
-      }
-    }
-
-    sheetSync.push(function () {
-      const hasSystem = !preparedOnly && systemSpeech().available();
-      narRow.hidden = !hasSystem;
-      const onSystem = hasSystem && state.prefs.narrator === 'iphone';
-      sysRow.hidden = !onSystem;
-      natRow.hidden = hasSystem && onSystem;
-
-      const chips = narPick.querySelectorAll('.vc-chip');
-      for (let i = 0; i < chips.length; i++) {
-        const on = chips[i].dataset.narrator === state.prefs.narrator;
-        chips[i].classList.toggle('vc-on', on);
-        chips[i].setAttribute('role', 'radio');
-        chips[i].setAttribute('aria-checked', on ? 'true' : 'false');
-      }
-      if (!onSystem) return;
-
-      if (state.systemVoices == null) {
-        sysHint.textContent = 'Looking for installed voices…';
-        refreshSystemVoices();
-        return;
-      }
-      buildSystemChips();
-      sysHint.textContent = systemVoiceHint();
-      const vchips = sysVoices.querySelectorAll('.vc-chip');
-      // No stored choice means iOS picks, which is the compact voice. Show
-      // that as the first chip being selected rather than as nothing selected.
-      const chosen = state.prefs.systemVoice
-        || (state.systemVoices[0] && state.systemVoices[0].id) || '';
-      for (let i = 0; i < vchips.length; i++) {
-        const on = vchips[i].dataset.systemVoice === chosen;
-        vchips[i].classList.toggle('vc-on', on);
-        vchips[i].setAttribute('role', 'radio');
-        vchips[i].setAttribute('aria-checked', on ? 'true' : 'false');
-      }
-    });
-
     // ── Natural voice panel ───────────────────────────────────────────────
     const natRow = el('div', 'vc-row vc-neural-row');
     natRow.appendChild(el('span', 'vc-row-label', 'Natural voice'));
@@ -4975,7 +4663,7 @@
     // In a computer's browser there is no heat to avoid: the point there is
     // listening straight away, with this computer's voice-server doing it.
     const prepRow = el('div', 'vc-row vc-prepared-row');
-    const prepLabel = el('span', 'vc-row-label', 'Listen without heat');
+    const prepLabel = el('span', 'vc-row-label', 'Prepared audio');
     prepRow.appendChild(prepLabel);
     const prepText = el('div', 'vc-hint vc-prepared-status');
     const prepBar = el('div', 'vc-progress');
@@ -5016,8 +4704,7 @@
     // brings a server into it, for a reader who wants the audio kept for
     // their phone as well.
     const keepRow = toggleRow('Keep audio for my phone',
-      'Uses voice-server on this computer: it makes the audio as you listen and keeps the whole book, '
-        + 'so your phone can collect it. Off, this browser reads aloud by itself and needs nothing else.',
+      'Uses voice-server on this computer and keeps the book for your phone.',
       'keepForPhone', PREF.keepForPhone,
       function () {
         // Which engine plays, and Trevor's availability, both follow it.
@@ -5040,16 +4727,15 @@
     });
 
     prepAction.addEventListener('click', function () {
-      if (preparer.running) preparer.stop('Preparing paused. Finished chapters are kept.');
+      if (preparer.running) preparer.stop(null);
       else preparer.request();
     });
     prepDelete.addEventListener('click', function () {
-      deletePrepared().then(function () { toast('Prepared audio deleted for this book.'); syncSheet(); });
+      deletePrepared().then(syncSheet);
     });
 
     sheetSync.push(function () {
-      const onSystem = !preparedOnly && systemSpeech().available() && state.prefs.narrator === 'iphone';
-      prepRow.hidden = onSystem || !state.bridge;
+      prepRow.hidden = !state.bridge;
       if (prepRow.hidden) return;
       const sum = preparedSummary();
       const all = sum.total > 0 && sum.ready >= sum.total;
@@ -5068,37 +4754,31 @@
           prepRow.hidden = !sum.ready;
           prepBar.hidden = true;
           prepText.textContent = sum.ready
-            ? sum.ready + ' of ' + sum.total + ' chapters have stored audio (' + formatBytes(sum.bytes) + '), which plays first. The rest is read aloud as you go.'
+            ? sum.ready + ' of ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + ').'
             : '';
           return;
         }
       }
-      prepLabel.textContent = desk ? 'Listen on this computer' : 'Listen without heat';
+      prepLabel.textContent = desk ? 'Listen on this computer' : 'Prepared audio';
       remoteUrlInput.placeholder = desk ? 'localhost (this computer)' : '192.168.1.20';
       let line;
       if (preparer.running) {
-        line = preparer.hot
-          ? 'Paused while the phone cools down. It carries on by itself.'
-          : preparer.remote
-            ? preparerLine() + (state.streamWait ? 'Waiting for the next part to arrive. ' : 'You can listen while it works.')
-            : preparerLine() + 'Keep the app open. You can lock the screen.';
+        line = preparer.hot ? 'Paused while the phone cools down.' : preparerLine();
         prepBar.hidden = false;
         prepBar.firstChild.style.width = (Math.min(1, preparerFraction()) * 100).toFixed(1) + '%';
       } else {
         prepBar.hidden = true;
-        if (!sum.loaded) { line = 'Checking this book…'; preparedIndexReady(); }
-        else if (all) line = 'Ready: ' + sum.total + ' chapters stored (' + formatBytes(sum.bytes) + '). Playback is instant and does not heat the phone.';
-        else if (sum.ready) line = sum.ready + ' of ' + sum.total + ' chapters ready (' + formatBytes(sum.bytes) + '). '
-          + (preparedOnly ? 'Listening plays the chapters that are ready and stops at the first that is not.' : 'The rest use the live voice until prepared.');
+        if (!sum.loaded) { line = ''; preparedIndexReady(); }
+        else if (sum.ready) line = (all ? sum.total : sum.ready + ' of ' + sum.total) + ' chapters ready (' + formatBytes(sum.bytes) + ').';
         else if (desk && preparedOnly) line = remoteFromPrefs().code
-          ? 'Press Play to listen straight away. voice-server on this computer makes the audio just ahead of you, '
-            + 'prepares the rest of the book behind it and keeps it, so your phone can collect it later.'
+          ? 'Press Play. voice-server on this computer makes the audio as you listen.'
           : DESKTOP_NEEDS_SERVER;
-        else line = (preparedOnly ? 'This book is not prepared in this voice, so it cannot be read aloud yet. ' : '')
-          + 'Prepare once, best on the charger, and the natural voice plays stored audio: it starts instantly and keeps the phone cool. Uses about ' + (state.nativeClips ? '22' : '170') + ' MB of storage per hour of listening.';
-        if (preparer.message) line = preparer.message + ' ' + line;
+        else if (computerOnlyVoice(state.prefs.neuralVoice)) line = COMPUTER_ONLY_TEXT;
+        else line = 'Prepare this book to listen to it.';
+        if (preparer.message) line = (preparer.message + ' ' + line).trim();
       }
       prepText.textContent = line;
+      prepText.hidden = !line;
     });
 
     // Desktop only, where the browser actually has WebGPU, never the native app.
@@ -5128,7 +4808,7 @@
       });
     }
 
-    // ── Speed / pitch ─────────────────────────────────────────────────────
+    // ── Speed ─────────────────────────────────────────────────────────────
     body.appendChild(stepRow('Speed', {
       get: function () { return state.prefs.rate; },
       fmt: function (v) { return v.toFixed(2).replace(/0$/, '') + '×'; },
@@ -5145,18 +4825,9 @@
       inc: function () { setPhononPace(1); },
     });
     paceRow.classList.add('vc-pace-row');
-    paceRow.appendChild(el('div', 'vc-hint', 'Spoken this fast, not sped up. A new pace prepares the book again on your computer; the other pace is kept.'));
+    paceRow.appendChild(el('div', 'vc-hint', 'A new pace prepares the book again on your computer.'));
     body.appendChild(paceRow);
     sheetSync.push(function () { paceRow.hidden = !computerOnlyVoice(state.prefs.neuralVoice); });
-
-    const pitchRow = stepRow('Pitch', {
-      get: function () { return state.prefs.pitch; },
-      fmt: function (v) { return v.toFixed(2).replace(/0$/, ''); },
-      dec: function () { setPitch(state.prefs.pitch - PITCH_STEP); },
-      inc: function () { setPitch(state.prefs.pitch + PITCH_STEP); },
-    });
-    pitchRow.classList.add('vc-pitch-row');
-    body.appendChild(pitchRow);
 
     // ── Behaviour toggles ─────────────────────────────────────────────────
     body.appendChild(toggleRow('Follow along', 'Turns pages and scrolls with the narration', 'follow', PREF.follow));
@@ -5184,8 +4855,6 @@
 
     // Everything the sheet shows that can change from outside it.
     sheetSync.push(function () {
-      // Pitch was a speechSynthesis knob; Kokoro has no equivalent.
-      pitchRow.hidden = true;
       const chips = natVoices.querySelectorAll('.vc-chip');
       for (let i = 0; i < chips.length; i++) {
         const onV = chips[i].dataset.voice === voiceBase(state.prefs.neuralVoice);
@@ -5312,14 +4981,7 @@
     if (neuralEngine.ready) {
       // The empty parentheses here used to hold the execution device, removed
       // when the engine line took that over. Nobody reads their own UI strings.
-      natText.textContent = (state.neuralBundled
-        ? 'Ready — included with the app. Works offline.'
-        : 'Ready — running on this device. Works offline.')
-        // Whether the browser build got more than one core is the first thing
-        // to know when it is slow, and it should not take a console to find.
-        + (!neuralEngine.native && neuralEngine.threads
-          ? ' Using ' + neuralEngine.threads + (neuralEngine.threads === 1 ? ' CPU core.' : ' CPU cores.')
-          : '');
+      natText.textContent = '';
       natAction.hidden = true;
       inAppHasNoFileToManage(natAction);
       return;
@@ -5328,7 +4990,7 @@
     // refreshes itself once when unknown — no per-sync cache reads, no
     // "Checking…" flicker on every control tap.
     if (state.neuralHave == null) {
-      natText.textContent = '…';
+      natText.textContent = '';
       natAction.hidden = true;
       refreshNeuralHave();
       return;
@@ -5336,10 +4998,10 @@
     if (state.neuralBundled) {
       // Shipped in the app. There is nothing to download and nothing to remove
       // — "Remove download" here would delete a file the next launch restores.
-      natText.textContent = 'Included with the app — nothing to download, works offline.';
+      natText.textContent = '';
       natAction.hidden = true;
     } else if (state.neuralHave) {
-      natText.textContent = 'Downloaded — loads when you press play. Works offline.';
+      natText.textContent = '';
       natAction.hidden = true;
     } else if (isNativeApp()) {
       // In the app the weights are supposed to BE the app. Missing them is a
@@ -5349,7 +5011,7 @@
         + 'rebuild with scripts/fetch-voice-model.mjs, then npm run sync.';
       natAction.hidden = true;
     } else {
-      natText.textContent = 'An 82-million-parameter narrator that runs entirely on this device. One download, then it works offline.';
+      natText.textContent = '';
       natAction.hidden = false;
       natAction.textContent = 'Download voice (~90 MB)';
     }
@@ -5383,7 +5045,6 @@
         state.neuralDownloading = false;
         state.neuralHave = true;
         syncSheet();
-        toast('Natural voice ready.');
       })
       .catch(function (e) {
         state.neuralDownloading = false;
@@ -5478,7 +5139,6 @@
     // Memory capacity alone is not permission for speculative computation.
     if ((window.Platform && window.Platform.isNative) || resources.lowPower || thermalHot()) return;
     if (!neuralEngine.available()) return;
-    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) return;
     if (!neuralSpeaks(docLang())) return;   // nothing here reads this language
     // A prepared book plays from storage; warming the model for it is heat
     // and battery spent on nothing.
@@ -5555,20 +5215,6 @@
     voiceChanged();
   }
 
-  function setPitch(v) {
-    state.prefs.pitch = clamp(Math.round(v * 100) / 100, PITCH_MIN, PITCH_MAX);
-    prefSet(PREF.pitch, state.prefs.pitch);
-    syncSheet();
-  }
-
-  // Engine/voice switches take effect immediately when narration is running —
-  // the current sentence restarts in the new voice, which doubles as the
-  // audition for it.
-  function restartCurrentIfPlaying() {
-    if (!state.active) return;
-    if (state.playing) { cancelSpeech(); state.playing = true; speakCurrent(); }
-  }
-
   /**
    * The narrator was changed. Stored audio is per voice, so everything that
    * was true of the book a moment ago has to be asked again for this one.
@@ -5607,19 +5253,6 @@
     const wasPlaying = state.playing;
     if (wasPlaying) pause();
     const done = function () { if (wasPlaying) resume(); };
-
-    // Preview the narrator that is actually selected. Previewing Kokoro while
-    // the reader is set to the iPhone voice would demo a voice they are not
-    // about to hear, which is worse than no preview at all.
-    if (state.prefs.narrator === 'iphone' && systemSpeech().available()) {
-      systemSpeech().speak(PREVIEW_TEXT, {
-        voiceId: state.prefs.systemVoice,
-        lang: docLang(),
-        rate: state.prefs.rate,
-        pitch: state.prefs.pitch,
-      }).then(done, done);
-      return;
-    }
 
     if (computerOnlyVoice(state.prefs.neuralVoice)) { previewOnComputer(done); return; }
 
@@ -5788,6 +5421,9 @@
 
     isActive: function () { return !!state.active; },
 
+    /** Space while listening (novel-reader's key handler). */
+    togglePlay: function () { togglePlay(); },
+
     /** novel-reader closes our sheet when its own settings sheet opens —
         the mirror of the closeSettingsSheet call we make through the bridge. */
     closeSheet: function () { closeSheet(); },
@@ -5872,9 +5508,6 @@
       nativeKokoro: nativeKokoro,
       channel: channel,
       silentWavUrl: silentWavUrl,
-      rankSystemVoices: rankSystemVoices,
-      systemVoiceHint: systemVoiceHint,
-      setSystemVoices: function (list) { state.systemVoices = list; },
       guardArm: guardArm,
       NEURAL_INIT_STALL_MS: NEURAL_INIT_STALL_MS,
       NEURAL_LOOKAHEAD_SEC: NEURAL_LOOKAHEAD_SEC,

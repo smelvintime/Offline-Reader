@@ -295,20 +295,9 @@ are worth knowing, and one is a manual iOS step:
   quantisation makes a smaller file and a slower forward pass, which is a good
   trade for a download and a bad one for a bundle.
 
-- **The iPhone voice is `native/or-speech`.** A local Capacitor plugin over
-  `AVSpeechSynthesizer`, wired like any other (`npm install` + `npm run sync`,
-  no per-platform config) and carrying no third-party code. It is the default
-  narrator on iOS because it starts instantly. Voice quality follows what the
-  reader has installed: Settings → Accessibility → Spoken Content → Voices →
-  English, then an **Enhanced** or **Premium** voice. With only the compact
-  voice installed the app says so in the Voice sheet rather than sounding bad
-  silently.
-
-- **There is no `@capacitor-community/text-to-speech`.** Narration is Kokoro or
-  The app's own `or-speech` replaced it. If the community plugin reappears in
-  `package.json`, Xcode will warn about `AVSpeechSynthesizer` being
-  non-`Sendable` in a `Sendable` class — a real warning, from a plugin this app
-  does not use.
+- **There is no device speech plugin.** Narration is Kokoro, or Trevor from
+  voice-server. The iPhone voice (`native/or-speech`) and
+  `@capacitor-community/text-to-speech` before it were both removed.
 
 - **Background narration (applied for you).** For the voice (device or
   Natural) to keep reading with the screen locked, the app needs the audio

@@ -27,8 +27,8 @@ Two scope boundaries, both decided rather than discovered:
   places (deeper buffers, prewarming, a larger image window, a desktop viewport
   in the test harness). Tracked as P14 and written up separately so the mobile
   tasks below do not have to carry two answers.
-- **Android is out of scope.** Both native plugins are iOS-only
-  (`native/or-kokoro/ios`, `native/or-speech/ios`); there is no Android
+- **Android is out of scope.** The native voice plugin is iOS-only
+  (`native/or-kokoro/ios`); there is no Android
   thermal/low-power signal and no native inference path to tune. An Android
   build falls back to the browser paths, which P02 keeps working.
 

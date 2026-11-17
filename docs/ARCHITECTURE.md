@@ -1011,12 +1011,7 @@ narration is Kokoro or Trevor on every build, whatever `Platform.speech`
 offers or an older stored preference says. The paragraphs below describe the
 narrator choice as it once was.
 
-**Two narrators, named rather than ranked.** The iPhone's own voice
-(`Platform.speech`, §2.3, backed by `native/or-speech`) starts speaking
-immediately and costs nothing to run. The natural voice sounds better and has to
-build every sentence before it can say it. These are different trades, not
-better and worse, so the sheet presents them as a choice and `voice.narrator`
-records it.
+**One narrator.** The iPhone's own voice and `native/or-speech` were removed: narration is Kokoro, or Trevor from voice-server. While listening, Space pauses and resumes.
 
 On a device where the OS narrator exists, that is the default. The natural voice
 is one tap away, but it generates slower than it speaks on real hardware, and an

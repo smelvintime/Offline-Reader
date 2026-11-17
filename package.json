@@ -27,7 +27,6 @@
     "@capacitor/status-bar": "^8.0.3",
     "@capawesome/capacitor-file-picker": "^8.0.4",
     "or-kokoro": "file:native/or-kokoro",
-    "or-speech": "file:native/or-speech",
     "or-zip": "file:native/or-zip"
   },
   "devDependencies": {

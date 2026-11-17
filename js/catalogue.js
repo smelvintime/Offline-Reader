@@ -1687,7 +1687,6 @@
     if (V && V.preparedLibrary) {
       try { await V.preparedLibrary.remove(s.id); } catch (e) { /* the book is gone either way */ }
     }
-    toast('Removed “' + s.title + '”.');
     await refresh();
   }
 

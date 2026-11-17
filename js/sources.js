@@ -648,7 +648,6 @@
     ui.titleForm.hidden = true;
     ui.addRow.hidden = false;
     ui.urlInput.value = '';
-    toast('Saved to your shelf.');
   }
 
   function cancelAdd() {
@@ -667,7 +666,6 @@
     });
     if (!ok) return;
     writeSaved(readSaved().filter(function (s) { return s.url !== src.url; }));
-    toast('Source removed.');
   }
 
   // ── Browse view ───────────────────────────────────────────────────────────

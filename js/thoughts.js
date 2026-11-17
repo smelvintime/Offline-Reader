@@ -601,7 +601,6 @@
     const done = await removeThought(r.id);
     if (!done) return;
     dispatchThoughtsChanged({ deleted: r.id });
-    toast('Thought removed.');
   }
 
   function renderList() {

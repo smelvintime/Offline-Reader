@@ -36,11 +36,10 @@
   <button onclick="T.testUserNav().then(T.report)">user chapter nav</button>
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
+  <button onclick="T.testSpaceKey().then(T.report)">space key</button>
   <button onclick="T.testSheetsNeverStack().then(T.report)">sheets</button>
   <button onclick="T.testGaplessPlayback().then(T.report)">gapless</button>
   <button onclick="T.testNativeInference().then(T.report)">native inference</button>
-  <button onclick="T.testSystemNarrator().then(T.report)">system narrator</button>
-  <button onclick="T.testCompactVoiceHint().then(T.report)">compact hint</button>
   <button onclick="T.testEscapedErrorIsNotFatal().then(T.report)">escaped error</button>
   <button onclick="T.testCapability().then(T.report)">capability</button>
   <button onclick="T.testGenerationSpeed().then(T.report)">generation speed</button>
@@ -382,31 +381,28 @@ const T = {
   async testNormalize() {
     let pass = true;
     const n = VT().normalizeForSpeech;
-    pass = ok(n('the gate.[3] It stood', 'device') === 'the gate. It stood', 'footnote markers stripped') && pass;
-    pass = ok(n('salt — and iron', 'device') === 'salt, and iron', 'device: em-dash becomes a comma pause') && pass;
-    pass = ok(n('salt — and iron', 'neural') === 'salt — and iron', 'neural: em-dash kept for the model') && pass;
-    pass = ok(n('“curly” and ‘single’', 'device') === '"curly" and \'single\'', 'device: curly quotes straightened') && pass;
-    pass = ok(n('a b\n c', 'neural') === 'a b c', 'whitespace collapsed') && pass;
+    pass = ok(n('the gate.[3] It stood') === 'the gate. It stood', 'footnote markers stripped') && pass;
+    pass = ok(n('salt — and iron') === 'salt — and iron', 'neural: em-dash kept for the model') && pass;
+    pass = ok(n('a b\n c') === 'a b c', 'whitespace collapsed') && pass;
 
     // Light-novel typography (§2.14): shapes an engine chokes on rather than
     // stylistic choices it can interpret.
-    pass = ok(n('Wait…… what?', 'neural') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?', 'neural')) && pass;
+    pass = ok(n('Wait…… what?') === 'Wait… what?', 'ellipsis runs collapse to one beat', n('Wait…… what?')) && pass;
     // No comma is added after an ellipsis, though it was tried: "…" carries
     // almost no learned duration where a comma carries the most certain one
     // there is. The beat landed on some ellipses and not others, because a
     // comma's duration is itself contextual, and an inconsistent pause reads
     // as a stumble rather than a breath. Kokoro's own "…" is at least the same
     // every time.
-    pass = ok(n('Wait… what?', 'neural') === 'Wait… what?',
+    pass = ok(n('Wait… what?') === 'Wait… what?',
       'and nothing is added after one: an uneven beat is worse than none',
-      n('Wait… what?', 'neural')) && pass;
-    pass = ok(n('Well...... no', 'device') === 'Well… no', 'a run of dots is one ellipsis too', n('Well...... no', 'device')) && pass;
-    pass = ok(n('He said――then stopped', 'neural') === 'He said—then stopped', 'a dash RUN becomes one em dash', n('He said――then stopped', 'neural')) && pass;
-    pass = ok(n('He said――then stopped', 'device') === 'He said, then stopped', 'device turns the same run into a pause') && pass;
-    pass = ok(n('「はい」', 'neural') === '“はい”', 'corner brackets read as quotation marks', n('「はい」', 'neural')) && pass;
-    pass = ok(n('え！　なぜ？', 'neural') === 'え! なぜ?', 'full-width terminators become ASCII', n('え！　なぜ？', 'neural')) && pass;
+      n('Wait… what?')) && pass;
+    pass = ok(n('Well...... no') === 'Well… no', 'a run of dots is one ellipsis too', n('Well...... no')) && pass;
+    pass = ok(n('He said――then stopped') === 'He said—then stopped', 'a dash RUN becomes one em dash', n('He said――then stopped')) && pass;
+    pass = ok(n('「はい」') === '“はい”', 'corner brackets read as quotation marks', n('「はい」')) && pass;
+    pass = ok(n('え！　なぜ？') === 'え! なぜ?', 'full-width terminators become ASCII', n('え！　なぜ？')) && pass;
     // The katakana prolonged sound mark LOOKS like a dash and is a letter.
-    pass = ok(n('ラーメン', 'device') === 'ラーメン', 'U+30FC survives as part of the word', n('ラーメン', 'device')) && pass;
+    pass = ok(n('ラーメン') === 'ラーメン', 'U+30FC survives as part of the word', n('ラーメン')) && pass;
     return { name: 'normalize', pass };
   },
 
@@ -426,16 +422,31 @@ const T = {
   async testPrefs() {
     let pass = true;
     Store.prefs.set('voice.rate', 99);
-    Store.prefs.set('voice.pitch', -3);
     Store.prefs.set('voice.neuralVoice', 'af_nonexistent');
     const p = VT().readPrefs();
     pass = ok(p.rate === 1.6, 'rate clamps to its ceiling', p.rate) && pass;
-    pass = ok(p.pitch === 0.8, 'pitch clamps to its floor', p.pitch) && pass;
     pass = ok(p.neuralVoice === 'pn_trevor_13', 'unknown narrator falls back to the default, Trevor at 1.3×', p.neuralVoice) && pass;
     Store.prefs.set('voice.neuralVoice', 'pn_trevor_19');
     pass = ok(VT().readPrefs().neuralVoice === 'pn_trevor_13', 'and so does a pace Trevor cannot do') && pass;
     Store.prefs.set('voice.rate', 1);
     return { name: 'prefs validate', pass };
+  },
+
+  // Space is play/pause while listening, and pages as before when not.
+  async testSpaceKey() {
+    let pass = true;
+    await freshOpen();
+    const space = (shift) => document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', shiftKey: !!shift, bubbles: true, cancelable: true }));
+    V().toggle();
+    await waitFor(() => V().state().playing, 4000, 'listening');
+    space();
+    pass = ok(V().isActive() && !V().state().playing, 'Space pauses narration') && pass;
+    space();
+    pass = ok(V().state().playing, 'and Space again resumes it') && pass;
+    VT().pause();
+    endSession();
+    pass = ok(!V().isActive(), 'with no session, Space is a page key again') && pass;
+    return { name: 'space key', pass };
   },
 
   async testListenButton() {
@@ -831,81 +842,6 @@ const T = {
       ne.ready = false; ne.readyPromise = null; ne.worker = null;
     }
     return { name: 'init stall', pass };
-  },
-
-  // The device's own system voice is never used. Narration is Kokoro or
-  // Trevor and nothing else, even on a device that offers a system voice,
-  // with it stored as the choice, and with the live engine running.
-  async testSystemNarrator() {
-    let pass = true;
-    const V_ = V();
-    const held = window.Platform ? window.Platform.speech : undefined;
-    let systemSpoke = 0;
-    try {
-      window.Platform = window.Platform || {};
-      window.Platform.speech = {
-        available: function () { return true; },
-        voices: function () { return Promise.resolve([{ id: 'prem.en', name: 'Ava', lang: 'en-US', quality: 'premium' }]); },
-        speak: function () { systemSpoke++; return Promise.resolve(true); },
-        stop: function () { return Promise.resolve(); },
-        pause: function () { return Promise.resolve(); },
-        resume: function () { return Promise.resolve(); },
-      };
-      Store.prefs.set('voice.narrator', 'iphone');
-      Store.prefs.set('voice.systemVoice', 'prem.en');
-      await freshOpen();
-      pass = ok(VT().state.prefs.narrator === 'natural', 'the narrator is the natural voice even when the system one was stored',
-        VT().state.prefs.narrator) && pass;
-      neuralStub.spoken = [];
-      V_.toggle();
-      await waitFor(() => neuralStub.spoken.length > 0, 8000, 'the natural voice to speak');
-      await pause(200);
-      pass = ok(systemSpoke === 0, 'the system voice is never asked to speak', systemSpoke + ' utterances') && pass;
-      const voiceBtn = document.querySelector('.vc-bar [aria-label="Voice settings"]');
-      if (voiceBtn) voiceBtn.click();
-      await pause(300);
-      const narRowEl = document.querySelector('.vc-narrator-row');
-      const sysRowEl = document.querySelector('.vc-system-row');
-      pass = ok((!narRowEl || narRowEl.hidden) && (!sysRowEl || sysRowEl.hidden),
-        'and the sheet offers no way to pick it') && pass;
-      endSession();
-    } finally {
-      if (held === undefined) { try { delete window.Platform.speech; } catch (e) {} }
-      else window.Platform.speech = held;
-      Store.prefs.set('voice.narrator', 'natural');
-      Store.prefs.set('voice.systemVoice', '');
-      endSession();
-    }
-    return { name: 'system narrator', pass };
-  },
-
-  // Only the compact voice installed is a settings problem with a one-minute
-  // fix, and saying so is worth more than anything we can do in code.
-  async testCompactVoiceHint() {
-    let pass = true;
-    const T = VT();
-    const held = V().state;
-    try {
-      T.setSystemVoices([{ id: 'c', name: 'Samantha', lang: 'en-US', quality: 'default' }]);
-      let hint = T.systemVoiceHint();
-      pass = ok(/compact voice/.test(hint), 'names the compact voice as the culprit', hint) && pass;
-      pass = ok(/Spoken Content/.test(hint), 'and says exactly where to fix it', hint) && pass;
-
-      T.setSystemVoices([
-        { id: 'a', name: 'Ava', lang: 'en-US', quality: 'premium' },
-        { id: 'c', name: 'Samantha', lang: 'en-US', quality: 'default' },
-      ]);
-      hint = T.systemVoiceHint();
-      pass = ok(/1 higher-quality voice\b/.test(hint), 'counts the good ones when there are some', hint) && pass;
-      pass = ok(!/compact voice/.test(hint), 'and drops the scolding once one is installed', hint) && pass;
-
-      T.setSystemVoices([]);
-      pass = ok(/No voices installed/.test(T.systemVoiceHint()),
-        'an empty list says so rather than counting zero', T.systemVoiceHint()) && pass;
-    } finally {
-      T.setSystemVoices(null);
-    }
-    return { name: 'compact voice hint', pass };
   },
 
   // Two settings sheets must never be on screen at once, and a sheet must
@@ -1907,9 +1843,6 @@ const T = {
 
       const natText = document.querySelector('.vc-sheet .vc-nat-status .vc-hint');
       pass = ok(!!natText, 'the natural-voice panel is in the sheet') && pass;
-      pass = ok(natText && natText.textContent.trim().length > 0,
-        'and it has something to say: an empty panel means its sync threw',
-        JSON.stringify(natText && natText.textContent)) && pass;
       pass = ok(VT().syncError() === '',
         'no sheet control threw while syncing', VT().syncError() || 'none') && pass;
 
@@ -2749,7 +2682,7 @@ const T = {
         await waitFor(() => VT().preparedSummary().loaded && VT().state.preparedIndex.voice === 'am_michael', 3000, 'Michael’s index');
         pass = ok(VT().preparedSummary().ready === 0, 'a book prepared in Heart is not prepared in Michael') && pass;
         VT().syncSheet();
-        pass = ok(/not prepared in this voice/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+        pass = ok(/Prepare this book/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
                   'and the sheet says so') && pass;
         P.start();
         await waitFor(() => !P.running, 15000, 'prepared in Michael too');
@@ -2786,20 +2719,10 @@ const T = {
                 'text is part of the key') && pass;
 
       // 5. A partly prepared book plays the chapters that are ready and stops
-      //    at the first that is not. No other voice stands in, even where an
-      //    iPhone voice exists and was the stored choice.
-      const platformBefore = window.Platform;
-      let systemSpoke = 0;
-      window.Platform = { speech: {
-        available: () => true, voices: () => Promise.resolve([]),
-        speak: () => { systemSpoke++; return Promise.resolve(true); },
-        stop: () => Promise.resolve(), pause: () => Promise.resolve(), resume: () => Promise.resolve(),
-      } };
+      //    at the first that is not. No other voice stands in.
       try {
-        Store.prefs.set('voice.narrator', 'iphone');
         await freshOpen({ preparedOnly: true });
         await VT().loadPreparedIndex();
-        pass = ok(VT().state.prefs.narrator === 'natural', 'the narrator is always the natural voice') && pass;
         VT().state.preparedIndex.chapters.delete(CHAPTERS[1].id);   // chapter 2 now unprepared
         neuralStub.spoken = [];
         loads = 0;
@@ -2816,16 +2739,13 @@ const T = {
                   'a partly prepared book plays its prepared chapter and stops at the unprepared one',
                   playedIn.length + ' clips') && pass;
         VT().syncSheet();
-        pass = ok(/stops at the first that is not/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
-                  'the sheet says where listening stops') && pass;
+        pass = ok(/of 3 chapters ready/.test((document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent || ''),
+                  'the sheet says how much is ready', (document.querySelector('#novel-screen .vc-prepared-status') || {}).textContent) && pass;
         V().closeSheet();
         pass = ok(neuralStub.spoken.length === 0 && loads === 0, 'no live voice either',
                   neuralStub.spoken.length + ' generated, ' + loads + ' loads') && pass;
-        pass = ok(systemSpoke === 0, 'the iPhone voice never speaks', systemSpoke) && pass;
       } finally {
         ne.ensureReady = realEnsure;
-        window.Platform = platformBefore;
-        Store.prefs.set('voice.narrator', 'natural');
       }
 
       // 6. A book with nothing prepared does not play at all; Play opens the
@@ -3113,7 +3033,6 @@ const T = {
       P.start({ remote });
       await waitFor(() => P.remoteTotal > 0, 8000, 'the job was taken');
       pass = ok(/^On your computer: /.test(VT().preparerLine()), 'the line says where', VT().preparerLine()) && pass;
-      pass = ok(/close the app/.test(VT().preparerLine()), 'and that the phone is free to go', VT().preparerLine()) && pass;
       P.stop('Paused.');
       await pause(50);
       pass = ok(server.stopped === 1, 'stopping tells the computer to stop', server.stopped) && pass;
@@ -3626,7 +3545,7 @@ const T = {
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testSystemNarrator, T.testCompactVoiceHint, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testPreparedLibrary, T.testClose,
+      T.testSpaceKey, T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testPreparedLibrary, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

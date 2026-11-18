@@ -890,6 +890,7 @@
       ['Next page / scroll down', ['→', 'PgDn', 'Space']],
       ['Previous page / scroll up', ['←', 'PgUp', '⇧ Space']],
       ['Pause or resume listening', ['Space']],
+      ['Previous / next phrase while listening', ['←', '→']],
       ['Previous / next chapter', ['[', ']']],
       ['Smaller / larger text', ['−', '+']],
       ['Reading settings', ['S']],
@@ -3173,9 +3174,19 @@
           syncBackdropInert();
         } else api.close();
         return;
-      case 'ArrowRight': case 'PageDown':
+      case 'ArrowRight': case 'ArrowLeft':
+        e.preventDefault();
+        // While listening, Left and Right step the narration a phrase back or
+        // on, like the dock's skip buttons; the page follows the voice.
+        if (window.NovelVoice && window.NovelVoice.isActive && window.NovelVoice.isActive()
+            && typeof window.NovelVoice.skip === 'function') {
+          window.NovelVoice.skip(e.key === 'ArrowRight' ? 1 : -1);
+          return;
+        }
+        e.key === 'ArrowRight' ? nextPage() : prevPage(); return;
+      case 'PageDown':
         e.preventDefault(); nextPage(); return;
-      case 'ArrowLeft': case 'PageUp':
+      case 'PageUp':
         e.preventDefault(); prevPage(); return;
       case ' ': case 'Spacebar':
         e.preventDefault();

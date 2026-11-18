@@ -37,6 +37,7 @@
   <button onclick="T.testCrashGuard().then(T.report)">crash guard</button>
   <button onclick="T.testInitStall().then(T.report)">init stall</button>
   <button onclick="T.testSpaceKey().then(T.report)">space key</button>
+  <button onclick="T.testArrowKeys().then(T.report)">arrow keys</button>
   <button onclick="T.testSheetsNeverStack().then(T.report)">sheets</button>
   <button onclick="T.testGaplessPlayback().then(T.report)">gapless</button>
   <button onclick="T.testNativeInference().then(T.report)">native inference</button>
@@ -447,6 +448,50 @@ const T = {
     endSession();
     pass = ok(!V().isActive(), 'with no session, Space is a page key again') && pass;
     return { name: 'space key', pass };
+  },
+
+  // Left and Right while listening step the narration a phrase back or on,
+  // like the dock's skip buttons. With no session they turn pages again.
+  async testArrowKeys() {
+    let pass = true;
+    await freshOpen();
+    const key = (k) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    V().toggle();
+    await waitFor(() => V().state().playing, 4000, 'listening');
+    VT().pause();
+    await pause(30);
+    const at = V().state().index;
+    const page = window.NovelReader.state().page;
+    key('ArrowRight');
+    await pause(80);
+    pass = ok(V().state().index === at + 1, 'Right skips to the next phrase', at + ' -> ' + V().state().index) && pass;
+    key('ArrowLeft');
+    await pause(80);
+    pass = ok(V().state().index === at, 'Left goes back a phrase', V().state().index) && pass;
+    pass = ok(window.NovelReader.state().page === page, 'and neither turns the page by itself') && pass;
+    VT().resume();
+    await waitFor(() => V().state().playing, 2000, 'resumed');
+    const before = neuralStub.spoken.length;
+    key('ArrowRight');
+    await waitFor(() => neuralStub.spoken.length > before, 4000, 'the next phrase to be spoken');
+    pass = ok(V().state().playing && V().state().index > at, 'while playing, Right carries on from the next phrase') && pass;
+    VT().pause();
+    endSession();
+    // The long fixture, so there is a next page to turn to.
+    Store.prefs.set('novel.mode', 'paged');
+    await Store.deleteProgress(LONG_SERIES.id);
+    await window.NovelReader.open({
+      series: LONG_SERIES, chapter: LONG_SERIES.chapters[0],
+      blocks: LONG_CHAPTER.blocks, resume: null,
+    });
+    await pause(30);
+    const p0 = window.NovelReader.state().page;
+    key('ArrowRight');
+    await pause(400);
+    pass = ok(!V().isActive() && window.NovelReader.state().page > p0, 'with no session, Right turns the page again',
+      p0 + ' -> ' + window.NovelReader.state().page + ' of ' + window.NovelReader.state().pageCount) && pass;
+    endSession();
+    return { name: 'arrow keys', pass };
   },
 
   async testListenButton() {
@@ -3545,7 +3590,7 @@ const T = {
       T.testListenButton, T.testTransportChromeSync, T.testPlayback, T.testFollow, T.testAutoAdvance,
       T.testUserNav, T.testCrashGuard, T.testMemoryTier, T.testEfficiencyLifecycle,
       T.testLoadingRing, T.testGrouping, T.testNeuralPipeline, T.testNeuralDedupe, T.testThermalLifecycle,
-      T.testSpaceKey, T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testPreparedLibrary, T.testClose,
+      T.testSpaceKey, T.testArrowKeys, T.testInitStall, T.testSheetsNeverStack, T.testGaplessPlayback, T.testNativeInference, T.testEscapedErrorIsNotFatal, T.testCapability, T.testGenerationSpeed, T.testLookaheadBuffer, T.testPrebuffer, T.testVoicePanelSyncs, T.testBundledWeights, T.testPreparedBook, T.testPreparedOnComputer, T.testPreparedNativeClips, T.testPreparedLibrary, T.testClose,
     ];
     let allPass = true;
     for (const t of tests) {

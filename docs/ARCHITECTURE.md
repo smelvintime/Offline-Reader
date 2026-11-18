@@ -1468,6 +1468,11 @@ voice-server keeps its code between starts (`voice-code.txt` in the library,
 `--code` overrides and is written down), so the phone and the browser type
 it once.
 
+**Keys while listening.** Space pauses and resumes. Left and Right step the
+narration a phrase back or on (`NovelVoice.skip`, the same step as the dock's
+skip buttons), and the page follows the voice; Page Up and Page Down still turn
+pages. With no session open, Left and Right turn pages as before.
+
 **Changing narrator.** Stored audio is per voice: the voice is part of every
 clip key, and `state.preparedIndex` is read per voice. `voiceChanged()` (the
 chip's handler) therefore asks everything again for the new voice, and holds

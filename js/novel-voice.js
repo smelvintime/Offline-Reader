@@ -5441,6 +5441,10 @@
     /** Space while listening (novel-reader's key handler). */
     togglePlay: function () { togglePlay(); },
 
+    /** Left / Right while listening: back or on by one phrase, as the
+        dock's skip buttons do. */
+    skip: function (delta) { skip(delta < 0 ? -1 : 1); },
+
     /** novel-reader closes our sheet when its own settings sheet opens —
         the mirror of the closeSettingsSheet call we make through the bridge. */
     closeSheet: function () { closeSheet(); },

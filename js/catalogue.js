@@ -2697,8 +2697,9 @@
       if (badge) badge.classList.remove('visible');
       const rb = document.getElementById('offline-reader-badge');
       if (rb) rb.classList.remove('visible');
-      const up = document.getElementById('upload-screen');
-      if (up && up.style.display !== 'none') initMode();
+      // Stay on whatever screen the reader is on; just refresh the data so
+      // the online library is current if they switch to it.
+      refresh();
     });
 
     // Imported series land in the store asynchronously; refresh when told.
@@ -2755,18 +2756,21 @@
     // false at cold start, and the "online" branch's catalogue is a bundled
     // local file that loads with the radios off. Native always boots to home;
     // real connectivity loss shows as badge state, never as a screen swap.
-    if (isNativeApp() || navigator.onLine) {
+    if (isNativeApp()) {
       window.showScreen('home-screen');
       navStack = ['home-screen'];
       await refresh();
     } else {
-      // No connection: the bundled catalogue may still be in the SW cache, so
-      // load it anyway — but land the user on the reader that always works.
+      // The web build always lands on the offline reader, online or not. The
+      // online library is one tap away ("Switch to Online Library"). The
+      // catalogue still loads in the background so that switch is instant.
       window.showScreen('upload-screen');
-      const b = document.getElementById('offline-reader-badge');
-      if (b) b.classList.add('visible');
-      const badge = document.getElementById('offline-badge');
-      if (badge) badge.classList.add('visible');
+      if (!navigator.onLine) {
+        const b = document.getElementById('offline-reader-badge');
+        if (b) b.classList.add('visible');
+        const badge = document.getElementById('offline-badge');
+        if (badge) badge.classList.add('visible');
+      }
       await refresh();
     }
   }

@@ -27,7 +27,7 @@
       "source": "fixture",
       "id": "welcome",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "_note": "The tutorial book — the offline floor. Every chapter teaches a feature in place."
     },
 
@@ -35,7 +35,7 @@
       "source": "gutenberg",
       "id": "84",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Gothic", "Science Fiction", "Classic"],
       "description": "Mary Shelley's 1818 novel, told in letters and then in Victor Frankenstein's own voice. Medium-length chapters; the epistolary opening exercises headings that are not the word \"Chapter\".",
       "maxChapters": 30
@@ -44,7 +44,7 @@
       "source": "gutenberg",
       "id": "1342",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Romance", "Classic"],
       "description": "Sixty-one short-to-medium chapters — the long multi-part novel in this sample, and the one to scroll through when testing infinite mode.",
       "maxChapters": 61
@@ -53,7 +53,7 @@
       "source": "gutenberg",
       "id": "2701",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Adventure", "Classic"],
       "description": "Moby-Dick has 135 chapters and many of them are a page or two long, which makes it the short-chapter stress test for chapter navigation.",
       "maxChapters": 45
@@ -62,7 +62,7 @@
       "source": "gutenberg",
       "id": "1661",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Mystery", "Short Stories", "Classic"],
       "description": "Twelve Sherlock Holmes stories. Each \"chapter\" is a whole short story of eight to twelve thousand words — the very-long-chapter case for paged mode and progress tracking.",
       "maxChapters": 12
@@ -71,7 +71,7 @@
       "source": "gutenberg",
       "id": "11",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Fantasy", "Children's Literature", "Classic"],
       "description": "Twelve short chapters, verse interludes and scene breaks — small enough to download over a bad connection while testing.",
       "maxChapters": 12
@@ -80,7 +80,7 @@
       "source": "gutenberg",
       "id": "2600",
       "type": "lightnovel",
-      "enabled": true,
+      "enabled": false,
       "genres": ["Historical", "War", "Classic"],
       "description": "War and Peace is organised as books within volumes, so its chapter titles carry a book prefix. Included to exercise deep chapter lists.",
       "maxChapters": 60

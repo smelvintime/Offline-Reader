@@ -38,7 +38,8 @@ function layoutResult(assertions) {
 
 async function checkLayout(page, suite, viewport) {
   if (suite === 'catalogue') {
-    await page.waitForSelector('#home-screen');
+    // The web build boots to the offline reader; the check shows home itself.
+    await page.waitForSelector('#home-screen', { state: 'attached' });
     return page.evaluate(({ desktop }) => {
       if (typeof window.showScreen === 'function') window.showScreen('home-screen');
       else document.getElementById('home-screen').style.display = 'flex';

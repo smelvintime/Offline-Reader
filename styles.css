@@ -584,6 +584,48 @@
     text-align: center;
   }
 
+  /* ── Upload screen: paste a copied file ── */
+  #paste-zone {
+    width: 100%;
+    max-width: 360px;
+    box-sizing: border-box;
+    margin-top: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    border: 1.5px dashed var(--border);
+    color: transparent;           /* anything stray stays invisible */
+    caret-color: transparent;
+    font-size: 16px;              /* 16px stops iOS zooming on focus */
+    text-align: center;
+    cursor: text;
+    outline: none;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #paste-zone:empty::before {
+    content: "Copied a file? Tap here and choose Paste";
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  #paste-zone:focus { border-color: var(--accent); }
+  @media (hover: hover) and (pointer: fine) {
+    #paste-zone:empty::before { content: "Copied a file? Press Ctrl+V or \2318 V, or drop it here"; }
+  }
+  #paste-status {
+    min-height: 1em;
+    margin: 0.4rem 0 0;
+    max-width: 360px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  #paste-status.paste-status-error { color: #f87171; }
+  #upload-screen.drop-active #paste-zone {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+  }
+
   /* ── Upload screen book shelf (imported EPUB/TXT) ── */
   #offline-books {
     width: 100%;

@@ -584,6 +584,36 @@
     text-align: center;
   }
 
+  /* ── Upload screen book shelf (imported EPUB/TXT) ── */
+  #offline-books {
+    width: 100%;
+    max-width: 360px;
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  #offline-books.hidden { display: none; }
+  .offline-books-label {
+    align-self: flex-start;
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.7;
+  }
+  .offline-book-row {
+    width: 100%;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+  }
+
   /* ── Upload screen library list ── */
   #library-list {
     width: 100%;

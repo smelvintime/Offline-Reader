@@ -147,6 +147,9 @@ function applyTuning() {
 
 const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 const ARCHIVE_EXT = /\.(cbz|zip)$/i;
+// Ebooks the offline screen also opens. They go through the importer (parsed
+// in the browser, no network) and land on the offline shelf.
+const BOOK_EXT = /\.(epub|txt)$/i;
 
 // Path-dependent size caps (docs/mobile/PLAN.md §6.3 / §8.14). Any set that
 // materializes ArrayBuffers in the webview — the web, drag-drop, or the
@@ -1192,8 +1195,21 @@ async function loadArchives(files) {
 fileInput.addEventListener('change', e => {
   const files = Array.from(e.target.files);
   fileInput.value = ''; // Reset so the same file can be re-opened without a page reload
+  if (openPickedBooks(files)) return;
   loadArchives(files);
 });
+
+// Ebooks picked on the offline screen. Returns true when it took the pick, so
+// the comic pipeline only sees archives. A mixed pick opens the books; the
+// comic loader is one-series-at-a-time anyway.
+function openPickedBooks(files) {
+  const books = (files || []).filter(f => BOOK_EXT.test(f.name || ''));
+  if (!books.length) return false;
+  const C = window.Catalogue;
+  if (!C || typeof C.openBookFiles !== 'function') return false;
+  C.openBookFiles(books);
+  return true;
+}
 
 // Shared indexing context: everything Phase 1 produces (on either path) and
 // phases 2+ consume.
@@ -1398,9 +1414,9 @@ async function openArchivePicker() {
   const P = window.Platform;
   if (P && typeof P.pickFiles === 'function') {
     let picked = null;
-    try { picked = await P.pickFiles({ accept: '.cbz,.zip', multiple: true }); } catch (e) { picked = null; }
+    try { picked = await P.pickFiles({ accept: '.cbz,.zip,.epub,.txt', multiple: true }); } catch (e) { picked = null; }
     if (picked !== null) {
-      if (picked.length) loadNativeArchives(picked);
+      if (picked.length && !openPickedBooks(picked)) loadNativeArchives(picked);
       return;
     }
   }

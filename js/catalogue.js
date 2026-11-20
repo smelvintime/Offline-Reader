@@ -60,6 +60,10 @@
   let searchQuery  = '';
   let progressRows = [];
   let navStack     = [];          // screen ids, for goBack()
+  // The library root a reader returns to. The web build starts on the offline
+  // reader ('upload-screen'); "Switch to Online Library" moves it to the
+  // catalogue home and "Offline Reader" moves it back. Native stays on home.
+  let homeId       = 'home-screen';
   let domReady     = false;
   let booted       = false;
   let focusHookFired = false;     // AppSettings.maybeOfferFocus fires once per boot (§2.1)
@@ -2192,7 +2196,8 @@
       if (fresh && fresh.chapterId === chapter.id) resume = fresh;
       else if (fresh && resume.chapterId !== chapter.id) resume = null;
     }
-    const backTo = currentSeries && currentSeries.id === series.id ? 'series-screen' : 'home-screen';
+    const backTo = (opts && opts.backTo) ||
+      (currentSeries && currentSeries.id === series.id ? 'series-screen' : homeId);
 
     window.showScreen('loading-screen');
     const lt = document.getElementById('loading-text');
@@ -2214,7 +2219,7 @@
     // screen underneath. Without this it popped 'series-screen' — the entry
     // for the screen the reader was opened *from* — and every close went home,
     // losing the chapter list and its scroll position.
-    pushScreen(backTo === 'series-screen' ? 'series-screen' : 'home-screen');
+    pushScreen(backTo);
     pushScreen('reader');
 
     if (file.kind === 'image' || (Array.isArray(file.pages) && file.pages.length)) {
@@ -2381,6 +2386,105 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Offline shelf: ebooks on the offline reader screen
+  //
+  // EPUB and TXT files picked on the offline screen are imported through the
+  // same in-browser importer the online library uses (no network involved),
+  // so they persist and can be reopened from here with their progress. The
+  // shelf lists every imported text series; comics keep their own list below.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let bookImportBusy = false;
+
+  async function openBookFiles(files) {
+    const list = Array.from(files || []);
+    if (!list.length || bookImportBusy) return;
+    const I = window.Importer;
+    if (!I || typeof I.importFile !== 'function') {
+      toast('Books cannot be opened in this build.');
+      return;
+    }
+    bookImportBusy = true;
+    const back = liveScreen() === 'home-screen' ? 'home-screen' : 'upload-screen';
+    const lt = document.getElementById('loading-text');
+    window.showScreen('loading-screen');
+    let first = null;
+    const failed = [];
+    for (const f of list) {
+      if (lt) lt.textContent = 'Opening: ' + (f.name || 'book');
+      try {
+        const series = await I.importFile(f);
+        if (series && !first) first = series;
+      } catch (e) {
+        console.warn('[Catalogue] book import failed', e);
+        failed.push((f.name || 'file') + ': ' + ((e && e.message) || 'could not be opened'));
+      }
+    }
+    bookImportBusy = false;
+    try { await refresh(); } catch (e) { /* the shelf can lag safely */ }
+    if (failed.length) toast(failed[0]);
+    const s = first ? (findSeries(first.id) || normalizeSeries(first)) : null;
+    if (s) { await openBookFromShelf(s, back); return; }
+    window.showScreen(back);
+    renderOfflineShelf();
+  }
+
+  async function openBookFromShelf(series, back) {
+    if (!series) return;
+    const p = await safeCall('getProgress', [series.id], null);
+    const chapters = series.chapters || [];
+    const chapter = (p && chapters.find(function (c) { return c.id === p.chapterId; })) || chapters[0];
+    if (!chapter) { toast('No chapters in ' + series.title + '.'); return; }
+    currentSeries = null; // a shelf book has no details screen behind it
+    navStack = [back || 'upload-screen'];
+    await openChapter(series, chapter, { resume: p, backTo: back || 'upload-screen' });
+  }
+
+  let shelfRender = 0;
+
+  async function renderOfflineShelf() {
+    const box = document.getElementById('offline-books');
+    if (!box) return;
+    const books = userSeries.filter(isTextSeries).map(function (s) { return findSeries(s.id) || s; });
+    if (!books.length) { box.textContent = ''; box.classList.add('hidden'); return; }
+    // The home rail only keeps the 12 most recent rows; the shelf needs every
+    // book's position, so it reads its own list.
+    const ticket = ++shelfRender;
+    const rows = (await safeCall('listProgress', [{ limit: 500 }], progressRows)) || [];
+    if (ticket !== shelfRender) return; // a newer render started while we waited
+    box.textContent = '';
+    const byId = new Map(rows.map(function (r) { return [r.seriesId, r]; }));
+    books.sort(function (a, b) {
+      const ta = byId.get(a.id) ? Date.parse(byId.get(a.id).updatedAt || 0) || 0 : 0;
+      const tb = byId.get(b.id) ? Date.parse(byId.get(b.id).updatedAt || 0) || 0 : 0;
+      if (ta !== tb) return tb - ta;
+      return String(a.title).localeCompare(String(b.title));
+    });
+    box.appendChild(el('div', 'offline-books-label', 'Books'));
+    books.forEach(function (s) {
+      const row = el('button', 'library-row library-row-resume offline-book-row');
+      row.type = 'button';
+      const info = el('span', 'library-info');
+      const p = byId.get(s.id);
+      const chs = s.chapters || [];
+      let label = s.title;
+      if (p) {
+        const idx = chs.findIndex(function (c) { return c.id === p.chapterId; });
+        if (idx >= 0) label += ' · Ch. ' + (chs[idx].num != null ? chs[idx].num : idx + 1) + ' of ' + chs.length;
+      } else if (chs.length) {
+        label += ' · ' + chs.length + (chs.length === 1 ? ' chapter' : ' chapters');
+      }
+      info.appendChild(el('span', 'library-info-text', label));
+      row.appendChild(info);
+      row.appendChild(el('span', 'library-date', p ? 'Continue' : 'Start'));
+      row.setAttribute('aria-label', (p ? 'Continue ' : 'Start ') + s.title);
+      row.addEventListener('click', function () { openBookFromShelf(s, 'upload-screen'); });
+      box.appendChild(row);
+    });
+    box.classList.remove('hidden');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Routing
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -2395,9 +2499,14 @@
     // own Home button, which has already exited; exitReaderSession is
     // idempotent, so the second call is a no-op.
     exitImageReaderIfOpen();
-    navStack = ['home-screen'];
+    navStack = [homeId];
     activeImageSession = null;
     window.readerOrigin = 'upload';
+    if (homeId === 'upload-screen') {
+      window.showScreen('upload-screen');
+      renderOfflineShelf();
+      return;
+    }
     window.showScreen('home-screen');
     renderHome();
     // Progress was last read at boot, so the Continue rail would otherwise show
@@ -2434,6 +2543,14 @@
       // This is the path back out of the novel reader, and the one the hardware
       // back button takes out of either reader.
       refreshSeriesProgress();
+      return;
+    }
+    if (prev === 'upload-screen') {
+      navStack = ['upload-screen'];
+      activeImageSession = null;
+      window.readerOrigin = 'upload';
+      window.showScreen('upload-screen');
+      renderOfflineShelf();
       return;
     }
     goHome();
@@ -2616,6 +2733,7 @@
     const online = document.getElementById('go-online-btn');
     if (online) {
       online.addEventListener('click', async function () {
+        homeId = 'home-screen';
         window.showScreen('home-screen');
         navStack = ['home-screen'];
         await refresh();
@@ -2623,7 +2741,12 @@
     }
 
     const offline = document.getElementById('go-offline-btn');
-    if (offline) offline.addEventListener('click', function () { window.showScreen('upload-screen'); });
+    if (offline) offline.addEventListener('click', function () {
+      if (!isNativeApp()) homeId = 'upload-screen';
+      navStack = ['upload-screen'];
+      window.showScreen('upload-screen');
+      renderOfflineShelf();
+    });
 
     // Progress sampling for the image reader.
     window.addEventListener('scroll', function () { syncImageProgress(false); }, { passive: true });
@@ -2684,7 +2807,10 @@
     window.addEventListener('offline', function () {
       const screen = document.body.dataset.screen;
       if (!isNativeApp() && (screen === 'home-screen' || screen === 'series-screen')) {
+        homeId = 'upload-screen';
+        navStack = ['upload-screen'];
         window.showScreen('upload-screen');
+        renderOfflineShelf();
         const b = document.getElementById('offline-reader-badge');
         if (b) b.classList.add('visible');
       }
@@ -2743,6 +2869,7 @@
     mergeSeries();
     await loadProgress();
     renderHome();
+    renderOfflineShelf();
     // Keep an open series detail screen in sync with the reloaded data.
     if (currentSeries) {
       const fresh = findSeries(currentSeries.id);
@@ -2764,6 +2891,8 @@
       // The web build always lands on the offline reader, online or not. The
       // online library is one tap away ("Switch to Online Library"). The
       // catalogue still loads in the background so that switch is instant.
+      homeId = 'upload-screen';
+      navStack = ['upload-screen'];
       window.showScreen('upload-screen');
       if (!navigator.onLine) {
         const b = document.getElementById('offline-reader-badge');
@@ -2801,6 +2930,8 @@
     goBack: goBack,
     goHome: goHome,
     refresh: refresh,
+    // The offline screen hands picked EPUB/TXT files here (reader.js).
+    openBookFiles: openBookFiles,
     // Read-only accessors other modules occasionally need (novel reader wants
     // the neighbouring chapters; importer wants to jump to what it just added).
     getSeries: findSeries,

@@ -20,29 +20,20 @@ Contents:
 ## 1. What's in the catalogue today
 
 `catalog.json` at the root of the repository is **generated**. Do not edit it by
-hand if you plan to run the builder again — your edits will be overwritten. Edit
+hand if you plan to run the builder again - your edits will be overwritten. Edit
 `scraper/series.json` instead and rebuild.
 
-The bundled catalogue is deliberately small: **one tutorial book plus six
-public-domain classics**, all prose, all fully readable offline.
+**The bundled catalogue ships empty.** Every entry in `scraper/series.json` is
+parked (`"enabled": false`) and `chapters/` holds no books. The web app opens
+on the offline reader, and the library is whatever the reader adds themselves.
+`npm run validate` accepts an empty catalogue.
 
-The tutorial — ***We Are Readers Here*** (`fixture:welcome`) — is a **fixture**:
-original prose written for this repository and committed alongside it, never
-fetched from anywhere. It is the owner's tour of the app, written as a book
-(nine short chapters; each one teaches a feature in the place where it lives),
-and it is the catalogue's **offline floor**: if every website is unreachable,
-the app still has something real to open. The six classics come from Project
-Gutenberg (Frankenstein, Pride and Prejudice, Moby Dick, The Adventures of
-Sherlock Holmes, Alice's Adventures in Wonderland, War and Peace), and their
-chapter files are committed too, so they read offline as well.
-
-The floor is enforced, not hoped for. `npm run validate` **fails** a catalogue
-that is empty, one that ships no bundled chapter files, or one whose enabled
-`fixture:welcome` ships none — and `scraper/src/check-welcome.js` (the second
-half of the validate script) holds the tutorial itself to its contract: exactly
-nine chapters, each opening with an `h2`, 400–800 words per chapter, at least
-one `blockquote` / `ul`-or-`ol` / `hr` / `note` across the book, and no `img`
-blocks. You can rewrite the tutorial's prose freely; the shape is CI's.
+The parked entries are the tutorial ***We Are Readers Here***
+(`fixture:welcome`, source kept in `scraper/fixtures/welcome.json` and still
+checked by `scraper/src/check-welcome.js`) and six Project Gutenberg classics.
+To bring any of them back, set `"enabled": true` and rebuild. The focus sheet's
+"Start with the tour" button only appears when `fixture:welcome` is in the
+catalogue.
 
 The five earlier sample fixtures (the Lamplighter, Ninth Bell, Floor Zero,
 Still Water and Ashfall series) were retired in Phase 7 — a fresh install now

@@ -318,26 +318,12 @@ export function validateCatalog(catalog, opts = {}) {
     validateSeries(s, `series[${i}]${s?.id ? ` (${s.id})` : ''}`, rep, ctx);
   });
 
-  // ── Offline-floor guards (Phase 7 §4.4) — ERRORS, not warnings ─────────────
-  // The bundled catalogue is the app's offline floor: it must ship at least one
-  // readable book, and specifically the tutorial. Counting alone is not enough
-  // (six carried-over classics would keep guard (b) green while the tutorial
-  // silently vanished and the focus sheet's tour button dangled), so the
-  // tutorial gets its own guard (c). Every series in catalog.json is an
-  // enabled series by construction — disabled entries never reach the output.
-  // Guards (b) and (c) need the chapter files on disk, so they only run when
-  // files are being checked (a --dry-run writes nothing and cannot know).
-  if (catalog.series.length === 0) {
-    rep.err('catalog.json', 'empty catalogue — nothing would ship');
-  }
-  if (ctx.checkFiles) {
-    if (ctx.seenFiles.size === 0) {
-      rep.err('catalog.json', 'no bundled chapter files');
-    }
-    if (ctx.tutorialFiles.size === 0) {
-      rep.err('catalog.json', "the tutorial book is missing — the offline floor and the focus sheet's tour depend on it");
-    }
-  }
+  // The bundled catalogue ships empty by choice: the web app opens on the
+  // offline reader and the library is whatever the reader adds themselves.
+  // An empty catalogue is valid, and the tutorial is optional (the focus
+  // sheet hides its tour button when fixture:welcome is absent). If series
+  // are re-enabled in scraper/series.json, every per-series check above
+  // still applies to them.
 
   rep.seenFiles = ctx.seenFiles;
   return rep;
